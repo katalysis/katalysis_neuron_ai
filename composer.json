@@ -1,0 +1,19 @@
+
+{
+    "name": "katalysis/katalysis_neuron_ai",
+    "type": "concrete5-package",
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/katalysis/neuron-ai"
+        }
+    ],
+    "require": {
+        "katalysis/neuron-ai": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+            "NeuronAI\\": "src/NeuronAI/"
+        }
+    }
+}

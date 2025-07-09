@@ -1,0 +1,113 @@
+<?php
+
+declare(strict_types=1);
+
+namespace NeuronAI\Providers\OpenAI;
+
+use GuzzleHttp\Client;
+use NeuronAI\Chat\Messages\Message;
+use NeuronAI\Chat\Messages\ToolCallMessage;
+use NeuronAI\Providers\HasGuzzleClient;
+use NeuronAI\Providers\AIProviderInterface;
+use NeuronAI\Providers\HandleWithTools;
+use NeuronAI\Providers\MessageMapperInterface;
+use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolPropertyInterface;
+
+class OpenAI implements AIProviderInterface
+{
+    use HasGuzzleClient;
+    use HandleWithTools;
+    use HandleChat;
+    use HandleStream;
+    use HandleStructured;
+
+    /**
+     * The main URL of the provider API.
+     */
+    protected string $baseUri = 'https://api.openai.com/v1';
+
+    /**
+     * System instructions.
+     * https://platform.openai.com/docs/api-reference/chat/create
+     */
+    protected ?string $system = null;
+
+    public function __construct(
+        protected string $key,
+        protected string $model,
+        protected array $parameters = [],
+    ) {
+        $this->client = new Client([
+            'base_uri' => \trim($this->baseUri, '/').'/',
+            'headers' => [
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer ' . $this->key,
+            ]
+        ]);
+    }
+
+    public function systemPrompt(?string $prompt): AIProviderInterface
+    {
+        $this->system = $prompt;
+        return $this;
+    }
+
+    public function messageMapper(): MessageMapperInterface
+    {
+        return new MessageMapper();
+    }
+
+    protected function generateToolsPayload(): array
+    {
+        return \array_map(function (ToolInterface $tool): array {
+            $payload = [
+                'type' => 'function',
+                'function' => [
+                    'name' => $tool->getName(),
+                    'description' => $tool->getDescription(),
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => new \stdClass(),
+                        'required' => [],
+                    ],
+                ]
+            ];
+
+            $properties = \array_reduce($tool->getProperties(), function (array $carry, ToolPropertyInterface $property): array {
+                $carry[$property->getName()] = $property->getJsonSchema();
+                return $carry;
+            }, []);
+
+            if (!empty($properties)) {
+                $payload['function']['parameters'] = [
+                    'type' => 'object',
+                    'properties' => $properties,
+                    'required' => $tool->getRequiredProperties(),
+                ];
+            }
+
+            return $payload;
+        }, $this->tools);
+    }
+
+    protected function createToolCallMessage(array $message): Message
+    {
+        $tools = \array_map(
+            fn (array $item): ToolInterface => $this->findTool($item['function']['name'])
+                ->setInputs(
+                    \json_decode((string) $item['function']['arguments'], true)
+                )
+                ->setCallId($item['id']),
+            $message['tool_calls']
+        );
+
+        $result = new ToolCallMessage(
+            $message['content'],
+            $tools
+        );
+
+        return $result->addMetadata('tool_calls', $message['tool_calls']);
+    }
+}
