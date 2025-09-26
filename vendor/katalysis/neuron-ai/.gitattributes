@@ -1,0 +1,16 @@
+# Git attributes for maintaining Neuron AI fork
+
+# Always use our version for these files
+composer.json merge=ours
+LogObserver.php merge=ours
+
+# Our custom integration should always be preserved  
+src/Integrations/ConcreteCMS/* merge=ours
+
+# Documentation files - prefer our version
+docs/UPDATE_STRATEGY.md merge=ours
+README.md merge=manual
+
+# Templates and scripts - keep ours
+templates/* merge=ours
+scripts/* merge=ours
