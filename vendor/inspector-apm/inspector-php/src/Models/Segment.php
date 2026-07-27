@@ -1,24 +1,32 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Inspector\Models;
 
 use Inspector\Inspector;
 use Inspector\Models\Partials\Host;
+use Inspector\SegmentStack;
+
+use function hash;
+use function microtime;
+use function random_int;
+use function round;
 
 class Segment extends PerformanceModel
 {
     public ?string $model = 'segment';
     public int|float $start;
     public ?string $color = null;
-    public ?array $transaction = null;
-    public ?Host $host = null;
+    public array $transaction;
+    public Host $host;
     public string $hash;
     public ?string $parent_hash = null;
 
     /**
-     * Reference to the Inspector instance for managing open segments.
+     * Reference to the SegmentStack (Inspector or Scope) for managing segment lifecycle.
      */
-    protected ?Inspector $inspector = null;
+    protected ?SegmentStack $stackManager = null;
 
     /**
      * Span constructor.
@@ -34,11 +42,22 @@ class Segment extends PerformanceModel
     }
 
     /**
+     * Set the SegmentStack instance for managing segment lifecycle.
+     */
+    public function setStackManager(SegmentStack $stackManager): Segment
+    {
+        $this->stackManager = $stackManager;
+        return $this;
+    }
+
+    /**
      * Set the Inspector instance for managing segment lifecycle.
+     *
+     * @deprecated Use setStackManager() instead.
      */
     public function setInspector(Inspector $inspector): Segment
     {
-        $this->inspector = $inspector;
+        $this->stackManager = $inspector;
         return $this;
     }
 
@@ -56,9 +75,9 @@ class Segment extends PerformanceModel
      */
     public function start(int|float|null $timestamp = null): Segment
     {
-        $initial = \is_null($timestamp) ? \microtime(true) : $timestamp;
+        $initial = $timestamp ?? microtime(true);
 
-        $this->start = \round(($initial - $this->transaction['timestamp']) * 1000, 2);
+        $this->start = round(($initial - $this->transaction['timestamp']) * 1000, 2);
         parent::start($timestamp);
         return $this;
     }
@@ -70,8 +89,8 @@ class Segment extends PerformanceModel
     {
         parent::end($duration);
 
-        // Notify Inspector that this segment has ended
-        $this->inspector?->endSegment($this);
+        // Notify the stack manager that this segment has ended
+        $this->stackManager?->endSegment($this);
 
         return $this;
     }
@@ -87,7 +106,7 @@ class Segment extends PerformanceModel
      */
     protected function generateHash(): string
     {
-        return \hash('sha256', $this->type . $this->label . \microtime(true) . \random_int(1000, 9999));
+        return hash('sha256', $this->type . $this->label . microtime(true) . random_int(100, 9999));
     }
 
     /**

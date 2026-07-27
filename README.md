@@ -1,23 +1,30 @@
-# Katalysis Neuron AI Package for Concrete CMS
+# Katalysis Neuron AI Package
 
-A Concrete CMS package that integrates the NeuronAI PHP framework, providing AI capabilities with built-in observability and logging that's compatible with Concrete CMS.
+Concrete CMS dashboard assistant powered by Neuron AI.
 
-## Features
+## Current capabilities
 
-- **AI Framework Integration**: Bundles the NeuronAI PHP framework for AI/LLM interactions
-- **Concrete CMS Compatibility**: Adapted logging system that works seamlessly with Concrete CMS
-- **RAG (Retrieval-Augmented Generation) Support**: Built-in vector store and document retrieval capabilities
-- **Multiple AI Provider Support**: OpenAI, Anthropic, and Ollama integration
-- **Observability**: Built-in monitoring and logging through Inspector APM
-- **Vector Store**: File-based vector storage for document embeddings and similarity search
+- Chat panel injected on dashboard pages
+- Persistent chat history saved in database table `KatalysisNeuronAiChats`
+- List and load previous chats for the current user
+- Start a new chat session from the panel header
+- Toolkits for pages, files, and users
+- Concrete CMS page-type aware responses via dedicated tooling
 
-## Purpose
+## Routes
 
-This package serves as the foundation layer for AI functionality in Concrete CMS applications, providing the core NeuronAI framework with logging adaptations that resolve PSR-3 interface conflicts between the original NeuronAI package and Concrete CMS.
+- `POST /ccm/system/katalysis_neuron_ai/chat/send_message`
+- `GET /ccm/system/katalysis_neuron_ai/chat/list`
+- `GET /ccm/system/katalysis_neuron_ai/chat/load?id={chatId}`
+- `POST /ccm/system/katalysis_neuron_ai/chat/new`
 
-## Dependencies
+## Notes
+
+- Chat history persistence is handled by `DatabaseChatHistory` and is automatic on each message.
+- Frontend message rendering handles both string and structured content payloads.
+
+## Requirements
 
 - Concrete CMS 9.3+
 - PHP 8.1+
-- NeuronAI framework (katalysis/neuron-ai)
 

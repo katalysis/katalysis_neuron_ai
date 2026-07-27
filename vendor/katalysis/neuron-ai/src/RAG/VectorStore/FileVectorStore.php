@@ -44,8 +44,8 @@ class FileVectorStore implements VectorStoreInterface
 
         // Create a temporary file handle
         $tempHandle = \fopen($tmpFile, 'w');
-        if (!$tempHandle) {
-            throw new \RuntimeException("Cannot create temporary file: {$tmpFile}");
+        if (!$tempHandle || $tempHandle === false) {
+            throw new VectorStoreException("Cannot create temporary file: {$tmpFile}");
         }
 
         try {
@@ -114,6 +114,10 @@ class FileVectorStore implements VectorStoreInterface
     protected function getLine(string $filename): \Generator
     {
         $f = \fopen($filename, 'r');
+        
+        if ($f === false) {
+            throw new VectorStoreException("Cannot open file: {$filename}");
+        }
 
         try {
             while ($line = \fgets($f)) {
