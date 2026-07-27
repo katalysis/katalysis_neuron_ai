@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Inspector;
 
 use Inspector\Exceptions\InspectorException;
@@ -10,8 +12,16 @@ use Inspector\Models\Error;
 use Inspector\Models\Segment;
 use Inspector\Models\Transaction;
 use Inspector\Transports\CurlTransport;
+use Exception;
+use Throwable;
 
-class Inspector
+use function call_user_func;
+use function is_array;
+use function is_callable;
+use function register_shutdown_function;
+use function is_null;
+
+class Inspector extends Scope
 {
     /**
      * Agent configuration.
@@ -20,8 +30,6 @@ class Inspector
 
     /**
      * Transport strategy.
-     *
-     * @var TransportInterface
      */
     protected TransportInterface $transport;
 
@@ -29,14 +37,6 @@ class Inspector
      * Current transaction.
      */
     protected ?Transaction $transaction = null;
-
-    /**
-     * Stack of currently open segments for managing parent-child relationships.
-     * The last element is the most recent open segment.
-     *
-     * @var Segment[]
-     */
-    protected array $openSegments = [];
 
     /**
      * Run a list of callbacks before flushing data to the remote platform.
@@ -62,18 +62,19 @@ class Inspector
     /**
      * Inspector constructor.
      *
-     * @param Configuration $configuration
      * @throws Exceptions\InspectorException
      */
     final public function __construct(Configuration $configuration)
     {
+        parent::__construct(null, null);
+
         $this->transport = match ($configuration->getTransport()) {
             'async' => new AsyncTransport($configuration),
             default => new CurlTransport($configuration),
         };
 
         $this->configuration = $configuration;
-        \register_shutdown_function(array($this, 'flush'));
+        register_shutdown_function([$this, 'flush']);
     }
 
     /**
@@ -93,11 +94,7 @@ class Inspector
      */
     public function setTransport(TransportInterface|callable $resolver): Inspector
     {
-        if (\is_callable($resolver)) {
-            $this->transport = $resolver($this->configuration);
-        } else {
-            $this->transport = $resolver;
-        }
+        $this->transport = is_callable($resolver) ? $resolver($this->configuration) : $resolver;
 
         return $this;
     }
@@ -105,7 +102,7 @@ class Inspector
     /**
      * Create and start new Transaction.
      *
-     * @throws \Exception
+     * @throws Exception
      */
     public function startTransaction(string $name): Transaction
     {
@@ -123,7 +120,6 @@ class Inspector
      * Get current transaction instance.
      *
      * @deprecated
-     * @return null|Transaction
      */
     public function currentTransaction(): ?Transaction
     {
@@ -132,8 +128,6 @@ class Inspector
 
     /**
      * Get current transaction instance.
-     *
-     * @return null|Transaction
      */
     public function transaction(): ?Transaction
     {
@@ -142,18 +136,14 @@ class Inspector
 
     /**
      * Determine if an active transaction exists.
-     *
-     * @return bool
      */
     public function hasTransaction(): bool
     {
-        return isset($this->transaction);
+        return !is_null($this->transaction);
     }
 
     /**
      * Determine if the current cycle hasn't started its transaction yet.
-     *
-     * @return bool
      */
     public function needTransaction(): bool
     {
@@ -162,8 +152,6 @@ class Inspector
 
     /**
      * Determine if a new segment can be added.
-     *
-     * @return bool
      */
     public function canAddSegments(): bool
     {
@@ -172,8 +160,6 @@ class Inspector
 
     /**
      * Check if the monitoring is enabled.
-     *
-     * @return bool
      */
     public function isRecording(): bool
     {
@@ -199,90 +185,36 @@ class Inspector
     }
 
     /**
-     * Get the currently open parent segment, if any.
+     * Inspector resolves to itself.
      */
-    protected function getCurrentParentSegment(): ?Segment
+    protected function resolveInspector(): Inspector
     {
-        return $this->openSegments === [] ? null : \end($this->openSegments);
+        return $this;
     }
 
     /**
-     * Add a new segment to the queue.
-     */
-    public function startSegment(string $type, ?string $label = null): Segment
-    {
-        $segment = new Segment($this->transaction, \addslashes($type), $label);
-
-        // Set Inspector reference for lifecycle management
-        $segment->setInspector($this);
-
-        // Set a parent relationship if there's an open segment
-        $parentSegment = $this->getCurrentParentSegment();
-        if ($parentSegment) {
-            $segment->setParent($parentSegment->getHash());
-        }
-
-        $segment->start();
-
-        // Add to open segments stack
-        $this->openSegments[] = $segment;
-
-        $this->addEntries($segment);
-        return $segment;
-    }
-
-    /**
-     * Monitor the execution of a code block.
+     * Fork the current context into an independent Scope.
      *
-     * @throws \Throwable
+     * @throws InspectorException
      */
-    public function addSegment(callable $callback, string $type, ?string $label = null, bool $throw = true): mixed
+    public function fork(): Scope
     {
         if (!$this->hasTransaction()) {
-            return $callback();
+            throw new InspectorException('Cannot fork without an active transaction.');
         }
 
-        $segment = $this->startSegment($type, $label);
-        try {
-            return $callback($segment);
-        } catch (\Throwable $exception) {
-            if ($throw === true) {
-                throw $exception;
-            }
-
-            $this->reportException($exception);
-        } finally {
-            $segment->end();
-        }
-        return null;
-    }
-
-    /**
-     * Called by Segment when it ends to remove from open segments stack.
-     * This maintains the parent-child relationship hierarchy.
-     */
-    public function endSegment(Segment $segment): void
-    {
-        // Remove the segment from the open segments stack
-        foreach ($this->openSegments as $index => $openSegment) {
-            if ($openSegment === $segment) {
-                unset($this->openSegments[$index]);
-                // Re-index array to maintain proper stack behavior
-                $this->openSegments = \array_values($this->openSegments);
-                break;
-            }
-        }
+        return new Scope($this, $this->resolveParentHash());
     }
 
     /**
      * Error reporting.
      *
-     * @throws \Exception
+     * @throws Exception
      */
-    public function reportException(\Throwable $exception, bool $handled = true): Error
+    public function reportException(Throwable $exception, bool $handled = true): Error
     {
         if (!$this->hasTransaction()) {
-            $this->startTransaction(\get_class($exception))->setType('error');
+            $this->startTransaction($exception::class)->setType('error');
         }
 
         $segment = $this->startSegment('exception', $exception->getMessage());
@@ -292,19 +224,31 @@ class Inspector
 
         $this->addEntries($error);
 
-        $segment->addContext('Error', $error);
+        $segment->addContext('Error', [
+            'message' => $error->message,
+            'class' => $error->class,
+            'file' => $error->file,
+            'line' => $error->line,
+        ]);
         $segment->end();
 
         return $error;
     }
 
+    public function registerGlobalHandler(): GlobalExceptionHandler
+    {
+        return new GlobalExceptionHandler($this);
+    }
+
     /**
      * Add an entry to the queue.
+     *
+     * @param Model|Model[] $entries
      */
     public function addEntries(array|Model $entries): Inspector
     {
         if ($this->isRecording()) {
-            $entries = \is_array($entries) ? $entries : [$entries];
+            $entries = is_array($entries) ? $entries : [$entries];
             foreach ($entries as $entry) {
                 $this->transport->addEntry($entry);
             }
@@ -323,7 +267,7 @@ class Inspector
     /**
      * Flush data to the remote platform.
      *
-     * @throws \Exception
+     * @throws Exception
      */
     public function flush(): void
     {
@@ -337,14 +281,14 @@ class Inspector
         }
 
         foreach (static::$beforeCallbacks as $callback) {
-            if (\call_user_func($callback, $this) === false) {
+            if (call_user_func($callback, $this) === false) {
                 $this->reset();
                 return;
             }
         }
 
         $this->transport->flush();
-        unset($this->transaction);
+        $this->transaction = null;
 
         // Clear open segments when flushing
         $this->openSegments = [];
@@ -356,23 +300,8 @@ class Inspector
     public function reset(): Inspector
     {
         $this->transport->resetQueue();
-        unset($this->transaction);
+        $this->transaction = null;
         $this->openSegments = [];
         return $this;
-    }
-
-    /**
-     * Get information about currently open segments (useful for debugging).
-     * Returns an array of segment types and labels.
-     */
-    public function getOpenSegments(): array
-    {
-        return \array_map(function (Segment $segment) {
-            return [
-                'type' => $segment->type,
-                'label' => $segment->label,
-                'hash' => $segment->getHash()
-            ];
-        }, $this->openSegments);
     }
 }

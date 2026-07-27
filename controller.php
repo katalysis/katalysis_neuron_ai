@@ -3,18 +3,22 @@ namespace Concrete\Package\KatalysisNeuronAi;
 
 use Page;
 use Concrete\Core\Package\Package;
+use Concrete\Core\Routing\Router;
 use SinglePage;
 use View;
 use Config;
+use Events;
+use Concrete\Core\Database\Connection\Connection;
+use Concrete\Core\Support\Facade\Application;
 
 
 class Controller extends Package
 {
     protected $pkgHandle = 'katalysis_neuron_ai';
     protected $appVersionRequired = '9.3';
-    protected $pkgVersion = '2.2.14';
+    protected $pkgVersion = '3.0.1'; // Updated for PoC
     protected $pkgAutoloaderRegistries = [
-        'src' => 'KatalysisNeuronAi'
+        'src' => '\Katalysis\NeuronAi'
     ];
     
 
@@ -25,21 +29,101 @@ class Controller extends Package
 
     public function getPackageDescription()
     {
-        return t("Adds NeuronAI");
+        return t("AI Assistant for Concrete CMS powered by Neuron AI");
     }
 
     public function on_start()
     {
         $this->setupAutoloader();
-
-        $version = $this->getPackageVersion();
-
+        $this->createDatabaseTables();
+        $this->registerRoutes();
+        $this->injectChatPanel();
     }
 
     private function setupAutoloader()
     {
         if (file_exists($this->getPackagePath() . '/vendor')) {
             require_once $this->getPackagePath() . '/vendor/autoload.php';
+        }
+    }
+    
+    private function registerRoutes()
+    {
+        /** @var \Concrete\Core\Routing\Router $router */
+        $router = $this->app->make(\Concrete\Core\Routing\Router::class);
+        
+        $router->buildGroup()
+            ->setNamespace('Concrete\Package\KatalysisNeuronAi\Controller')
+            ->setPrefix('/ccm/system/katalysis_neuron_ai')
+            ->routes(function($groupRouter) {
+                $groupRouter->post('/chat/send_message', 'Chat::send_message');
+                $groupRouter->get('/chat/list', 'Chat::chat_list');
+                $groupRouter->get('/chat/load', 'Chat::load');
+                $groupRouter->get('/chat/current', 'Chat::current');
+                $groupRouter->post('/chat/new', 'Chat::new_chat');
+            });
+    }
+    
+    private function injectChatPanel()
+    {
+        Events::addListener('on_before_render', function($event) {
+            $view = $event->getArgument('view');
+            $c = Page::getCurrentPage();
+            
+            // Only inject on dashboard pages
+            if ($c && $c->isAdminArea()) {
+                $pkg = Package::getByHandle('katalysis_neuron_ai');
+                
+                // Add CSS
+                $view->addHeaderItem(
+                    '<link rel="stylesheet" href="' . $pkg->getRelativePath() . '/assets/css/chat-panel.css">'
+                );
+                
+                // Add JS
+                $view->addFooterItem(
+                    '<script src="' . $pkg->getRelativePath() . '/assets/js/chat-panel.js"></script>'
+                );
+                
+                // Add chat panel element
+                $view->addFooterItem(
+                    View::element('chat_panel', [], 'katalysis_neuron_ai')
+                );
+            }
+        });
+    }
+
+    private function createDatabaseTables()
+    {
+        try {
+            $app = Application::getFacadeApplication();
+            /** @var Connection $db */
+            $db = $app->make(Connection::class);
+            
+            // Create KatalysisNeuronAiChats table
+            $sql = "CREATE TABLE IF NOT EXISTS `KatalysisNeuronAiChats` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `sessionId` VARCHAR(255) NOT NULL,
+                `chatHistory` LONGTEXT,
+                `firstMessage` TEXT,
+                `lastMessage` TEXT,
+                `userMessageCount` INT DEFAULT 0,
+                `createdBy` INT DEFAULT 0,
+                `createdDate` DATETIME,
+                `updatedDate` DATETIME,
+                `started` DATETIME,
+                `location` VARCHAR(500),
+                INDEX `idx_session` (`sessionId`),
+                INDEX `idx_created_by` (`createdBy`),
+                INDEX `idx_created_date` (`createdDate`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+            
+            $db->executeStatement($sql);
+            
+        } catch (\Exception $e) {
+            // Log error but don't break installation
+            if (function_exists('Log')) {
+                \Log::error('Katalysis Neuron AI: Failed to create database tables - ' . $e->getMessage());
+            }
         }
     }
 
@@ -58,6 +142,8 @@ class Controller extends Package
 
         $pkg = parent::install();
 
+        $this->createDatabaseTables();
+
         Config::save('katalysis.ai.open_ai_key', '');
         Config::save('katalysis.ai.open_ai_model', 'gpt-4o');
         Config::save('katalysis.ai.anthropic_key', '');
@@ -67,7 +153,6 @@ class Controller extends Package
         Config::save('katalysis.ai.ollama_model', 'llama3.1:8b');
         Config::save('katalysis.ai.link_quality_threshold', '0.5');
         Config::save('katalysis.ai.max_links_per_response', '3');
-
 
         $this->installPages(pkg: $pkg);
         
@@ -80,6 +165,7 @@ class Controller extends Package
 
 		$pkg = Package::getByHandle("katalysis_neuron_ai");
 
+        $this->createDatabaseTables();
         $this->installPages($pkg);
 
   }
