@@ -13,11 +13,14 @@ use Katalysis\NeuronAi\Tools\UsersToolkit;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\Page\Page;
+use Concrete\Core\Area\Area;
+use Concrete\Core\Attribute\Key\CollectionKey;
 
 class ConcreteCmsAgent extends Agent
 {
     private ?int $chatId = null;
     private ?DatabaseChatHistory $chatHistoryInstance = null;
+    private ?array $runtimePageContext = null;
     
     public function __construct(?int $chatId = null)
     {
@@ -55,6 +58,16 @@ class ConcreteCmsAgent extends Agent
             $chatHistory->setChatId($chatId);
         }
         
+        return $this;
+    }
+
+    /**
+     * Set page context collected from the frontend request.
+     */
+    public function setRuntimePageContext(?array $context): self
+    {
+        $this->runtimePageContext = is_array($context) ? $context : null;
+
         return $this;
     }
     
@@ -98,9 +111,10 @@ CURRENT CONTEXT:
 {$context}
 
 CAPABILITIES:
-You have access to 19 tools across 3 categories:
+You have access to 20 tools across 3 categories:
 
-**Pages (11 tools):**
+**Pages (12 tools):**
+- Get current page context with attributes and content snapshot
 - List pages with filtering options
 - Get detailed page information
 - Create new pages with specific types and locations
@@ -139,6 +153,8 @@ GUIDELINES:
 - Treat short follow-up questions (e.g., "which is used most often", "and are there others?") as referring to the immediately previous answer and tool results
 - For Concrete CMS Page Types questions, prefer list_page_types first, then report exact counts and handles
 - Do not ask the user to confirm scope when the prior message already defines it
+- When asked about the current page, use the Current Page context first (including attributes and content snapshot) before asking follow-up questions
+- When the user asks "what page am I on", "what page now", or explicitly asks for current page details, call get_current_page_context in that turn to refresh state before answering
 
 RESPONSE STYLE:
 - Concise and helpful
@@ -163,13 +179,14 @@ INST;
     {
         $context = [];
         
-        // Get current page if in dashboard (skip in CLI)
+        // Get current page context (prefer frontend context passed from chat UI)
         if (php_sapi_name() !== 'cli') {
             try {
-                $c = Page::getCurrentPage();
-                if ($c && !$c->isError()) {
-                    $context[] = "Current Page: " . $c->getCollectionPath();
-                    $context[] = "Page Type: " . ($c->getPageTypeHandle() ?: 'N/A');
+                $contextPage = $this->resolveContextPage();
+                if ($contextPage && !$contextPage->isError()) {
+                    $context = array_merge($context, $this->buildPageContextLines($contextPage));
+                } elseif ($this->runtimePageContext) {
+                    $context = array_merge($context, $this->buildRuntimeFallbackLines());
                 }
             } catch (\Exception $e) {
                 // Ignore - might be CLI or bootstrap not complete
@@ -188,6 +205,227 @@ INST;
         }
         
         return implode("\n", $context);
+    }
+
+    private function resolveContextPage(): ?Page
+    {
+        $runtimePath = $this->runtimePageContext['path'] ?? null;
+        $runtimeId = $this->runtimePageContext['id'] ?? null;
+        $hasRuntimeHint = is_numeric($runtimeId) || (is_string($runtimePath) && $runtimePath !== '');
+
+        if (is_numeric($runtimeId)) {
+            $page = Page::getByID((int) $runtimeId, 'ACTIVE');
+            if ($page && !$page->isError()) {
+                return $page;
+            }
+        }
+
+        if (is_string($runtimePath) && $runtimePath !== '') {
+            $page = Page::getByPath($runtimePath, 'ACTIVE');
+            if ($page && !$page->isError()) {
+                return $page;
+            }
+        }
+
+        if ($hasRuntimeHint) {
+            return null;
+        }
+
+        return Page::getCurrentPage();
+    }
+
+    private function buildRuntimeFallbackLines(): array
+    {
+        $lines = [];
+
+        if (!empty($this->runtimePageContext['path'])) {
+            $lines[] = 'Current Page Path (from browser): ' . (string) $this->runtimePageContext['path'];
+        }
+
+        if (!empty($this->runtimePageContext['title'])) {
+            $lines[] = 'Current Page Title (from browser): ' . (string) $this->runtimePageContext['title'];
+        }
+
+        if (!empty($this->runtimePageContext['url'])) {
+            $lines[] = 'Current Page URL (from browser): ' . (string) $this->runtimePageContext['url'];
+        }
+
+        return $lines;
+    }
+
+    private function buildPageContextLines(Page $page): array
+    {
+        $lines = [
+            'Current Page ID: ' . $page->getCollectionID(),
+            'Current Page Name: ' . $page->getCollectionName(),
+            'Current Page Path: ' . $page->getCollectionPath(),
+            'Current Page Type: ' . ($page->getPageTypeHandle() ?: 'N/A'),
+            'Current Page Template: ' . ($page->getPageTemplateHandle() ?: 'N/A'),
+        ];
+
+        $description = trim((string) $page->getCollectionDescription());
+        if ($description !== '') {
+            $lines[] = 'Current Page Description: ' . $description;
+        }
+
+        $attributeLines = $this->getPageAttributeLines($page);
+        if (!empty($attributeLines)) {
+            $lines[] = 'Current Page Attributes:';
+            foreach ($attributeLines as $attributeLine) {
+                $lines[] = '- ' . $attributeLine;
+            }
+        }
+
+        $contentLines = $this->getPageContentLines($page);
+        if (!empty($contentLines)) {
+            $lines[] = 'Current Page Content Snapshot:';
+            foreach ($contentLines as $contentLine) {
+                $lines[] = '- ' . $contentLine;
+            }
+        }
+
+        return $lines;
+    }
+
+    private function getPageAttributeLines(Page $page): array
+    {
+        $lines = [];
+
+        try {
+            $keys = CollectionKey::getList();
+            foreach ($keys as $key) {
+                $handle = (string) $key->getAttributeKeyHandle();
+                if ($handle === '') {
+                    continue;
+                }
+
+                $rawValue = $page->getAttribute($handle);
+                $normalized = $this->normalizeContextValue($rawValue);
+                if ($normalized === null || $normalized === '') {
+                    continue;
+                }
+
+                $lines[] = $handle . ': ' . $normalized;
+                if (count($lines) >= 20) {
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Ignore failures and continue without attribute context.
+        }
+
+        return $lines;
+    }
+
+    private function getPageContentLines(Page $page): array
+    {
+        $lines = [];
+
+        try {
+            $areaHandles = Area::getHandleList();
+            foreach ($areaHandles as $areaHandle) {
+                $blocks = $page->getBlocks($areaHandle);
+                if (!is_array($blocks) || empty($blocks)) {
+                    continue;
+                }
+
+                $lines[] = sprintf('Area "%s" has %d block(s)', $areaHandle, count($blocks));
+
+                $contentPreviewCount = 0;
+                foreach ($blocks as $block) {
+                    if (!method_exists($block, 'getBlockTypeHandle')) {
+                        continue;
+                    }
+
+                    $blockType = (string) $block->getBlockTypeHandle();
+                    if ($blockType !== 'content') {
+                        continue;
+                    }
+
+                    $preview = $this->extractContentBlockPreview($block);
+                    if ($preview === null || $preview === '') {
+                        continue;
+                    }
+
+                    $lines[] = sprintf('Area "%s" content: %s', $areaHandle, $preview);
+                    $contentPreviewCount++;
+                    if ($contentPreviewCount >= 2) {
+                        break;
+                    }
+                }
+
+                if (count($lines) >= 12) {
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Ignore failures and continue without content snapshot.
+        }
+
+        return $lines;
+    }
+
+    private function extractContentBlockPreview($block): ?string
+    {
+        try {
+            if (!method_exists($block, 'getInstance')) {
+                return null;
+            }
+
+            $instance = $block->getInstance();
+            if (!$instance || !method_exists($instance, 'getController')) {
+                return null;
+            }
+
+            $controller = $instance->getController();
+            if (!$controller || !method_exists($controller, 'getContentEditMode')) {
+                return null;
+            }
+
+            $html = (string) $controller->getContentEditMode();
+            $text = trim(preg_replace('/\s+/', ' ', strip_tags($html)));
+            if ($text === '') {
+                return null;
+            }
+
+            if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+                if (mb_strlen($text) > 180) {
+                    $text = mb_substr($text, 0, 180) . '...';
+                }
+            } elseif (strlen($text) > 180) {
+                $text = substr($text, 0, 180) . '...';
+            }
+
+            return $text;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function normalizeContextValue($value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+
+        if (is_scalar($value)) {
+            return trim((string) $value);
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('c');
+        }
+
+        if (is_object($value) && method_exists($value, '__toString')) {
+            $stringValue = trim((string) $value);
+            return $stringValue !== '' ? $stringValue : null;
+        }
+
+        return null;
     }
     
     public function handle(string $message): string

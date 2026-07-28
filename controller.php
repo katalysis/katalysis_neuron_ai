@@ -8,6 +8,8 @@ use SinglePage;
 use View;
 use Config;
 use Events;
+use Concrete\Core\User\User;
+use Concrete\Core\Permission\Checker as Permissions;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Support\Facade\Application;
 
@@ -61,6 +63,8 @@ class Controller extends Package
                 $groupRouter->get('/chat/load', 'Chat::load');
                 $groupRouter->get('/chat/current', 'Chat::current');
                 $groupRouter->post('/chat/new', 'Chat::new_chat');
+                $groupRouter->post('/chat/delete', 'Chat::delete_chat');
+                $groupRouter->post('/chat/delete_current', 'Chat::delete_current_chat');
             });
     }
     
@@ -68,28 +72,49 @@ class Controller extends Package
     {
         Events::addListener('on_before_render', function($event) {
             $view = $event->getArgument('view');
-            $c = Page::getCurrentPage();
-            
-            // Only inject on dashboard pages
-            if ($c && $c->isAdminArea()) {
-                $pkg = Package::getByHandle('katalysis_neuron_ai');
-                
-                // Add CSS
-                $view->addHeaderItem(
-                    '<link rel="stylesheet" href="' . $pkg->getRelativePath() . '/assets/css/chat-panel.css">'
-                );
-                
-                // Add JS
-                $view->addFooterItem(
-                    '<script src="' . $pkg->getRelativePath() . '/assets/js/chat-panel.js"></script>'
-                );
-                
-                // Add chat panel element
-                $view->addFooterItem(
-                    View::element('chat_panel', [], 'katalysis_neuron_ai')
-                );
+            if (!$view || !$this->canShowChatPanel()) {
+                return;
             }
+
+            $pkg = Package::getByHandle('katalysis_neuron_ai');
+            if (!$pkg) {
+                return;
+            }
+
+            // Add CSS
+            $view->addHeaderItem(
+                '<link rel="stylesheet" href="' . $pkg->getRelativePath() . '/css/chat-panel.css">'
+            );
+
+            // Add JS
+            $view->addFooterItem(
+                '<script src="' . $pkg->getRelativePath() . '/js/chat-panel.js"></script>'
+            );
+
+            // Add chat panel element
+            $view->addFooterItem(
+                View::element('chat_panel', [], 'katalysis_neuron_ai')
+            );
         });
+    }
+
+    /**
+     * Show panel for logged-in users who can access the Neuron AI dashboard page.
+     */
+    private function canShowChatPanel(): bool
+    {
+        $u = new User();
+        if (!$u->isRegistered()) {
+            return false;
+        }
+
+        $settingsPage = Page::getByPath('/dashboard/system/ai/neuron_ai');
+        if ($settingsPage && !$settingsPage->isError()) {
+            $permissions = new Permissions($settingsPage);
+            return $permissions->canViewPage();
+        }
+
+        return $u->isSuperUser();
     }
 
     private function createDatabaseTables()

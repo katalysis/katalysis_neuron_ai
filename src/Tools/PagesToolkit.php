@@ -15,6 +15,7 @@ use Concrete\Core\Block\Exception\BlockNotFoundException;
 use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Block\Traits\ValidateBlockRequestTrait;
 use Concrete\Core\Block\BlockType\BlockType;
+use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Attribute\Category\PageCategory;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\PageList;
@@ -50,6 +51,7 @@ class PagesToolkit extends AbstractToolkit
     {
         return [
             $this->makeListPagesTool(),
+            $this->makeGetCurrentPageContextTool(),
             $this->makeListPageTypesTool(),
             $this->makeGetPageTool(),
             $this->makeCreatePageTool(),
@@ -61,6 +63,37 @@ class PagesToolkit extends AbstractToolkit
             $this->makeUpdateBlockInPageAreaTool(),
             $this->makeDeleteBlockFromPageAreaTool(),
         ];
+    }
+
+    protected function makeGetCurrentPageContextTool(): Tool
+    {
+        $tool = new Tool(
+            'get_current_page_context',
+            'Get context for the page currently being viewed in the browser, including attributes and area/block summary.'
+        );
+
+        $tool->setCallable($this->guarded(function (): array {
+            [$page, $source, $runtimeContext] = $this->resolveCurrentContextPage();
+
+            if (!$page || $page->isError()) {
+                throw new \RuntimeException('Unable to determine the current page context.');
+            }
+
+            $permissions = new Checker($page);
+            if (!$permissions->canViewPage()) {
+                throw new \RuntimeException('Permission denied: Cannot view the current page context.');
+            }
+
+            return [
+                'source' => $source,
+                'runtimeContext' => $runtimeContext,
+                'page' => $this->serializePage($page, includeDetails: true),
+                'attributes' => $this->getPageAttributeMap($page),
+                'areas' => $this->getPageAreaSnapshot($page),
+            ];
+        }));
+
+        return $tool;
     }
 
     protected function makeListPagesTool(): Tool
@@ -933,6 +966,172 @@ class PagesToolkit extends AbstractToolkit
     private function isListArray(array $array): bool
     {
         return array_values($array) === $array;
+    }
+
+    private function resolveCurrentContextPage(): array
+    {
+        $runtimeContext = [];
+
+        if (session_status() === PHP_SESSION_NONE) {
+            @session_start();
+        }
+
+        if (!empty($_SESSION['katalysis_neuron_ai_page_context']) && is_array($_SESSION['katalysis_neuron_ai_page_context'])) {
+            $runtimeContext = $_SESSION['katalysis_neuron_ai_page_context'];
+
+            $runtimeId = $runtimeContext['id'] ?? null;
+            if (is_numeric($runtimeId)) {
+                $page = Page::getByID((int) $runtimeId, 'ACTIVE');
+                if ($page && !$page->isError()) {
+                    return [$page, 'session.page_id', $runtimeContext];
+                }
+            }
+
+            $runtimePath = $runtimeContext['path'] ?? null;
+            if (is_string($runtimePath) && $runtimePath !== '') {
+                $page = Page::getByPath($runtimePath, 'ACTIVE');
+                if ($page && !$page->isError()) {
+                    return [$page, 'session.page_path', $runtimeContext];
+                }
+            }
+        }
+
+        return [Page::getCurrentPage(), 'request.current_page', $runtimeContext];
+    }
+
+    private function getPageAttributeMap(Page $page): array
+    {
+        $attributes = [];
+
+        try {
+            $keys = CollectionKey::getList();
+            foreach ($keys as $key) {
+                $handle = (string) $key->getAttributeKeyHandle();
+                if ($handle === '') {
+                    continue;
+                }
+
+                $value = $this->normalizeContextValue($page->getAttribute($handle));
+                if ($value === null || $value === '') {
+                    continue;
+                }
+
+                $attributes[$handle] = $value;
+            }
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        return $attributes;
+    }
+
+    private function getPageAreaSnapshot(Page $page): array
+    {
+        $areas = [];
+
+        try {
+            $handles = Area::getHandleList();
+            foreach ($handles as $areaHandle) {
+                $blocks = $page->getBlocks($areaHandle);
+                if (!is_array($blocks) || count($blocks) === 0) {
+                    continue;
+                }
+
+                $areaData = [
+                    'handle' => $areaHandle,
+                    'blockCount' => count($blocks),
+                    'contentPreviews' => [],
+                ];
+
+                foreach ($blocks as $block) {
+                    if (!method_exists($block, 'getBlockTypeHandle')) {
+                        continue;
+                    }
+
+                    if ($block->getBlockTypeHandle() !== 'content') {
+                        continue;
+                    }
+
+                    $preview = $this->extractContentBlockPreview($block);
+                    if ($preview !== null && $preview !== '') {
+                        $areaData['contentPreviews'][] = $preview;
+                    }
+
+                    if (count($areaData['contentPreviews']) >= 2) {
+                        break;
+                    }
+                }
+
+                $areas[] = $areaData;
+            }
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        return $areas;
+    }
+
+    private function extractContentBlockPreview($block): ?string
+    {
+        try {
+            if (!method_exists($block, 'getInstance')) {
+                return null;
+            }
+
+            $instance = $block->getInstance();
+            if (!$instance || !method_exists($instance, 'getController')) {
+                return null;
+            }
+
+            $controller = $instance->getController();
+            if (!$controller || !method_exists($controller, 'getContentEditMode')) {
+                return null;
+            }
+
+            $html = (string) $controller->getContentEditMode();
+            $text = trim(preg_replace('/\s+/', ' ', strip_tags($html)));
+            if ($text === '') {
+                return null;
+            }
+
+            if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+                if (mb_strlen($text) > 180) {
+                    $text = mb_substr($text, 0, 180) . '...';
+                }
+            } elseif (strlen($text) > 180) {
+                $text = substr($text, 0, 180) . '...';
+            }
+
+            return $text;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function normalizeContextValue($value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+
+        if (is_scalar($value)) {
+            return trim((string) $value);
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('c');
+        }
+
+        if (is_object($value) && method_exists($value, '__toString')) {
+            $stringValue = trim((string) $value);
+            return $stringValue !== '' ? $stringValue : null;
+        }
+
+        return null;
     }
 
     protected function serializePage(Page $page, bool $includeDetails = false): array

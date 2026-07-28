@@ -5,6 +5,7 @@ namespace Concrete\Package\KatalysisNeuronAi\Controller;
 use Concrete\Core\Controller\AbstractController;
 use Concrete\Core\Http\ResponseFactory;
 use Concrete\Core\Support\Facade\Application;
+use Concrete\Core\Page\Page;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
@@ -32,6 +33,8 @@ class Chat extends AbstractController
             $data = json_decode($rawInput, true);
             $message = $data['message'] ?? '';
             $clear = $data['clear'] ?? false;
+            $pageContext = $this->extractFrontendPageContext($data);
+            $_SESSION['katalysis_neuron_ai_page_context'] = $pageContext;
             
             if (empty($message) && !$clear) {
                 http_response_code(400);
@@ -70,6 +73,7 @@ class Chat extends AbstractController
                 
                 // Also clear old session data for backward compatibility
                 unset($_SESSION['neuron_agent_state']);
+                unset($_SESSION['katalysis_neuron_ai_page_context']);
                 
                 echo json_encode([
                     'success' => true,
@@ -81,6 +85,9 @@ class Chat extends AbstractController
             
             // Create or restore agent
             $agent = $this->getOrRestoreAgent();
+            $agent->setRuntimePageContext($pageContext);
+
+            $this->updateChatLocationFromContext($pageContext);
             
             // Send message and get response
             $response = $agent->handle($message);
@@ -138,9 +145,9 @@ class Chat extends AbstractController
                 $chat->setCreatedBy(0);
             }
             
-            // Get current page for location
+            // Default location fallback when no frontend context has been sent yet.
             try {
-                $c = \Concrete\Core\Page\Page::getCurrentPage();
+                $c = Page::getCurrentPage();
                 if ($c && !$c->isError()) {
                     $chat->setLocation($c->getCollectionPath());
                 }
@@ -153,6 +160,122 @@ class Chat extends AbstractController
         }
         
         return $chat->getId();
+    }
+
+    private function extractFrontendPageContext($data): array
+    {
+        if (!is_array($data) || !isset($data['pageContext']) || !is_array($data['pageContext'])) {
+            $data = ['pageContext' => []];
+        }
+
+        $context = $data['pageContext'];
+
+        $resolvedId = null;
+        if (isset($context['id']) && is_numeric($context['id'])) {
+            $pageById = Page::getByID((int) $context['id'], 'ACTIVE');
+            if ($pageById && !$pageById->isError()) {
+                $resolvedId = (int) $pageById->getCollectionID();
+            }
+        }
+
+        $path = null;
+        if ($resolvedId !== null) {
+            $pageById = Page::getByID($resolvedId, 'ACTIVE');
+            $path = ($pageById && !$pageById->isError()) ? $pageById->getCollectionPath() : null;
+        } elseif (!empty($context['path']) && is_string($context['path'])) {
+            $path = parse_url($context['path'], PHP_URL_PATH) ?: $context['path'];
+        } elseif (!empty($context['url']) && is_string($context['url'])) {
+            $path = parse_url($context['url'], PHP_URL_PATH) ?: null;
+        } else {
+            $path = $this->getReferrerPath();
+        }
+
+        $cleanPath = $this->normalizePagePath($path);
+
+        if ($resolvedId === null && $cleanPath !== null) {
+            $page = Page::getByPath($cleanPath, 'ACTIVE');
+            if ($page && !$page->isError()) {
+                $resolvedId = (int) $page->getCollectionID();
+            }
+        }
+
+        return [
+            'id' => $resolvedId,
+            'path' => $cleanPath,
+            'url' => isset($context['url']) && is_string($context['url']) ? $context['url'] : null,
+            'title' => isset($context['title']) && is_string($context['title']) ? trim($context['title']) : null,
+        ];
+    }
+
+    private function getReferrerPath(): ?string
+    {
+        $referrer = $_SERVER['HTTP_REFERER'] ?? null;
+        if (!is_string($referrer) || $referrer === '') {
+            return null;
+        }
+
+        $host = $_SERVER['HTTP_HOST'] ?? null;
+        $refHost = parse_url($referrer, PHP_URL_HOST);
+        if ($host && $refHost && !hash_equals((string) $host, (string) $refHost)) {
+            return null;
+        }
+
+        $path = parse_url($referrer, PHP_URL_PATH);
+        return is_string($path) ? $path : null;
+    }
+
+    private function normalizePagePath(?string $path): ?string
+    {
+        if (!is_string($path)) {
+            return null;
+        }
+
+        $path = trim($path);
+        if ($path === '') {
+            return null;
+        }
+
+        if ($path[0] !== '/') {
+            $path = '/' . $path;
+        }
+
+        // Collapse duplicate slashes, but keep root slash.
+        $path = preg_replace('#/+#', '/', $path) ?: '/';
+
+        // Strip query-like fragments if they slipped in.
+        $path = explode('?', $path, 2)[0];
+        $path = explode('#', $path, 2)[0];
+
+        return $path === '' ? '/' : $path;
+    }
+
+    private function updateChatLocationFromContext(array $pageContext): void
+    {
+        $path = $pageContext['path'] ?? null;
+        if (!is_string($path) || $path === '') {
+            return;
+        }
+
+        try {
+            $app = Application::getFacadeApplication();
+            $entityManager = $app->make('Doctrine\\ORM\\EntityManager');
+            $sessionId = session_id();
+
+            $chat = $entityManager->getRepository(ChatEntity::class)
+                ->findOneBy(['sessionId' => $sessionId]);
+
+            if (!$chat) {
+                return;
+            }
+
+            $chat->setLocation($path);
+            $chat->setUpdatedDate(new \DateTime());
+            $entityManager->flush();
+        } catch (\Throwable $e) {
+            \Concrete\Core\Support\Facade\Log::warning(
+                'Unable to update chat location from page context: ' . $e->getMessage()
+            );
+        }
     }
     
     /**
@@ -389,6 +512,7 @@ class Chat extends AbstractController
             
             // Clear any existing session data
             unset($_SESSION['neuron_agent_state']);
+            unset($_SESSION['katalysis_neuron_ai_page_context']);
             
             echo json_encode([
                 'success' => true,
@@ -399,6 +523,118 @@ class Chat extends AbstractController
             
         } catch (\Exception $e) {
             \Concrete\Core\Support\Facade\Log::error('Error creating new chat: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]);
+            exit;
+        }
+    }
+
+    /**
+     * Delete a saved chat by ID for the current user.
+     */
+    public function delete_chat()
+    {
+        header('Content-Type: application/json');
+
+        try {
+            $rawInput = file_get_contents('php://input');
+            $data = json_decode($rawInput, true);
+            $chatId = isset($data['id']) ? (int) $data['id'] : 0;
+
+            if ($chatId <= 0) {
+                http_response_code(400);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Valid chat ID is required'
+                ]);
+                exit;
+            }
+
+            $app = Application::getFacadeApplication();
+            $entityManager = $app->make('Doctrine\\ORM\\EntityManager');
+
+            $u = new \Concrete\Core\User\User();
+            $userId = $u->isRegistered() ? $u->getUserID() : 0;
+
+            $chat = $entityManager->getRepository(ChatEntity::class)
+                ->findOneBy([
+                    'id' => $chatId,
+                    'createdBy' => $userId
+                ]);
+
+            if (!$chat) {
+                http_response_code(404);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Chat not found or access denied'
+                ]);
+                exit;
+            }
+
+            $entityManager->remove($chat);
+            $entityManager->flush();
+
+            echo json_encode([
+                'success' => true,
+                'id' => $chatId,
+                'deleted' => true
+            ]);
+            exit;
+        } catch (\Exception $e) {
+            \Concrete\Core\Support\Facade\Log::error('Error deleting chat: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]);
+            exit;
+        }
+    }
+
+    /**
+     * Delete the current session-bound chat conversation.
+     */
+    public function delete_current_chat()
+    {
+        header('Content-Type: application/json');
+
+        try {
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+
+            $app = Application::getFacadeApplication();
+            $entityManager = $app->make('Doctrine\\ORM\\EntityManager');
+
+            $u = new \Concrete\Core\User\User();
+            $userId = $u->isRegistered() ? $u->getUserID() : 0;
+            $sessionId = session_id();
+
+            $chat = $entityManager->getRepository(ChatEntity::class)
+                ->findOneBy([
+                    'sessionId' => $sessionId,
+                    'createdBy' => $userId
+                ]);
+
+            if ($chat) {
+                $entityManager->remove($chat);
+                $entityManager->flush();
+            }
+
+            unset($_SESSION['neuron_agent_state']);
+            unset($_SESSION['katalysis_neuron_ai_page_context']);
+
+            echo json_encode([
+                'success' => true,
+                'deleted' => $chat ? true : false,
+                'sessionId' => $sessionId
+            ]);
+            exit;
+        } catch (\Exception $e) {
+            \Concrete\Core\Support\Facade\Log::error('Error deleting current chat: ' . $e->getMessage());
             http_response_code(500);
             echo json_encode([
                 'success' => false,

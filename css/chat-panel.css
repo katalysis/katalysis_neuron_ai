@@ -11,7 +11,7 @@
     display: flex;
     flex-direction: column;
     z-index: 900; /* Below C5 dashboard panel (~1040) */
-    transition: transform 0.3s ease, right 0.3s ease, box-shadow 0.3s ease;
+    transition: transform 0.3s ease, right 0.15s ease-out, box-shadow 0.3s ease;
 }
 
 #neuron-chat-panel.neuron-chat-collapsed {
@@ -26,7 +26,7 @@
 
 /* Header */
 .neuron-chat-header {
-    background: #027893;
+    background: #7c8088;
     color: #fff;
     padding: 15px 20px;
     display: flex;
@@ -51,7 +51,8 @@
 }
 
 #neuron-chat-load,
-#neuron-chat-new {
+#neuron-chat-new,
+#neuron-chat-delete-current {
     background: transparent;
     border: none;
     color: #fff;
@@ -61,7 +62,8 @@
 }
 
 #neuron-chat-load:hover,
-#neuron-chat-new:hover {
+#neuron-chat-new:hover,
+#neuron-chat-delete-current:hover {
     background: rgba(255,255,255,0.2);
     border-radius: 4px;
 }
@@ -79,12 +81,11 @@
     flex: 1;
     overflow-y: auto;
     padding: 20px;
-    background: #f5f5f5;
+    background: #fafbfc;
 }
 
 .neuron-chat-message {
-    display: flex;
-    gap: 12px;
+    display: block;
     margin-bottom: 20px;
     animation: fadeIn 0.3s ease;
 }
@@ -94,33 +95,36 @@
     to { opacity: 1; transform: translateY(0); }
 }
 
-.neuron-chat-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.neuron-chat-assistant .neuron-chat-avatar {
-    background: #027893;
-    color: #fff;
-}
-
-.neuron-chat-user .neuron-chat-avatar {
-    background: #757575;
-    color: #fff;
-}
-
 .neuron-chat-content {
     flex: 1;
-    background: #fff;
+    padding: 6px 0;
+    font-size: 14px;
+}
+
+.neuron-chat-user .neuron-chat-content {
+    background: #dbe9f9;
+    margin-left: 20px;
     padding: 12px 16px;
     border-radius: 8px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    font-size: 14px;
+}
+
+.neuron-chat-inline-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 6px;
+    font-size: 1em;
+    line-height: 1;
+    vertical-align: baseline;
+}
+
+.neuron-chat-assistant .neuron-chat-inline-icon {
+    color: #7c8088;
+}
+
+.neuron-chat-user .neuron-chat-inline-icon {
+    color: #4a90e2;
 }
 
 .neuron-chat-content p {
@@ -143,21 +147,20 @@
     font-size: 0.9em;
 }
 
-.neuron-chat-assistant .neuron-chat-content {
-    background: #cce4e9;
-}
+
 
 /* Loading indicator */
 .neuron-chat-loading {
-    display: flex;
+    display: inline-flex;
     gap: 6px;
     padding: 8px;
+    vertical-align: middle;
 }
 
 .neuron-chat-loading span {
     width: 8px;
     height: 8px;
-    background: #0d47a1;
+    background: #4a90e2;
     border-radius: 50%;
     animation: bounce 1.4s infinite ease-in-out both;
 }
@@ -271,15 +274,11 @@
 .neuron-chat-list-item {
     display: flex;
     align-items: center;
-    padding: 16px 20px;
+    padding: 16px 0;
     border-bottom: 1px solid #e0e0e0;
-    background: #fff;
     cursor: pointer;
     transition: background 0.2s ease;
-}
-
-.neuron-chat-list-item:hover {
-    background: #f5f5f5;
+    gap: 10px;
 }
 
 .neuron-chat-list-item-content {
@@ -292,9 +291,6 @@
     font-weight: 500;
     color: #333;
     margin-bottom: 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .neuron-chat-list-item-time {
@@ -302,8 +298,16 @@
     color: #666;
 }
 
+.neuron-chat-list-item-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-left: 12px;
+    flex-shrink: 0;
+}
+
 .neuron-chat-list-item-load {
-    background: #0d47a1;
+    background: #4a90e2;
     border: none;
     color: #fff;
     width: 32px;
@@ -315,16 +319,39 @@
     cursor: pointer;
     transition: background 0.2s ease;
     padding: 0;
-    flex-shrink: 0;
-    margin-left: 12px;
 }
 
 .neuron-chat-list-item-load:hover {
-    background: #1565c0;
+    background: #3b73b5;
 }
 
 .neuron-chat-list-item-load i {
     font-size: 14px;
+}
+
+.neuron-chat-list-item-delete {
+    background: #fff;
+    border: 1px solid #d0d4da;
+    color: #8d98a8;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.neuron-chat-list-item-delete:hover {
+    border-color: #d9534f;
+    color: #d9534f;
+    background: #fff5f5;
+}
+
+.neuron-chat-list-item-delete i {
+    font-size: 13px;
 }
 
 /* List View States */

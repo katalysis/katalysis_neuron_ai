@@ -11,6 +11,7 @@
         sendBtn: null,
         loadBtn: null,
         newBtn: null,
+        deleteCurrentBtn: null,
         dashboardToggleBtn: null,
         isListView: false,
         
@@ -21,12 +22,14 @@
             this.sendBtn = document.getElementById('neuron-chat-send');
             this.loadBtn = document.getElementById('neuron-chat-load');
             this.newBtn = document.getElementById('neuron-chat-new');
+            this.deleteCurrentBtn = document.getElementById('neuron-chat-delete-current');
             
             if (!this.panel) return;
 
             this.ensurePanelPlacement();
             
             this.bindEvents();
+            this.updateDeleteCurrentVisibility();
             this.loadState();
             this.watchDashboardPanel();
             this.injectDashboardButton();
@@ -52,6 +55,11 @@
             // Create new chat
             if (this.newBtn) {
                 this.newBtn.addEventListener('click', () => this.createNewChat());
+            }
+
+            // Delete current chat
+            if (this.deleteCurrentBtn) {
+                this.deleteCurrentBtn.addEventListener('click', () => this.deleteCurrentChat());
             }
             
             // Send message
@@ -94,6 +102,7 @@
             
             // Update dashboard button state
             this.updateDashboardButtonState();
+            this.updateDeleteCurrentVisibility();
         },
 
         async loadCurrentChat() {
@@ -115,17 +124,9 @@
 
                 const history = this.extractHistoryArray(data.chat ? data.chat.chatHistory : null);
                 if (history.length === 0) {
-                    this.addMessage(
-                        'Hello! I\'m your AI assistant for Concrete CMS. I can help you:\n\n' +
-                        '• Create new pages\n' +
-                        '• Get information about pages\n' +
-                        '• Navigate your site structure\n' +
-                        '• And more...\n\n' +
-                        'What would you like to do?',
-                        'assistant',
-                        false
-                    );
+                    this.showWelcomeMessage();
                     localStorage.removeItem('neuron-chat-history');
+                    this.updateDeleteCurrentVisibility();
                     return;
                 }
 
@@ -145,6 +146,7 @@
                         timestamp: Date.now()
                     })).filter((msg) => msg.content)
                 ));
+                this.updateDeleteCurrentVisibility();
             } catch (error) {
                 this.restoreMessages();
             }
@@ -192,6 +194,8 @@
             } catch (error) {
                 console.error('Error restoring chat history:', error);
             }
+
+            this.updateDeleteCurrentVisibility();
         },
         
         saveMessageToStorage(content, type) {
@@ -319,16 +323,8 @@
                     localStorage.removeItem('neuron-chat-history');
                     
                     // Show welcome message
-                    this.addMessage(
-                        'Hello! I\'m your AI assistant for Concrete CMS. I can help you:\n\n' +
-                        '• Create new pages\n' +
-                        '• Get information about pages\n' +
-                        '• Navigate your site structure\n' +
-                        '• And more...\n\n' +
-                        'What would you like to do?',
-                        'assistant',
-                        false
-                    );
+                    this.showWelcomeMessage();
+                    this.updateDeleteCurrentVisibility();
                     
                     // Clear input
                     this.input.value = '';
@@ -338,6 +334,42 @@
             } catch (error) {
                 this.addMessage('Error creating new chat: ' + error.message, 'assistant');
             }
+        },
+
+        async deleteCurrentChat() {
+            if (!confirm('Delete the current chat conversation?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete_current', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const data = await response.json();
+                if (!data.success) {
+                    this.addMessage('Error deleting current chat: ' + (data.error || 'Unknown error'), 'assistant');
+                    return;
+                }
+
+                this.messages.innerHTML = '';
+                localStorage.removeItem('neuron-chat-history');
+                this.showWelcomeMessage();
+                this.updateDeleteCurrentVisibility();
+            } catch (error) {
+                this.addMessage('Error deleting current chat: ' + error.message, 'assistant');
+            }
+        },
+
+        showWelcomeMessage() {
+            this.addMessage(
+                'Hello! I\'m your AI assistant for Concrete CMS. What would you like to do?',
+                'assistant',
+                false
+            );
         },
         
         async loadSavedChats() {
@@ -365,10 +397,12 @@
             
             // Restore messages from localStorage
             this.restoreMessages();
+            this.updateDeleteCurrentVisibility();
         },
         
         async showChatListView() {
             this.isListView = true;
+            this.updateDeleteCurrentVisibility();
             
             // Update load button icon and title
             const loadIcon = this.loadBtn.querySelector('i');
@@ -422,9 +456,14 @@
                             <div class="neuron-chat-list-item-title">${this.escapeHtml(firstMsg)}</div>
                             <div class="neuron-chat-list-item-time">${timeStr}</div>
                         </div>
-                        <button class="neuron-chat-list-item-load" title="Load chat">
-                            <i class="fas fa-arrow-right"></i>
-                        </button>
+                        <div class="neuron-chat-list-item-actions">
+                            <button class="neuron-chat-list-item-load" title="Load chat">
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                            <button class="neuron-chat-list-item-delete" title="Delete chat">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
                     </div>
                 `;
             });
@@ -435,11 +474,58 @@
             // Bind click handlers
             this.messages.querySelectorAll('.neuron-chat-list-item-load').forEach(btn => {
                 btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const item = e.target.closest('.neuron-chat-list-item');
                     const chatId = item.dataset.chatId;
                     this.loadChatById(chatId);
                 });
             });
+
+            this.messages.querySelectorAll('.neuron-chat-list-item-delete').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const item = e.target.closest('.neuron-chat-list-item');
+                    if (!item) {
+                        return;
+                    }
+
+                    const chatId = item.dataset.chatId;
+                    await this.deleteChatById(chatId);
+                });
+            });
+        },
+
+        async deleteChatById(chatId) {
+            if (!chatId) {
+                return;
+            }
+
+            if (!confirm('Delete this saved chat?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ id: chatId })
+                });
+
+                const data = await response.json();
+                if (!data.success) {
+                    this.addMessage('Error deleting chat: ' + (data.error || 'Unknown error'), 'assistant');
+                    return;
+                }
+
+                await this.showChatListView();
+            } catch (error) {
+                this.addMessage('Error deleting chat: ' + error.message, 'assistant');
+            }
         },
         
         async loadChatById(chatId) {
@@ -482,6 +568,7 @@
                                     timestamp: Date.now()
                                 })).filter((msg) => msg.content)
                             ));
+                            this.updateDeleteCurrentVisibility();
                         } else {
                             this.addMessage('Unable to parse saved chat format for this conversation.', 'assistant', false);
                         }
@@ -576,19 +663,15 @@
         addMessage(content, type = 'assistant', saveToStorage = true) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `neuron-chat-message neuron-chat-${type}`;
-            
-            const avatar = document.createElement('div');
-            avatar.className = 'neuron-chat-avatar';
-            avatar.innerHTML = type === 'assistant' ? '<i class="fas fa-robot"></i>' : '<i class="fas fa-user"></i>';
-            
+
             const contentDiv = document.createElement('div');
             contentDiv.className = 'neuron-chat-content';
             
             // Simple markdown-like rendering
             const formattedContent = this.formatContent(content);
-            contentDiv.innerHTML = formattedContent;
-            
-            messageDiv.appendChild(avatar);
+            const icon = type === 'assistant' ? 'fa-robot' : 'fa-user';
+            contentDiv.innerHTML = `<span class="neuron-chat-inline-icon"><i class="fas ${icon}"></i></span>${formattedContent}`;
+
             messageDiv.appendChild(contentDiv);
             
             this.messages.appendChild(messageDiv);
@@ -598,6 +681,50 @@
             if (saveToStorage) {
                 this.saveMessageToStorage(content, type);
             }
+
+            this.updateDeleteCurrentVisibility();
+        },
+
+        updateDeleteCurrentVisibility() {
+            if (!this.deleteCurrentBtn) {
+                return;
+            }
+
+            const hasContent = this.hasDeletableConversationContent();
+            const shouldShow = hasContent && !this.isListView;
+            this.deleteCurrentBtn.style.display = shouldShow ? '' : 'none';
+        },
+
+        hasDeletableConversationContent() {
+            try {
+                const savedMessages = localStorage.getItem('neuron-chat-history');
+                if (savedMessages) {
+                    const parsed = JSON.parse(savedMessages);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        return true;
+                    }
+                }
+            } catch (error) {
+                // Ignore parse issues and fall back to DOM detection.
+            }
+
+            const visibleMessages = this.messages
+                ? this.messages.querySelectorAll('.neuron-chat-message:not(.neuron-chat-loading-msg)')
+                : [];
+
+            if (!visibleMessages || visibleMessages.length === 0) {
+                return false;
+            }
+
+            if (visibleMessages.length > 1) {
+                return true;
+            }
+
+            const onlyMessage = visibleMessages[0];
+            const normalized = onlyMessage.textContent.replace(/\s+/g, ' ').trim();
+            const welcome = "Hello! I'm your AI assistant for Concrete CMS. What would you like to do?";
+
+            return normalized !== welcome;
         },
         
         formatContent(content) {
@@ -637,16 +764,11 @@
             const loadingDiv = document.createElement('div');
             loadingDiv.className = 'neuron-chat-message neuron-chat-assistant neuron-chat-loading-msg';
             loadingDiv.id = 'neuron-chat-loading';
-            
-            const avatar = document.createElement('div');
-            avatar.className = 'neuron-chat-avatar';
-            avatar.innerHTML = '<i class="fas fa-robot"></i>';
-            
+
             const contentDiv = document.createElement('div');
             contentDiv.className = 'neuron-chat-content';
-            contentDiv.innerHTML = '<div class="neuron-chat-loading"><span></span><span></span><span></span></div>';
-            
-            loadingDiv.appendChild(avatar);
+            contentDiv.innerHTML = '<span class="neuron-chat-inline-icon"><i class="fas fa-robot"></i></span><div class="neuron-chat-loading"><span></span><span></span><span></span></div>';
+
             loadingDiv.appendChild(contentDiv);
             
             this.messages.appendChild(loadingDiv);
@@ -773,6 +895,11 @@
                     attributes: true,
                     attributeFilter: ['class', 'style']
                 });
+
+                // React during panel open/close animation, not only after class mutations settle.
+                ['transitionstart', 'transitionrun', 'transitionend'].forEach((eventName) => {
+                    dashboardPanel.addEventListener(eventName, () => this.updatePosition());
+                });
             }
             
             // Also observe body for any CMS state changes
@@ -795,8 +922,8 @@
             // Update on window resize
             window.addEventListener('resize', () => this.updatePosition());
             
-            // Check periodically as fallback (every 2 seconds instead of 1)
-            setInterval(() => this.updatePosition(), 2000);
+            // Check periodically as fallback with a short interval to avoid lag on close.
+            setInterval(() => this.updatePosition(), 250);
         },
         
         updatePosition() {
