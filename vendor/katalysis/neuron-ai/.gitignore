@@ -1,8 +1,0 @@
-.idea
-vendor
-composer.lock
-*.cache
-.store
-.php-cs-fixer.cache
-/tests/VectorStore/*.store
-.DS_Store

@@ -1,15 +1,14 @@
 # Katalysis Neuron AI Setup Guide
 
+## Overview
+
+**Note:** This package bundles all dependencies in its `vendor/` directory. You do NOT need to run `composer install` for normal installation.
+
+See [BUILD.md](BUILD.md) for information about updating dependencies.
+
 ## Install or upgrade package
 
-1. Install dependencies
-
-```bash
-cd httpdocs/packages/katalysis_neuron_ai
-composer install
-```
-
-2. Install or upgrade in Concrete CMS
+1. Install in Concrete CMS
 
 ```bash
 cd httpdocs

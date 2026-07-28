@@ -1,15 +1,23 @@
 
 {
     "name": "katalysis/katalysis_neuron_ai",
-    "description": "AI Assistant for Concrete CMS using Neuron AI",
+    "description": "AI Assistant for Concrete CMS using Neuron AI (Dependencies bundled in vendor/)",
     "type": "concrete5-package",
     "require": {
-        "php": "^8.1",
-        "neuron-core/neuron-ai": "^3.15"
+        "php": "^8.1"
     },
     "autoload": {
         "psr-4": {
             "Katalysis\\NeuronAi\\": "src/"
         }
+    },
+    "config": {
+        "vendor-dir": "vendor"
+    },
+    "extra": {
+        "bundled-dependencies": {
+            "neuron-core/neuron-ai": "^3.15"
+        },
+        "build-note": "Run './build.sh' to update bundled dependencies. All dependencies are pre-packaged in vendor/ directory."
     }
 }
