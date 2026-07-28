@@ -1,10 +1,6 @@
 # Katalysis Neuron AI Setup Guide
 
-## Overview
-
 **Note:** This package bundles all dependencies in its `vendor/` directory. You do NOT need to run `composer install` for normal installation.
-
-See [BUILD.md](BUILD.md) for information about updating dependencies.
 
 ## Install or upgrade package
 

@@ -1,5 +1,0 @@
-*.DS_Store
-.vscode/sftp.json
-
-# Do NOT ignore vendor/ - it contains bundled dependencies
-# that must be committed with the package

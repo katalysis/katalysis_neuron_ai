@@ -13,13 +13,9 @@ Concrete CMS dashboard assistant powered by Neuron AI.
 
 ## Installation
 
-See [SETUP.md](SETUP.md) for installation instructions.
+See [documentation/SETUP.md](documentation/SETUP.md) for installation instructions.
 
 **Note:** This package bundles all its dependencies. No `composer install` needed for normal use.
-
-## Development
-
-If you need to update bundled dependencies, see [BUILD.md](BUILD.md).
 
 ## Routes
 
@@ -36,8 +32,7 @@ If you need to update bundled dependencies, see [BUILD.md](BUILD.md).
 - See [BUILD.md](BUILD.md) for the build architecture
 
 ## Notes
-
-- Chat history persistence is handled by `DatabaseChatHistory` and is automatic on each message.
+tHistory` and is automatic on each message.
 - Frontend message rendering handles both string and structured content payloads.
 
 ## Requirements
