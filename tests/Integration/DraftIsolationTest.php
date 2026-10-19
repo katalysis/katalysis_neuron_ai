@@ -471,6 +471,46 @@ final class DraftIsolationTest extends ConcreteTestCase
         $this->assertSame($before, $this->versions($cID), 'A refused update must not make a draft');
     }
 
+    // ---- Delete ------------------------------------------------------------
+
+    public function testDeletingABlockRemovesItFromTheDraftOnly(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->approved($cID);
+        $deleted = $before['blocks'][1];
+
+        $result = $this->callPagesTool('delete_block_from_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => 'Main',
+            'blockID' => $deleted['bID'],
+        ]);
+
+        $this->assertStringContainsString('"deleted":true', $result);
+        $this->assertSame($before, $this->approved($cID), 'The block is still in the approved version, with its text');
+        $this->assertCount(2, $this->versions($cID), 'The delete is in one draft');
+        $draft = $this->draft($cID);
+        $this->assertNotContains($deleted['bID'], array_column($draft['blocks'], 'bID'), 'The block is gone from the draft');
+        $this->assertCount(count($before['blocks']) - 1, $draft['blocks']);
+        $this->assertSame(1, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM btContentLocal WHERE bID = ?', [$deleted['bID']]), 'The block data is kept for the live version');
+    }
+
+    public function testDiscardingTheDraftAfterADeleteBringsEverythingBack(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $beforeVersions = $this->versions($cID);
+        $beforeCounts = $this->blockCounts();
+
+        $this->callPagesTool('delete_block_from_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => 'Main',
+            'blockID' => $beforeVersions[array_key_first($beforeVersions)]['blocks'][0]['bID'],
+        ]);
+        $this->callVersionsTool('discard_draft_version', ['pageID' => $cID, 'versionID' => $this->draft($cID)['cvID']]);
+
+        $this->assertSame($beforeVersions, $this->versions($cID), 'Versions, blocks and text are as they were');
+        $this->assertSame($beforeCounts, $this->blockCounts(), 'No stray blocks or block data are left behind');
+    }
+
     public function testNestedColumnBlocksAreCopiedIntoTheDraftToo(): void
     {
         $cID = $this->newColumnsPage();

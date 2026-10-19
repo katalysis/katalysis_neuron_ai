@@ -2704,10 +2704,14 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot delete block {$blockID} on page {$pageID}");
             }
 
+            // Delete in a draft, never in the version the page may be showing. The block stays
+            // in the live version, and discarding the draft restores the page.
+            $pageToModify = $this->getDraftOf($page);
+
             $command = new DeleteBlockCommand(
                 $block->getBlockID(),
-                $page->getCollectionID(),
-                $page->getVersionID(),
+                $pageToModify->getCollectionID(),
+                $pageToModify->getVersionID(),
                 $area->getAreaHandle()
             );
 
