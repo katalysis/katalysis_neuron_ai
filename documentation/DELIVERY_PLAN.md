@@ -178,7 +178,8 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   4. The guest checks in `runtime_smoke_test.sh` change to expect a refusal.
   5. A PHPUnit test (or scripted check) proves that a logged-in user without access gets a refusal from `send_message`.
   6. `approve_page_version` is disabled until P3.6 approval exists. Publishing stays a human action (baseline scenario 14 published a live change from injected text).
-- P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check).
+  7. CSRF token on the chat POSTs (`send_message`, `new_chat`, `delete_chat`, `delete_current_chat`), checked with the access check. An invalid or expired token gets a 403, and the panel shows "Your session has expired — please reload the page." GETs stay token-free but access-checked.
+- P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check). Also: `update_page` refuses `pageType` changes and says a person must change the page type in the CMS (found in P1.7: `Page::update()` writes `Pages.ptID` live, with no draft).
 
 Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, and P1.8 is merged (the P1.5 baseline confirmed it is needed).
 
@@ -220,7 +221,7 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - `get_user` and the people tools return only the fields the request needs (B-PII-2).
   - `move_file_to_folder`, when used for a delete request, can only target "Assistant – to delete" (B-T1-11).
   - Remove `set_user_attribute_value` (disabled in P1.7).
-- P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change.
+- P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change. The approval must cover `create_page`, which today publishes the new page immediately (found in P1.7).
 - P3.7 **Cut the prompt down** to identity, tier and how to use context, under about 60 lines. Each rule it currently holds becomes a tool check or a scenario.
 - P3.8 **Provider adapter:** pick the provider and model from settings, with current Anthropic and OpenAI model choices. Use the cost-efficient model for routing and the stronger model for writes.
 - P3.9 **Housekeeping:**
