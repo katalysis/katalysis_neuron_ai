@@ -36,7 +36,7 @@ expect:                          # checks made after the last turn
 
 ### `known_to_fail_today`
 
-An **expectation, not a result.** It records that, from reading the code in P1.1, this scenario is expected to fail on the current code, and why. P1.5 runs the scenarios and then confirms or corrects every one of these, and finds the ones nobody expected. Don't use the field to decide pass or fail. When P1.5 is done, the field is replaced by recorded results in `documentation/eval-results/`.
+An **expectation, not a result.** It records that, from reading the code in P1.1, this scenario is expected to fail on the current code, and why. P1.5 runs the scenarios and then confirms or corrects every one of these, and finds the ones nobody expected. Don't use the field to decide pass or fail. The field stays as the written prediction. The actual results are the committed baseline in `documentation/eval-results/baseline-*.md` and `.json`; where the two differ, the baseline is the record, and the note is corrected in its own commit.
 
 ### `rubric`
 
