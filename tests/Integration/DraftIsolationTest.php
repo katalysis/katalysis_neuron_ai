@@ -316,6 +316,161 @@ final class DraftIsolationTest extends ConcreteTestCase
         $this->assertMatchesRegularExpression('#<h3[^>]*>\s*Seed Heading Three A#', $this->contentOf($before['blocks']));
     }
 
+    // ---- One draft per page ------------------------------------------------
+
+    public function testRepeatedHeadingCallsBuildOneDraftAndKeepEveryEdit(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->approved($cID);
+
+        foreach (['Seed Heading Three A', 'Seed Heading Three B'] as $heading) {
+            $result = $this->callPagesTool('batch_update_content_headings', [
+                'pageID' => $cID,
+                'headingTexts' => [$heading],
+                'targetTag' => 'h2',
+            ]);
+            $this->assertStringContainsString('"updatedCount":1', $result, "{$heading} should be found, on the second call too");
+        }
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'Both calls edit the same draft');
+        $draftText = $this->contentOf($this->draft($cID)['blocks']);
+        $this->assertMatchesRegularExpression('#<h2[^>]*>\s*Seed Heading Three A#', $draftText);
+        $this->assertMatchesRegularExpression('#<h2[^>]*>\s*Seed Heading Three B#', $draftText);
+    }
+
+    public function testUpdateBlockInPageAreaMakesOneDraftAndLeavesTheApprovedVersionUntouched(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->approved($cID);
+        $first = $before['blocks'][0];
+
+        $this->callPagesTool('update_block_in_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => 'Main',
+            'blockID' => $first['bID'],
+            'value' => ['content' => $first['content'] . '<p>Draft edit</p>'],
+        ]);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'One draft, not two');
+        $draft = $this->draft($cID);
+        $this->assertCount(count($before['blocks']), $draft['blocks']);
+        $this->assertStringContainsString('Draft edit', $this->contentOf($draft['blocks']));
+    }
+
+    public function testDifferentToolsInOneRequestShareOneDraft(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->approved($cID);
+        $second = $before['blocks'][1];
+
+        // The first tool makes the draft and copies a block, so block IDs in the draft change.
+        $this->callPagesTool('update_block_in_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => 'Main',
+            'blockID' => $before['blocks'][2]['bID'],
+            'value' => ['content' => $before['blocks'][2]['content'] . '<p>First edit</p>'],
+        ]);
+        $this->callPagesTool('batch_update_content_headings', [
+            'pageID' => $cID,
+            'headingTexts' => ['Seed Heading Three A'],
+            'targetTag' => 'h2',
+        ]);
+        // A second block edit, by the block ID that is current in the draft.
+        $draftBlock = $this->draft($cID)['blocks'][1];
+        $this->assertSame($second['content'], $draftBlock['content']);
+        $this->callPagesTool('batch_update_page_content', [
+            'pageID' => $cID,
+            'blocks' => [['areaHandle' => 'Main', 'blockID' => $draftBlock['bID'], 'value' => ['content' => $draftBlock['content'] . '<p>Second edit</p>']]],
+        ]);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'Three tool calls, one draft');
+        $draftText = $this->contentOf($this->draft($cID)['blocks']);
+        $this->assertStringContainsString('First edit', $draftText);
+        $this->assertStringContainsString('Second edit', $draftText);
+        $this->assertMatchesRegularExpression('#<h2[^>]*>\s*Seed Heading Three A#', $draftText);
+    }
+
+    public function testMoveBlockBetweenAreasMakesOneDraftAndLeavesTheApprovedVersionUntouched(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->approved($cID);
+        $moved = $before['blocks'][0];
+
+        // As the superuser: the editor has no right to add blocks to a new area (see the next test).
+        $this->actAs('superuser');
+        $this->callPagesTool('move_block_between_areas', [
+            'pageID' => $cID,
+            'fromAreaHandle' => 'Main',
+            'toAreaHandle' => 'Sidebar',
+            'blockID' => $moved['bID'],
+        ]);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'One draft, not two');
+        $draft = $this->draft($cID);
+        $areas = array_column($draft['blocks'], 'area');
+        sort($areas);
+        $this->assertSame(['Main', 'Main', 'Sidebar'], $areas);
+        $this->assertSame('Sidebar', $this->areaOf($draft, $moved['content']));
+    }
+
+    /**
+     * @param array{blocks: list<array<string, mixed>>} $version
+     */
+    private function areaOf(array $version, string $content): string
+    {
+        foreach ($version['blocks'] as $block) {
+            if ($block['content'] === $content) {
+                return $block['area'];
+            }
+        }
+        $this->fail('No block with that content');
+    }
+
+    public function testARefusedMoveLeavesNoDraftBehind(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->versions($cID);
+
+        try {
+            $this->callPagesTool('move_block_between_areas', [
+                'pageID' => $cID,
+                'fromAreaHandle' => 'Main',
+                'toAreaHandle' => 'Sidebar',
+                'blockID' => $before[array_key_first($before)]['blocks'][0]['bID'],
+            ]);
+            $this->fail('The editor should not be allowed to add blocks to the Sidebar area');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Permission denied', $e->getMessage());
+        }
+
+        $this->assertSame($before, $this->versions($cID), 'A refused move must not make a draft');
+    }
+
+    public function testARefusedBlockUpdateLeavesNoDraftBehind(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->versions($cID);
+
+        try {
+            // No such block: refused before anything is written.
+            $this->callPagesTool('update_block_in_page_area', [
+                'pageID' => $cID,
+                'areaHandle' => 'Main',
+                'blockID' => 999999999,
+                'value' => ['content' => '<p>x</p>'],
+            ]);
+            $this->fail('Updating a block that does not exist should fail');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('not found', $e->getMessage());
+        }
+
+        $this->assertSame($before, $this->versions($cID), 'A refused update must not make a draft');
+    }
+
     public function testNestedColumnBlocksAreCopiedIntoTheDraftToo(): void
     {
         $cID = $this->newColumnsPage();

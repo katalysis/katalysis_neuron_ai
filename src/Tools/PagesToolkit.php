@@ -15,6 +15,7 @@ use Concrete\Core\Block\Exception\BlockNotFoundException;
 use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Block\Traits\ValidateBlockRequestTrait;
 use Concrete\Core\Block\BlockType\BlockType;
+use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Attribute\Category\PageCategory;
 use Concrete\Core\Page\Page;
@@ -670,7 +671,7 @@ class PagesToolkit extends AbstractToolkit
 
             // Create new version
             try {
-                $pageToModify = $page->getVersionToModify();
+                $pageToModify = $this->getDraftOf($page);
             } catch (\Exception $e) {
                 throw new \RuntimeException("Failed to create new page version: " . $e->getMessage() . ". This may indicate a database or permissions issue.");
             }
@@ -1061,7 +1062,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}");
             }
 
-            $pageToModify = $page->getVersionToModify();
+            $pageToModify = $this->getDraftOf($page);
             $contentBt = BlockType::getByHandle('content');
             if (!$contentBt) {
                 throw new \RuntimeException('Content block type is not available');
@@ -1980,7 +1981,7 @@ class PagesToolkit extends AbstractToolkit
                 }
             }
 
-            $pageToModify = $page->getVersionToModify();
+            $pageToModify = $this->getDraftOf($page);
             
             $data = [];
             if ($name !== null) {
@@ -2335,17 +2336,17 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
 
-            $pageToModify = $page->getVersionToModify();
-
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
             } catch (AreaNotFoundException|BlockNotFoundException $e) {
-                $fallbackArea = $pageToModify->getArea($areaHandle);
+                // Look again on the newest version, as a plain lookup. This must not make a draft:
+                // a block that isn't there is an error, and an error must leave no draft behind.
+                $fallbackArea = $page->getArea($areaHandle);
                 if (!$fallbackArea) {
                     $fallbackArea = new Area($areaHandle);
-                    $fallbackArea->c = $pageToModify;
+                    $fallbackArea->c = $page;
                 }
-                $fallbackBlock = Block::getByID($blockID, $pageToModify, $fallbackArea);
+                $fallbackBlock = Block::getByID($blockID, $page, $fallbackArea);
                 if (!$fallbackBlock) {
                     if ($e instanceof AreaNotFoundException) {
                         throw new \RuntimeException("Area '{$areaHandle}' not found on page {$pageID}");
@@ -2372,7 +2373,10 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Block validation failed: {$validationBody}");
             }
 
-            $blockToEdit = $this->getBlockToEdit($page, $area, $areaHandle, $blockID);
+            // Make the draft only now that the checks have passed. If it exists already this
+            // returns it, so getBlockToEdit doesn't make a second one.
+            $pageToModify = $this->getDraftOf($page);
+            $blockToEdit = $this->getBlockToEdit($pageToModify, $area, $areaHandle, $blockID);
 
             $command = new UpdatePageBlockCommand();
             $command->setPage($pageToModify);
@@ -2781,15 +2785,18 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot move block {$blockID} on page {$pageID}");
             }
 
-            $pageToModify = $page->getVersionToModify();
-            $destinationArea = Area::getOrCreate($pageToModify, $toAreaHandle);
+            // Check the destination before making a draft, so a refused move leaves no draft behind.
+            // (Areas belong to the page, not to a version.)
             $destinationBlockType = $block->getBlockTypeObject();
-            $destinationChecker = new Checker($destinationArea);
+            $destinationChecker = new Checker(Area::getOrCreate($page, $toAreaHandle));
             if ($destinationBlockType && !$destinationChecker->canAddBlock($destinationBlockType)) {
                 throw new \RuntimeException("Permission denied: Cannot move '{$block->getBlockTypeHandle()}' blocks to area '{$toAreaHandle}' on page {$pageID}");
             }
 
-            $editableBlock = $this->getBlockToEdit($page, Area::getOrCreate($pageToModify, $fromAreaHandle), $fromAreaHandle, $blockID);
+            $pageToModify = $this->getDraftOf($page);
+            $destinationArea = Area::getOrCreate($pageToModify, $toAreaHandle);
+
+            $editableBlock = $this->getBlockToEdit($pageToModify, Area::getOrCreate($pageToModify, $fromAreaHandle), $fromAreaHandle, $blockID);
             if (!$editableBlock) {
                 throw new \RuntimeException("Block {$blockID} could not be prepared for moving");
             }
@@ -2816,6 +2823,26 @@ class PagesToolkit extends AbstractToolkit
 
             return $callable(...$args);
         };
+    }
+
+    /**
+     * The version of the page to edit: the newest version if it is already a draft,
+     * otherwise a new draft cloned from it.
+     *
+     * Concrete keeps the Page::getByID($id, 'RECENT') object for the rest of the
+     * request, so after a draft is made the cached page is still the old version.
+     * Without the cache update, the next tool call in the same request would clone
+     * the old version again and make a second draft, without the first call's edits.
+     */
+    protected function getDraftOf(Page $page): Page
+    {
+        $latest = Page::getByID($page->getCollectionID(), 'RECENT');
+        $draft = $latest->getVersionToModify();
+        if ($draft !== $latest) {
+            CacheLocal::set('page', $page->getCollectionID() . '/RECENT/' . Page::class, $draft);
+        }
+
+        return $draft;
     }
 
     protected function resolveCurrentContextPage(): array
