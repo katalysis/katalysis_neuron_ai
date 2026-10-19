@@ -20,6 +20,8 @@ use Katalysis\NeuronAi\Tools\TopicsToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
+use Katalysis\NeuronAi\Tools\DisabledTools;
+use Katalysis\NeuronAi\Tools\ToolNameResolver;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Area\Area;
@@ -53,7 +55,7 @@ class ConcreteCmsAgent extends Agent
 
     protected function tools(): array
     {
-        return [
+        $core = [
             new PagesToolkit(),
             new BlocksToolkit(),
             new FilesToolkit(),
@@ -66,6 +68,12 @@ class ConcreteCmsAgent extends Agent
             new PeopleToolkit(),
             new VersionsToolkit(),
         ];
+
+        // Toolkits other packages registered (e.g. katalysis_pro's people, places and reviews).
+        // On a name clash the external tool wins; then the disabled-tools list is applied to everything.
+        $tools = ToolNameResolver::resolve($core, ExternalToolkitRegistry::getExternalToolkits());
+
+        return DisabledTools::apply($tools);
     }
     
     /**

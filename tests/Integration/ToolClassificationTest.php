@@ -7,6 +7,7 @@ namespace Katalysis\NeuronAi\Tests\Integration;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Eval\ToolCall;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tools\DisabledTools;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 
@@ -41,7 +42,17 @@ final class ToolClassificationTest extends ConcreteTestCase
         }
         sort($names);
 
-        return array_map(static fn (string $name): string => (ToolCall::isWrite($name) ? 'write ' : 'read  ') . $name, $names);
+        // A disabled tool must never be offered (src/Tools/DisabledTools.php).
+        $this->assertSame([], array_values(array_intersect($names, DisabledTools::names())), 'A disabled tool reached the final tool list.');
+
+        $lines = array_map(static fn (string $name): string => (ToolCall::isWrite($name) ? 'write ' : 'read  ') . $name, $names);
+
+        // The disabled list is part of the committed file, so adding or removing an entry shows in the PR diff.
+        foreach (DisabledTools::names() as $name) {
+            $lines[] = 'off   ' . $name;
+        }
+
+        return $lines;
     }
 
     public function testEveryToolHasAReviewedClassification(): void

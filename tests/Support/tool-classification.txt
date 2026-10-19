@@ -74,3 +74,5 @@ write update_page_select_attribute_options
 write update_person_specialisms
 write update_person_topics
 write update_user_select_attribute_options
+off   delete_all_people
+off   delete_person
