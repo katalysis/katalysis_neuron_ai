@@ -182,10 +182,12 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
 - [x] P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check). Also: `update_page` refuses `pageType` changes and says a person must change the page type in the CMS (found in P1.7: `Page::update()` writes `Pages.ptID` live, with no draft). Done (PR #15).
 - P1.8a **Remaining draft-isolation gaps** (its own PR; found in P1.8, which fixed `PagesToolkit` only).
   - (a) `PageAttributesToolkit`, `AttributesToolkit` and `VersionsToolkit` use `getDraftOf()` instead of calling `getVersionToModify()` directly. `Page::getByID($id, 'RECENT')` is cached for the request, so a second write in one request clones the old version and loses the first. Each toolkit gets a `DraftIsolationTest` case: two writes in one request, both survive, and the live version is unchanged.
-  - (b) `batch_update_page_content` refuses blocks inside containers with a clear message, **before** any draft is created. Today the block ID remap fails and leaves a stray draft. The test shows that no draft is left.
-- P1.9 **Page context across navigation** (B-CTX-1; its own PR). Add scenario 19: two turns in one chat with the current page changing between turns (`/neuron-test/headings` then `/neuron-test/columns`); the second answer must name the new page (primary check). The runner needs a per-turn `current_page`. Reproduce it, find out whether the model reuses chat history or the context is lost on the way, and fix it in code, not with a prompt rule. Wrong page context means edits can land on the wrong page.
+  - (a2) `add_block_to_page_area` is outside the three toolkits but has the same gap: it passes a cached `RECENT` page to Concrete's `AddBlockToPageCommand`, whose handler calls `getVersionToModify()` itself. It loads the page through the shared draft helper (`PageDraft::of()`) first. Test first: two `add_block_to_page_area` calls in one request; if that already passes, the fix is dropped and reported.
+  - (b) `batch_update_page_content` refuses blocks inside containers and area layout sub-areas with a clear message, **before** any draft is created. Today the block ID remap fails and leaves a stray draft. The test shows that no draft is left.
+- P1.9 **Page context across navigation** (B-CTX-1; its own PR). Add scenario 19: two turns in one chat with the current page changing between turns (`/neuron-test/headings` then `/neuron-test/columns`); the second answer must name the new page (primary check). The runner needs a per-turn `current_page`. Reproduce it, find out whether the model reuses chat history or the context is lost on the way, and fix it in code, not with a prompt rule. Wrong page context means edits can land on the wrong page. Check first whether the P1.10 crash shares this root cause (see P1.10).
+- P1.10 **`get_page_content` works under the CLI** (its own PR). Today it errors on the seeded Injection page ("Call to a member function getCollectionPath() on false") in every scenario 16 run: in the baseline, after P1.8 and after P1.8a. So the model never sees the injected text, and scenario 16 can't test injection resistance (B-INJ-1 to B-INJ-3). Fix the crash, then re-run scenario 16 and check that the model now sees the page text. **P1.9 checks first whether the crash shares P1.9's root cause** (no current page is set in the CLI runner). If it does, the fix belongs to P1.9 and P1.10 is closed with it. If not, P1.10 is its own PR. Any change to scenario 16's result is reported against the baseline, as the merge rule says.
 
-Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, P1.8 is merged (the P1.5 baseline confirmed it is needed), P1.8a is merged, and P1.9 is merged.
+Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, P1.8 is merged (the P1.5 baseline confirmed it is needed), P1.8a is merged, P1.9 is merged, and P1.10 is merged.
 
 #### Phase 1b: EPRA app kit (S, in parallel)
 A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure: the approved chart library, theme tokens, the API proxy pattern and the file layout. It doesn't depend on Neuron and becomes the seed of the Tier 3 app spec.
@@ -219,17 +221,20 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored"
   - remove the double update in `update_block_in_page_area` (`UpdatePageBlockCommand`, then `$blockToEdit->update()`), unless P1.8a fixes it
   - return the new block IDs in the tool output after a copy, so the model doesn't reuse an ID that the copy replaced (seen in a scenario 05 run)
+  - from P1.8a: `AttributesToolkit` is not registered by the agent (it duplicates `PageAttributesToolkit`). P1.8a routed it through `PageDraft::of()` but did not delete it. Remove it, or register it on purpose, in this split
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform
   - guidelines
   
   All of it ships in the EPRA theme package, and the EPRA code is deleted from core.
+  - from P1.8a: `sync_multi_links_to_epra_resources_list` is disabled and still calls `getVersionToModify()` directly. If it is re-enabled, in the EPRA package or anywhere else, it must get its draft from `PageDraft::of()`, and `DraftIsolationTest` gets a case for it
 - P3.5 **Permissions:** replace the login-only `guarded()` with per-object permission checks in every write tool. Add one PHPUnit test per tool for the "denied" case. Also:
   - `get_user` and the people tools return only the fields the request needs (B-PII-2).
   - `move_file_to_folder`, when used for a delete request, can only target "Assistant – to delete" (B-T1-11).
   - Remove `set_user_attribute_value` (disabled in P1.7).
 - P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change. The approval must cover `create_page`, which today publishes the new page immediately (found in P1.7).
+  - from P1.8a: a draft belongs to the page, not to a user. `PageDraft::of()` and `create_page_draft` reuse the page's newest unapproved version, whoever made it. Approval and its UI must show the draft's changes, not only the current call's, and say when the draft already holds someone else's edits
 - P3.7 **Cut the prompt down** to identity, tier and how to use context, under about 60 lines. Each rule it currently holds becomes a tool check or a scenario.
 - P3.8 **Provider adapter:** pick the provider and model from settings, with current Anthropic and OpenAI model choices. Use the cost-efficient model for routing and the stronger model for writes.
 - P3.9 **Housekeeping:**

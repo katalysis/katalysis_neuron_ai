@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Integration;
 
+use Concrete\Core\Area\Area;
 use Concrete\Core\Area\ContainerArea;
 use Concrete\Core\Block\Block;
 use Concrete\Core\Block\BlockType\BlockType;
@@ -14,11 +15,15 @@ use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
+use Concrete\Core\Permission\Access\Entity\UserEntity;
+use Concrete\Core\Permission\Key\Key as PermissionKey;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\AttributesToolkit;
+use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
 use NeuronAI\Tools\ToolInterface;
 
@@ -469,6 +474,380 @@ final class DraftIsolationTest extends ConcreteTestCase
         }
 
         $this->assertSame($before, $this->versions($cID), 'A refused update must not make a draft');
+    }
+
+    /**
+     * Lets neuron_editor add blocks to Main on one throwaway page, as the seed does for
+     * /neuron-test/headings (adding a block is governed by the area's add-block key, which the
+     * page grant doesn't cover). Runs as the superuser and leaves the tests acting as neuron_editor.
+     */
+    private function allowEditorToAddBlocksToMain(int $cID): void
+    {
+        $this->actAs('superuser');
+        $editor = $this->app()->make(UserInfoRepository::class)->getByUserName('neuron_editor');
+        $main = Area::getOrCreate(Page::getByID($cID), 'Main');
+        $main->overridePagePermissions();
+        $key = PermissionKey::getByHandle('add_block_to_area');
+        $key->setPermissionObject($main);
+        $access = $key->getPermissionAccessObject()->duplicate();
+        $access->addListItem(UserEntity::getOrCreate($editor));
+        $key->getPermissionAssignmentObject()->assignPermissionAccess($access);
+        $this->actAs('neuron_editor');
+    }
+
+    public function testAddingTwoBlocksInOneRequestMakesOneDraftAndKeepsBoth(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->allowEditorToAddBlocksToMain($cID);
+        $before = $this->approved($cID);
+
+        foreach (['First added block', 'Second added block'] as $text) {
+            $this->callPagesTool('add_block_to_page_area', [
+                'pageID' => $cID,
+                'areaHandle' => 'Main',
+                'blockType' => 'content',
+                'value' => ['content' => '<p>' . $text . '</p>'],
+            ]);
+        }
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'Both adds go to the same draft');
+        $draft = $this->draft($cID);
+        $this->assertCount(count($before['blocks']) + 2, $draft['blocks']);
+        $draftText = $this->contentOf($draft['blocks']);
+        $this->assertStringContainsString('First added block', $draftText);
+        $this->assertStringContainsString('Second added block', $draftText);
+    }
+
+    // ---- Page attributes and versions toolkits -----------------------------
+
+    private function callAttributesTool(object $toolkit, string $name, array $inputs): string
+    {
+        return $this->runTool($toolkit->tools(), $name, $inputs);
+    }
+
+    /**
+     * A value of a text or textarea page attribute in one version, read from the database.
+     */
+    private function attributeValue(int $cID, int $cvID, string $handle): ?string
+    {
+        $value = $this->db()->fetchOne(
+            'SELECT ad.value FROM CollectionAttributeValues cav
+             JOIN AttributeKeys ak ON ak.akID = cav.akID
+             JOIN atDefault ad ON ad.avID = cav.avID
+             WHERE cav.cID = ? AND cav.cvID = ? AND ak.akHandle = ?',
+            [$cID, $cvID, $handle]
+        );
+
+        return $value === false ? null : (string) $value;
+    }
+
+    /**
+     * Gives the approved version of the page meta_title and meta_description values, so the
+     * draft starts with attribute values that the live version also holds.
+     */
+    private function giveLiveVersionAttributes(int $cID): void
+    {
+        $this->actAs('superuser');
+        $page = Page::getByID($cID, 'ACTIVE');
+        $page->setAttribute('meta_title', 'Live title');
+        $page->setAttribute('meta_description', 'Live description');
+        $this->actAs('neuron_editor');
+    }
+
+    private function assertLiveAttributesUntouched(int $cID): void
+    {
+        $liveVersion = $this->approved($cID)['cvID'];
+        $this->assertSame('Live title', $this->attributeValue($cID, $liveVersion, 'meta_title'), 'The live meta_title must be unchanged');
+        $this->assertSame('Live description', $this->attributeValue($cID, $liveVersion, 'meta_description'), 'The live meta_description must be unchanged');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('attributeToolkits')]
+    public function testTwoAttributeWritesInOneRequestShareOneDraft(string $toolkitClass): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->giveLiveVersionAttributes($cID);
+        $before = $this->approved($cID);
+        $toolkit = new $toolkitClass();
+
+        $this->callAttributesTool($toolkit, 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_title', 'value' => 'Draft title']);
+        $this->callAttributesTool($toolkit, 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_description', 'value' => 'Draft description']);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'Both writes go to the same draft');
+        $this->assertLiveAttributesUntouched($cID);
+        $draftVersion = $this->draft($cID)['cvID'];
+        $this->assertSame('Draft title', $this->attributeValue($cID, $draftVersion, 'meta_title'));
+        $this->assertSame('Draft description', $this->attributeValue($cID, $draftVersion, 'meta_description'));
+    }
+
+    /**
+     * @return array<string, array{class-string}>
+     */
+    public static function attributeToolkits(): array
+    {
+        return [
+            'PageAttributesToolkit' => [PageAttributesToolkit::class],
+            'AttributesToolkit' => [AttributesToolkit::class],
+        ];
+    }
+
+    public function testAttributeWriteAfterAnotherToolsDraftUsesThatDraftWhenThePageIsFoundByName(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->giveLiveVersionAttributes($cID);
+        $before = $this->approved($cID);
+        $name = (string) $this->db()->fetchOne('SELECT cvName FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1', [$cID]);
+
+        // Another tool makes the draft first. A page found by name comes from a page list, as its approved version.
+        $this->callPagesTool('update_page', ['pageID' => $cID, 'description' => 'A draft description']);
+        $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageName' => $name, 'handle' => 'meta_title', 'value' => 'Draft title']);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'The attribute goes to the draft that already exists');
+        $this->assertLiveAttributesUntouched($cID);
+        $this->assertSame('Draft title', $this->attributeValue($cID, $this->draft($cID)['cvID'], 'meta_title'));
+        $this->assertSame('A draft description', (string) $this->db()->fetchOne('SELECT cvDescription FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 0', [$cID]), 'The other tool\'s edit is still there');
+    }
+
+    public function testARefusedAttributeWriteLeavesNoDraftBehind(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->versions($cID);
+
+        try {
+            $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'no_such_attribute_handle', 'value' => 'x']);
+            $this->fail('An unknown attribute should be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('not found', $e->getMessage());
+        }
+
+        $this->assertSame($before, $this->versions($cID), 'A refused write must not make a draft');
+    }
+
+    public function testCreatePageDraftReusesAnExistingDraftAndSaysSo(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $versions = new VersionsToolkit();
+
+        $first = $this->callAttributesTool($versions, 'create_page_draft', ['pageID' => $cID]);
+        $this->assertStringContainsString('created draft v2', $first);
+        $second = $this->callAttributesTool($versions, 'create_page_draft', ['pageID' => $cID]);
+        $this->assertStringContainsString('reused existing draft v2', $second);
+
+        $this->assertCount(2, $this->versions($cID), 'Calling it twice makes one draft');
+    }
+
+    public function testEditsAfterCreatePageDraftAllLandInThatDraft(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->giveLiveVersionAttributes($cID);
+        $before = $this->approved($cID);
+
+        $this->callAttributesTool(new VersionsToolkit(), 'create_page_draft', ['pageID' => $cID]);
+        $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_title', 'value' => 'Draft title']);
+        $this->callPagesTool('update_page', ['pageID' => $cID, 'description' => 'A draft description']);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'Three tools, one draft');
+        $this->assertLiveAttributesUntouched($cID);
+        $draftVersion = $this->draft($cID)['cvID'];
+        $this->assertSame('Draft title', $this->attributeValue($cID, $draftVersion, 'meta_title'));
+        $this->assertSame('A draft description', (string) $this->db()->fetchOne('SELECT cvDescription FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 0', [$cID]));
+    }
+
+    public function testCreatePageDraftBasedOnAnOlderVersionMakesANewDraftThatLaterWritesUse(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->callAttributesTool(new VersionsToolkit(), 'create_page_draft', ['pageID' => $cID]);
+        $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_title', 'value' => 'In the first draft']);
+
+        $result = $this->callAttributesTool(new VersionsToolkit(), 'create_page_draft', ['pageID' => $cID, 'basedOnVersionID' => $this->approved($cID)['cvID']]);
+        $this->assertStringContainsString('created draft v3', $result);
+        $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_description', 'value' => 'In the new draft']);
+
+        $this->assertCount(3, $this->versions($cID), 'The approved version and two drafts');
+        $this->assertSame('In the new draft', $this->attributeValue($cID, 3, 'meta_description'));
+        $this->assertNull($this->attributeValue($cID, 3, 'meta_title'), 'The new draft was cloned from the approved version, not the first draft');
+        $this->assertNull($this->attributeValue($cID, 2, 'meta_description'), 'The first draft is untouched by the later write');
+        $this->assertSame('In the first draft', $this->attributeValue($cID, 2, 'meta_title'));
+    }
+
+    // ---- batch_update_page_content refuses blocks in containers and layouts ------
+
+    /**
+     * The seeded /neuron-test/columns page: its newest version's blocks, and its ID. The refusal
+     * tests only read it (a refused call must not write anything). The newest version is used
+     * because that is the version the tools edit, and a scenario run may have left a draft.
+     *
+     * @return array{0: int, 1: list<array<string, mixed>>}
+     */
+    private function seededColumnsPage(): array
+    {
+        $this->actAs('superuser');
+        $page = Page::getByPath('/neuron-test/columns');
+        $this->assertFalse($page->isError(), '/neuron-test/columns does not exist. Run the seed script first.');
+        $cID = (int) $page->getCollectionID();
+        $this->actAs('neuron_editor');
+        $versions = $this->versions($cID);
+
+        return [$cID, end($versions)['blocks']];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    private function blockInASubArea(array $blocks): array
+    {
+        foreach ($blocks as $block) {
+            if (str_contains($block['area'], ' : ') && $block['type'] === 'content') {
+                return $block;
+            }
+        }
+        $this->fail('The page has no Content block in a sub-area');
+    }
+
+    /**
+     * @param list<array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    private function blockInATopLevelArea(array $blocks): array
+    {
+        foreach ($blocks as $block) {
+            if (!str_contains($block['area'], ' : ')) {
+                return $block;
+            }
+        }
+        $this->fail('The page has no block in a top-level area');
+    }
+
+    private function assertRefusedAsNested(int $cID, array $inputs): void
+    {
+        $versionsBefore = $this->versions($cID);
+        $countsBefore = $this->blockCounts();
+
+        try {
+            $this->callPagesTool('batch_update_page_content', ['pageID' => $cID] + $inputs);
+            $this->fail('A block inside a container or area layout should be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('inside a container or area layout', $e->getMessage());
+            $this->assertStringContainsString('Nothing was changed', $e->getMessage());
+        }
+
+        $this->assertSame($versionsBefore, $this->versions($cID), 'A refused call must not leave a draft, or change any version');
+        $this->assertSame($countsBefore, $this->blockCounts(), 'A refused call must not leave stray blocks behind');
+    }
+
+    public function testBatchUpdateRefusesABlockInAContainerColumnAndLeavesNoDraft(): void
+    {
+        [$cID, $blocks] = $this->seededColumnsPage();
+        $nested = $this->blockInASubArea($blocks);
+
+        $this->assertRefusedAsNested($cID, ['blocks' => [['areaHandle' => $nested['area'], 'blockID' => $nested['bID'], 'value' => ['content' => '<p>x</p>']]]]);
+    }
+
+    public function testBatchUpdateRefusesANestedBlockEvenWhenTheAreaGivenIsTheTopLevelOne(): void
+    {
+        [$cID, $blocks] = $this->seededColumnsPage();
+        $nested = $this->blockInASubArea($blocks);
+
+        $this->assertRefusedAsNested($cID, ['blocks' => [['areaHandle' => 'Main', 'blockID' => $nested['bID'], 'value' => ['content' => '<p>x</p>']]]]);
+    }
+
+    public function testBatchUpdateRefusesTheWholeCallWhenOnlyOneBlockIsNested(): void
+    {
+        [$cID, $blocks] = $this->seededColumnsPage();
+        $nested = $this->blockInASubArea($blocks);
+        $topLevel = $this->blockInATopLevelArea($blocks);
+
+        $this->assertRefusedAsNested($cID, [
+            'continueOnError' => true,
+            'blocks' => [
+                ['areaHandle' => $topLevel['area'], 'blockID' => $topLevel['bID'], 'value' => ['content' => '<p>x</p>']],
+                ['areaHandle' => $nested['area'], 'blockID' => $nested['bID'], 'value' => ['content' => '<p>y</p>']],
+            ],
+        ]);
+    }
+
+    public function testBatchUpdateRefusesABlockInAnAreaLayoutColumnAndLeavesNoDraft(): void
+    {
+        $cID = $this->newLayoutPage();
+        $versions = $this->versions($cID);
+        $nested = $this->blockInASubArea(end($versions)['blocks']);
+
+        $this->assertRefusedAsNested($cID, ['blocks' => [['areaHandle' => $nested['area'], 'blockID' => $nested['bID'], 'value' => ['content' => '<p>x</p>']]]]);
+    }
+
+    /**
+     * A page with a core area layout in Main, with a Content block in each of its two columns
+     * (their areas are sub-areas, like the columns of a container). Leaves the tests acting as neuron_editor.
+     */
+    private function newLayoutPage(): int
+    {
+        $this->actAs('superuser');
+        $page = $this->newPage();
+        $layoutBlock = $page->addBlock(BlockType::getByHandle('core_area_layout'), 'Main', [
+            'gridType' => 'FF', 'isautomated' => 1, 'spacing' => 0, 'columns' => 2, 'width' => [],
+        ]);
+        $layoutBlock = Block::getByID($layoutBlock->getBlockID(), $page, 'Main');
+        $layout = $layoutBlock->getController()->getAreaLayoutObject();
+        $layout->setAreaObject(Area::getOrCreate($page, 'Main'));
+        foreach ($layout->getAreaLayoutColumns() as $index => $column) {
+            $subArea = $column->getSubAreaObject();
+            $subArea->create($page, $subArea->getAreaHandle());
+            $page->addBlock(BlockType::getByHandle('content'), $subArea, ['content' => '<p>In layout column ' . ($index + 1) . '</p>']);
+        }
+
+        // Concrete caches areas and their permission parents for the rest of the request. Building the
+        // layout leaves a stale entry that makes a permission check on a column block find no parent
+        // area, so the editor is wrongly denied. A real request starts with an empty cache.
+        $this->app()->make('cache/request')->flush();
+
+        return $this->startFromOneApprovedVersion($page);
+    }
+
+    /**
+     * The refusal message points at update_block_in_page_area, so it has to work in a column.
+     */
+    public function testUpdateBlockInPageAreaEditsABlockInAContainerColumnInTheDraft(): void
+    {
+        $cID = $this->newColumnsPage();
+        $before = $this->approved($cID);
+        $nested = $this->blockInASubArea($before['blocks']);
+
+        $this->callPagesTool('update_block_in_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => $nested['area'],
+            'blockID' => $nested['bID'],
+            'value' => ['content' => $nested['content'] . '<p>Column edit</p>'],
+        ]);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'One draft');
+        $draft = $this->draft($cID);
+        $this->assertStringContainsString('Column edit', $this->contentOf($draft['blocks'], $nested['area']));
+        $this->assertSame(array_column($before['blocks'], 'area'), array_column($draft['blocks'], 'area'), 'Every block stays in its column');
+    }
+
+    public function testUpdateBlockInPageAreaEditsABlockInAnAreaLayoutColumnInTheDraft(): void
+    {
+        $cID = $this->newLayoutPage();
+        $before = $this->approved($cID);
+        $nested = $this->blockInASubArea($before['blocks']);
+
+        $this->callPagesTool('update_block_in_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => $nested['area'],
+            'blockID' => $nested['bID'],
+            'value' => ['content' => $nested['content'] . '<p>Layout edit</p>'],
+        ]);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'One draft');
+        $draft = $this->draft($cID);
+        $this->assertStringContainsString('Layout edit', $this->contentOf($draft['blocks'], $nested['area']));
+        $this->assertSame(array_column($before['blocks'], 'area'), array_column($draft['blocks'], 'area'), 'Every block stays in its column');
     }
 
     // ---- Delete ------------------------------------------------------------

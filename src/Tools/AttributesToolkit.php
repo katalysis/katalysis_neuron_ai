@@ -16,6 +16,7 @@ use Concrete\Core\Entity\Attribute\Type as AttributeTypeEntity;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -628,8 +629,8 @@ class AttributesToolkit extends AbstractToolkit
                 }
             }
 
-            // Get version to modify
-            $pageToModify = $page->getVersionToModify();
+            // Edit the page's draft: the newest version if it is already a draft, else a new one.
+            $pageToModify = PageDraft::of($page);
 
             // Set the attribute
             $pageToModify->setAttribute($ak, $attributeValue);

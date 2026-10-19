@@ -15,7 +15,6 @@ use Concrete\Core\Block\Exception\BlockNotFoundException;
 use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Block\Traits\ValidateBlockRequestTrait;
 use Concrete\Core\Block\BlockType\BlockType;
-use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Attribute\Category\PageCategory;
 use Concrete\Core\Page\Page;
@@ -29,6 +28,7 @@ use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -662,6 +662,10 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}. You need edit permissions for this page.");
             }
 
+            // Blocks in container or area layout columns can't be remapped between versions (the remap
+            // only sees top-level areas). Refuse them now, before any draft exists, so nothing is left behind.
+            $this->refuseBlocksInSubAreas($page, $updates);
+
             // Capture block layout BEFORE creating new version
             try {
                 $beforeAreas = BlockIdRemapper::captureAreaSnapshot($page);
@@ -805,6 +809,50 @@ class PagesToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * Refuses a batch update that names a block inside a container or core area layout column.
+     * Those blocks are in sub-areas (an Areas row with a parent area), which the block ID remap
+     * doesn't see: it fails once the draft exists and leaves the draft behind. update_block_in_page_area
+     * does edit blocks in sub-areas (DraftIsolationTest), one block at a time, so the message names it.
+     *
+     * @param list<array{areaHandle: string, blockID: int}> $updates
+     * @throws \RuntimeException naming the first nested block; nothing has been changed
+     */
+    private function refuseBlocksInSubAreas(Page $page, array $updates): void
+    {
+        $db = Application::getFacadeApplication()->make('database')->connection();
+        $cID = (int) $page->getCollectionID();
+        $cvID = (int) $page->getVersionID();
+
+        foreach ($updates as $index => $update) {
+            $blockID = (int) $update['blockID'];
+            $areaHandle = (string) $update['areaHandle'];
+
+            // The area the block is really in, if that is a sub-area ...
+            $actualHandle = $db->fetchOne(
+                'SELECT cvb.arHandle FROM CollectionVersionBlocks cvb
+                 JOIN Areas a ON a.cID = cvb.cID AND a.arHandle = cvb.arHandle
+                 WHERE cvb.cID = ? AND cvb.cvID = ? AND cvb.bID = ? AND a.arParentID > 0
+                 LIMIT 1',
+                [$cID, $cvID, $blockID]
+            );
+            // ... or the area the caller named, if that is a sub-area.
+            $namedIsSubArea = (int) $db->fetchOne(
+                'SELECT COUNT(*) FROM Areas WHERE cID = ? AND arHandle = ? AND arParentID > 0',
+                [$cID, $areaHandle]
+            ) > 0;
+
+            if ($actualHandle !== false || $namedIsSubArea) {
+                $handle = $actualHandle !== false ? (string) $actualHandle : $areaHandle;
+                throw new \RuntimeException(
+                    "blocks[{$index}]: block {$blockID} is in the area '{$handle}', which is inside a container or area layout column. "
+                    . "batch_update_page_content can't update blocks there yet. Nothing was changed. "
+                    . "To edit a block in a container or layout column, use update_block_in_page_area with areaHandle '{$handle}', one block at a time."
+                );
+            }
+        }
     }
 
     /**
@@ -2271,8 +2319,10 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot add '{$blockType}' blocks to area '{$areaHandle}' on page {$pageID}");
             }
 
+            // The command makes its own draft from the page it is given. Give it the draft, so a
+            // second write in this request adds to the same draft (see PageDraft::of()).
             $command = new AddBlockToPageCommand();
-            $command->setPage($page);
+            $command->setPage($this->getDraftOf($page));
             $command->setArea($area);
             $command->setBlockType($bt);
             $command->setData($normalizedValue);
@@ -2829,23 +2879,11 @@ class PagesToolkit extends AbstractToolkit
     }
 
     /**
-     * The version of the page to edit: the newest version if it is already a draft,
-     * otherwise a new draft cloned from it.
-     *
-     * Concrete keeps the Page::getByID($id, 'RECENT') object for the rest of the
-     * request, so after a draft is made the cached page is still the old version.
-     * Without the cache update, the next tool call in the same request would clone
-     * the old version again and make a second draft, without the first call's edits.
+     * The version of the page to edit (see PageDraft::of()).
      */
     protected function getDraftOf(Page $page): Page
     {
-        $latest = Page::getByID($page->getCollectionID(), 'RECENT');
-        $draft = $latest->getVersionToModify();
-        if ($draft !== $latest) {
-            CacheLocal::set('page', $page->getCollectionID() . '/RECENT/' . Page::class, $draft);
-        }
-
-        return $draft;
+        return PageDraft::of($page);
     }
 
     protected function resolveCurrentContextPage(): array

@@ -11,6 +11,7 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Area\Area;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -255,7 +256,7 @@ GUIDELINES;
     {
         $tool = new Tool(
             'create_page_draft',
-            'Create a new draft version of a page for safe editing. Changes in draft do not affect live page until approved.'
+            'Create a draft version of a page for safe editing, or reuse the draft that already exists (the result says which). Changes in draft do not affect live page until approved.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -305,12 +306,24 @@ GUIDELINES;
                     $comments = "Draft created by {$userName} for editing";
                 }
 
-                // Create new version (clone current version)
-                $newVersion = $page->getVersionToModify();
+                // Create new version (clone current version), or reuse the draft that already exists.
+                // A draft belongs to the page, not to a user: it is reused whoever made it.
+                $created = false;
+                if ($basedOnVersionID) {
+                    // An explicit base version: clone that version, unless it is itself the newest draft.
+                    $newVersion = $page->getVersionToModify();
+                    $created = $newVersion !== $page;
+                    if ($created && $newVersion && !$newVersion->isError()) {
+                        PageDraft::cacheAsLatest($newVersion);
+                    }
+                } else {
+                    $newVersion = PageDraft::of($page, $created);
+                }
                 
                 if (!$newVersion || $newVersion->isError()) {
                     // If getVersionToModify fails, try cloneVersion
                     $newVersion = $page->cloneVersion($comments);
+                    $created = true;
                 }
 
                 if (!$newVersion) {
@@ -320,16 +333,18 @@ GUIDELINES;
                 $newVersionID = $newVersion->getVersionID();
                 $pageName = $page->getCollectionName();
                 $pagePath = $page->getCollectionPath();
+                $outcome = ($created ? 'created' : 'reused existing') . " draft v{$newVersionID}";
 
                 // Get preview URL
                 $previewURL = $pagePath . "?cvID=" . $newVersionID;
 
-                return "✅ **Draft Version Created**\n\n" .
+                return "✅ **" . ($created ? 'Draft Version Created' : 'Existing Draft Reused') . "**\n\n" .
+                       "**Result:** {$outcome}\n" .
                        "**Page:** {$pageName}\n" .
                        "**Path:** {$pagePath}\n" .
                        "**New Version ID:** {$newVersionID}\n" .
                        "**Status:** Draft (not published)\n" .
-                       "**Comments:** {$comments}\n\n" .
+                       ($created ? "**Comments:** {$comments}\n" : '') . "\n" .
                        "**Preview URL:** `{$previewURL}`\n\n" .
                        "⚠️ **IMPORTANT:**\n" .
                        "- This draft is NOT live yet\n" .
