@@ -132,7 +132,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
 - [x] P1.2 Write about 15–20 golden scenarios (`tests/Scenarios/*.yaml`), each with a starting fixture, a prompt, the expected end state or answer, and **the `BEHAVIOUR_SPEC.md` rule IDs it checks**. Done: 18 scenarios (the 15 below plus 16 injection, 17 multi-page confirmation and 18 file delete), with the format in `tests/Scenarios/README.md`:
   1. "What page am I on?"
   2. "How many content blocks are on this page?"
-  3. "List the people on the site." (needs the external toolkit, so it fails today)
+  3. "List the people on the site." (may pass via the core PeopleToolkit's `list_people`; P1.5 decides)
   4. Create People from pasted HTML
   5. Change all h3 headings to h2 on this page, with the body text unchanged
   6. Turn bold-paragraph headings in column 1 into h3
