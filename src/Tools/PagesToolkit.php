@@ -712,6 +712,14 @@ class PagesToolkit extends AbstractToolkit
                         throw new \RuntimeException("Block {$newBlockID} not found in area '{$areaHandle}' on page version {$pageToModify->getVersionID()}");
                     }
 
+                    // A new version shares its blocks with the live one. Copy this block into the
+                    // draft first (as Concrete's own editor does), so the update can't change the live version.
+                    $block = $this->getBlockToEdit($pageToModify, $area, $areaHandle, $newBlockID);
+                    if (!$block) {
+                        throw new \RuntimeException("Block {$newBlockID} could not be prepared for editing in area '{$areaHandle}'");
+                    }
+                    $newBlockID = (int) $block->getBlockID();
+
                     $controller = $block->getController();
                     $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
                     $beforeRecord = $this->getBlockTableRecord($dbTable, $newBlockID);
@@ -988,7 +996,7 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'includeInactive',
             PropertyType::BOOLEAN,
-            'Include draft/pending placements when resolving candidate blocks (default: true)',
+            'Ignored. This tool always works on the blocks of the new draft version, never on the live version.',
             false
         ));
 
@@ -1066,16 +1074,16 @@ class PagesToolkit extends AbstractToolkit
                 ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
                 ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
                 ->where('cvb.cID = :cID')
+                // Only the blocks of the draft being edited: the draft shares blocks with the live
+                // version until they are copied, and the live copies must never be updated.
+                ->andWhere('cvb.cvID = :cvID')
                 ->andWhere('b.btID = :btID')
                 ->setParameter('cID', $pageID)
+                ->setParameter('cvID', $pageToModify->getVersionID())
                 ->setParameter('btID', $contentBt->getBlockTypeID())
                 ->orderBy('b.bID', 'ASC')
                 ->addOrderBy('cv.cvIsApproved', 'DESC')
                 ->addOrderBy('cvb.cvID', 'DESC');
-
-            if (!$includeInactive) {
-                $qb->andWhere('cv.cvIsApproved = 1');
-            }
 
             $placements = $qb->execute()->fetchAllAssociative();
             if (empty($placements)) {
@@ -1186,7 +1194,14 @@ class PagesToolkit extends AbstractToolkit
                         throw new \RuntimeException("text integrity check failed for '{$headingText}' (body text changed)");
                     }
 
-                    $block->update(['content' => $transformedContent]);
+                    // Copy the block into the draft before changing it (see getBlockToEdit), so the live
+                    // version keeps its text. The copy has a new block ID.
+                    $editBlock = $this->getBlockToEdit($pageToModify, $area, $areaHandle, (int) $blockID);
+                    if (!$editBlock) {
+                        throw new \RuntimeException("Block {$blockID} could not be prepared for editing in area '{$areaHandle}'");
+                    }
+                    $blockID = (int) $editBlock->getBlockID();
+                    $editBlock->update(['content' => $transformedContent]);
 
                     $afterRecord = $this->getBlockTableRecord($dbTable, (int) $blockID);
                     $afterContent = is_string($afterRecord['content'] ?? null) ? (string) $afterRecord['content'] : '';
