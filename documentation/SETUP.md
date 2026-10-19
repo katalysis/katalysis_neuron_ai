@@ -107,6 +107,31 @@ php tools/phpunit/vendor/bin/phpunit --testsuite integration
 - Tests must not call the AI provider or use an API key. Only the scenario runner does that.
 - Tests are read-only unless they say otherwise. A test that writes must clean up after itself.
 - Test content comes from the seed script above (`neuron_editor`, `/neuron-test`).
+- Before Concrete boots, `ConcreteBoot` also refuses to run if the site's `database.php` points at a host that is not local (127.0.0.1, localhost, ::1 or a unix socket).
+
+## Running the scenario runner (dev site only, costs money)
+
+The runner plays the scenarios in `tests/Scenarios/` through the real agent and checks the end state. It is dev tooling under `tests/Eval/`, not part of the shipped package. **It calls the AI provider with the dev site's API key, so every run costs money, and it resets the `/neuron-test` content for each run.**
+
+Run from `httpdocs/` (options for the script go after `--`):
+
+```bash
+export PATH="$HOME/Library/Application Support/Herd/bin:$PATH"
+cd httpdocs
+
+php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php
+php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php -- --scenario=05-h3-to-h2
+php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php -- --scenario=05,06 --repeat=3
+```
+
+- `--scenario=ID[,ID...]` runs only those scenarios (an id, or its number: `05`). `--repeat=N` (1 to 20, default 1) runs each one N times, each from a fresh fixture reset, and the table shows a pass rate such as "2/3 pass, 1/3 partial".
+- It needs the seed script's content and the `neuron_editor` user (see above), and an OpenAI key in `katalysis.ai.open_ai_key` (Dashboard > System > AI > Neuron AI Settings). Without a key it stops before calling anything.
+- Each run resets the fixture, acts as the scenario's user (no browser, no session), sends the turns, and takes a before/after snapshot of pages, blocks, files and people to check the end state. It never touches the shipped code path over HTTP.
+- Outcomes: `pass`, `partial` (only a secondary reply check failed), `fail`, and `error` (the agent returned its generic error reply, or the runner failed). An `error` run proves nothing about behaviour; do not record it as a baseline. The real cause is read from the Concrete log and shown in the details.
+- Tokens are shown per scenario and in total. If the provider reports none, the table says "not reported".
+- Results go to `documentation/eval-results/<YYYYMMDD-HHMMSS>.md` and `.json` (same timestamp), and the markdown is printed. These are gitignored. A file named `baseline-*` in that folder is not ignored, so a recorded baseline can be committed.
+- The runner's chat rows use the session id prefix `neuron-eval-`. They are deleted at the end of the run, and any left by an interrupted run are deleted at the start of the next.
+- Guards: the script checks the database host and the dev-host URL first and refuses to run otherwise. Because `c5:exec` has already booted Concrete by then, these are the first thing the script does, not a check before Concrete reads the database.
 
 ## Troubleshooting
 
