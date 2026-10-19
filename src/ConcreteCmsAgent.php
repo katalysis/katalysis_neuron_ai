@@ -97,10 +97,18 @@ class ConcreteCmsAgent extends Agent
 
     /**
      * Set page context collected from the frontend request.
+     *
+     * The page context is part of instructions(). Neuron builds the instructions, the start event that carries them
+     * and the tool bootstrap once, on the first chat(), and keeps them for the life of the agent. So a new context
+     * only reaches the model if those caches are dropped here, and the next chat() rebuilds them.
      */
     public function setRuntimePageContext(?array $context): self
     {
         $this->runtimePageContext = is_array($context) ? $context : null;
+
+        // Both are typed properties, so unset() puts them back to "not built yet".
+        unset($this->instructions, $this->startEvent);
+        $this->toolsBootstrapCache = [];
 
         return $this;
     }
