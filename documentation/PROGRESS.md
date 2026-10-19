@@ -4,7 +4,7 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.4 (scenario runner; PR not opened yet). Before that, P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Last completed:** P1.4 (scenario runner, PR open). Before that, P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
 - **Next open:** P1.5 (baseline run). P1.7 (chat endpoint security fix) and P1.8 (draft edits must not change live content) can be done any time in Phase 1 and must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** not recorded yet (P1.5)
 
@@ -59,30 +59,31 @@ Record decisions that change the plan or design, with the date and who made them
   - **Write tools are recognised by name prefix** (`get_`, `list_`, `search_`, `find_`, `count_`, `describe_`, `read_`, `lookup_`, `check_`, `validate_`, `preview_`, `inspect_`, `export_`, `resolve_`; anything else is a write). Accepted by Glyn for now.
 - Not done / left for later:
   - No baseline (P1.5). The only real-provider run so far is one run each of scenarios 01 and 05, below. Those results are not a baseline and were not committed.
-  - The browser path of the agent change is untested over HTTP.
+  - The browser path of the agent change was not exercised by me over HTTP. Glyn tested it: "What page am I on?" in the chat panel correctly answered `/neuron-test/headings`, so the browser path works after the `getCurrentContext` change.
   - The remote-database refusal in the entry script wasn't tried against a remote config; `DatabaseGuard` is unit-tested.
   - `ConcreteCmsAgent::handle()` catches only `\Exception`, as before (kept as is, per the approved plan).
+  - The four findings below are for P1.5 to confirm or rule out. They come from one run each of two scenarios and have not been investigated further.
 - Checks: PHPUnit 95 tests OK. Scenarios, one run each against OpenAI gpt-4o on Neuron 3.15.26 (the code that became `d1bb4b8`; no baseline to compare with):
   - **01-current-page: pass.** 17,722 in / 34 out tokens.
   - **05-h3-to-h2: partial.** 55,018 in / 430 out. The state checks pass, including `live_version_unchanged`. The reply checks fail: no link to the page, no "draft/unpublished", no undo hint (B-REP-1, as the scenario's `known_to_fail_today` says).
   - **Provider rejections: none.** No request was refused, so the 11 array schemas without `items` were accepted in these two runs. This is two runs only.
   - **Every request sends all tools**: even "What page am I on?" cost about 17.7k input tokens (P3.2 target).
   - A first pair of runs, before the page-context fix below, gave 01 partial and 05 fail. Those were runner faults, not product results.
-- Found:
-  - **Runner bug, fixed:** the tools read page context from request parameters through `make('request')`. That container entry is not bound, so it returns a fresh empty `Request` every time (in HTTP too). The first version of the runner set the parameters on `Request::getInstance()` and the tool saw none (`get_current_page_context` failed). The chat endpoint uses `$_SESSION`, so the runner now does the same.
-  - **Possible product bug, not investigated:** the tools' request-parameter path (`resolveCurrentContextPage`) never receives anything via `make('request')`, so only the session path works. Fine today because the controller sets the session, but the parameter path is dead code.
-  - **`get_page_content` fails on the CLI** with `Call to a member function getCollectionPath() on false`. It renders the page through `PageView` and catches only `\Exception`, so the `\Error` escapes. Whether it also fails in the browser is not known. In the run the model fell back to `get_page_blocks` and `get_block_controller_data`.
-  - **Model picked a different tool than expected in 05:** `batch_update_content_headings` failed first (the model left out `headingTexts`, which explicit mode requires), then the model used `update_block_in_page_area` twice. That tool creates new blocks (777, 778 in the run) and the approved version was left unchanged.
-  - **`batch_update_content_headings` changes the approved version.** In an earlier run with a stub agent calling it directly with both headings, the approved version's blocks changed (`live_version_unchanged` failed) and one of the two headings was reported not found. That was my own call, not a model's, so it needs P1.5 to confirm. Recorded as P1.8.
+- Found (for P1.5 to confirm):
+  - **1. `get_page_content` crashes under the CLI.** It fails with `Call to a member function getCollectionPath() on false`. It renders the page through `PageView` and its `catch` handles only `\Exception`, so the `\Error` escapes. Whether it also fails in the browser is not known. In the run the model fell back to `get_page_blocks` and `get_block_controller_data`.
+  - **2. `batch_update_content_headings` failed for a missing `headingTexts`.** In 05 the model called it without `headingTexts`, which explicit mode requires, so it failed. The model then used `update_block_in_page_area` twice. That tool creates new blocks (777, 778 in the run) and the approved version was left unchanged.
+  - **3. The tools' request-parameter branch looks dead; the context comes from the session.** `resolveCurrentContextPage` reads `pageID`/`pagePath`/`pageTitle`/`pageUrl` from `make('request')`. That container entry is not bound, so under the CLI it returns a fresh empty `Request` each time. The runner's first version set the parameters on `Request::getInstance()` and `get_current_page_context` failed (runner bug, fixed). The chat endpoint sets `$_SESSION['katalysis_neuron_ai_page_context']`, and that is what works, in the runner and in the browser. Not verified: whether `make('request')` is also an empty request in HTTP.
+  - **4. About 17.7k input tokens per request, because all tools are sent.** Even "What page am I on?" cost 17,722 in / 34 out. Evidence for P3.2.
+  - **Also seen, not on Glyn's list:** `batch_update_content_headings` changes the approved version. In an earlier run with a stub agent calling it directly with both headings, the approved version's blocks changed (`live_version_unchanged` failed) and one of the two headings was reported not found. That call was mine, not a model's, so P1.5 needs to confirm it. Recorded as P1.8.
 - Plan changes proposed:
-  - `DELIVERY_PLAN.md`: P1.4's exit line and any other mention of a `neuron:eval` command (`tests/Scenarios/README.md` line 3 and `.claude/commands/finish-task.md` line 3 still say `neuron:eval`; I left them, as they weren't in the approved edit).
+  - Done in this PR (approved by Glyn): the `c5:exec` runner command in `CLAUDE.md` and `DELIVERY_PLAN.md` P1.4, the new P1.8 (commit `a655a53`), and the stale `neuron:eval` mentions in `tests/Scenarios/README.md` and `.claude/commands/finish-task.md` (commit `7d0e899`).
   - `DELIVERY_PLAN.md`: the Phase 1 Exit line could mention P1.8 next to P1.7.
-  - P1.5 should run with `--repeat` (3 is a sensible start) before it decides a scenario's baseline, because a single run of a model-driven scenario isn't stable (05 used a different tool path from the one the stub assumed).
+  - P1.5 runs with `--repeat=3` (agreed by Glyn), because a single run of a model-driven scenario isn't stable (05 used a different tool path from the one the stub assumed).
   - P1.6/P3: either bind `request` properly or remove the request-parameter branch in `resolveCurrentContextPage`; and catch `\Throwable` around the `PageView` render in `get_page_content`.
   - Fix or confirm the 11 array schemas later (P2.3), now with the evidence that OpenAI accepted them in these runs.
-- Questions for review:
-  - Should the PLAN commit stay on this branch, or go to `development` directly as earlier PLAN commits did? I made it a separate commit here, so it can be cherry-picked.
-  - Is a PHP session started inside the runner acceptable? It's the closest match to `controllers/chat.php`, and it writes and then deletes one session file in the system temp folder.
+- Questions for review (answered by Glyn):
+  - The PLAN commit stays on this branch and merges with the PR.
+  - A native PHP session in the runner is acceptable, as long as its temp file is cleaned up. The runner destroys the session in its `finally` block (`ScenarioRunner::endSession()`). I checked PHP's temp folder after the runs: no `sess_*` file from the runner is left (the one there came from my own throwaway debug script, and I removed it).
 
 ### 2026-10-19: P1.3 PHPUnit setup
 - Branch / PR: `task/P1.3-phpunit-setup` (PR #8, merged). Commits: `533c621` (setup, bootstrap, registry test) and `f6b6088` (guard moved into the boot function, unit-tested checks), both with the `P1.3:` prefix.
