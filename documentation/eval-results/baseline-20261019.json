@@ -5461,6 +5461,70 @@
             }
         }
     },
+    "amendments": [
+        {
+            "date": "2026-10-19",
+            "task": "P1.5a",
+            "scenario": "07-move-content-between-block-types",
+            "reason": "Fixture gap: neuron_editor had no add-block permission on the Main area, so add_block_to_page_area was refused in all 3 baseline runs. The seed now grants add-block (all block types) on the Main area of \/neuron-test\/headings only.",
+            "fixtureCommit": "6c76fe9",
+            "old": {
+                "label": "fail",
+                "runs": "3\/3 fail",
+                "commit": "1191505",
+                "usage": {
+                    "input": 117996,
+                    "output": 684
+                }
+            },
+            "new": {
+                "label": "pass",
+                "stable": false,
+                "runs": "2\/3 pass, 1\/3 fail",
+                "startedAt": "2026-10-19 16:33:32",
+                "runFile": "20261019-163332 (local, not committed)",
+                "commit": "6c76fe9",
+                "perRun": [
+                    {
+                        "n": 1,
+                        "outcome": "fail",
+                        "failedChecks": ["blocks: \/neuron-test\/headings has html block"],
+                        "usage": {
+                            "input": 36598,
+                            "output": 213
+                        }
+                    },
+                    {
+                        "n": 2,
+                        "outcome": "pass",
+                        "failedChecks": [],
+                        "usage": {
+                            "input": 36598,
+                            "output": 213
+                        }
+                    },
+                    {
+                        "n": 3,
+                        "outcome": "pass",
+                        "failedChecks": [],
+                        "usage": {
+                            "input": 36613,
+                            "output": 219
+                        }
+                    }
+                ],
+                "usage": {
+                    "input": 109809,
+                    "output": 645
+                }
+            },
+            "totalsByBaselineLabel": {
+                "pass": 6,
+                "partial": 4,
+                "fail": 8
+            }
+        }
+    ],
     "schema": 1,
     "totals": {
         "runs": 54,

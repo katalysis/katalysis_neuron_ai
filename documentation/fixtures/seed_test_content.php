@@ -25,6 +25,7 @@
  * the script refuses to run unless the site's canonical URL is a .test, .localhost or localhost host.
  */
 
+use Concrete\Core\Area\Area;
 use Concrete\Core\Area\ContainerArea;
 use Concrete\Core\Block\Block;
 use Concrete\Core\Block\BlockType\BlockType;
@@ -38,6 +39,8 @@ use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
+use Concrete\Core\Permission\Access\Entity\UserEntity;
+use Concrete\Core\Permission\Key\Key as PermissionKey;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Support\Facade\Express;
 use Concrete\Core\Tree\Node\Node as TreeNode;
@@ -159,6 +162,8 @@ return (function () use ($args, $output) {
         // the page and the user leaves them behind. Remember the ones that belong only to this fixture.
         $editorEntityID = 0;
         $fixtureAccessIDs = [];
+        $fixtureAreaAccessIDs = [];
+        $fixtureAreaCID = 0;
         if ($user) {
             $editorEntityID = (int) $db->fetchOne('SELECT peID FROM PermissionAccessEntityUsers WHERE uID = ?', [$user->getUserID()]);
             if ($editorEntityID && $page) {
@@ -169,11 +174,29 @@ return (function () use ($args, $output) {
                     [$page->getCollectionID(), $editorEntityID]
                 ));
             }
+            // The Main-area add-block grant on /headings (P1.5a). Only an access that lists the editor is ours: the
+            // copies of the global add_block access that Concrete makes for an overridden area never list the editor.
+            $headingsPage = Page::getByPath($pagePath . '/headings');
+            if ($editorEntityID && $headingsPage && !$headingsPage->isError()) {
+                $fixtureAreaCID = (int) $headingsPage->getCollectionID();
+                $fixtureAreaAccessIDs = array_map('intval', $db->fetchFirstColumn(
+                    'SELECT DISTINCT apa.paID FROM AreaPermissionAssignments apa'
+                    . ' JOIN PermissionKeys pk ON pk.pkID = apa.pkID AND pk.pkHandle = ?'
+                    . ' JOIN PermissionAccessList pal ON pal.paID = apa.paID'
+                    . ' WHERE apa.cID = ? AND pal.peID = ?',
+                    ['add_block_to_area', $headingsPage->getCollectionID(), $editorEntityID]
+                ));
+            }
         }
 
         if ($page) {
             $page->delete();
             $output->writeln('  deleted page tree ' . $pagePath);
+        }
+        // Deleting a page leaves the area permission rows of an overridden area behind. Remove the ones for the page
+        // remembered above (the page no longer exists), so the checks below see what is really still in use.
+        if ($fixtureAreaCID && (int) $db->fetchOne('SELECT COUNT(*) FROM Pages WHERE cID = ?', [$fixtureAreaCID]) === 0) {
+            $db->executeStatement('DELETE FROM AreaPermissionAssignments WHERE cID = ?', [$fixtureAreaCID]);
         }
         if ($hasPeople) {
             foreach ($findPersonIDs() as $sID) {
@@ -226,6 +249,17 @@ return (function () use ($args, $output) {
             $inUse = (int) $db->fetchOne('SELECT COUNT(*) FROM PagePermissionAssignments WHERE paID = ?', [$paID])
                 + (int) $db->fetchOne('SELECT COUNT(*) FROM AreaPermissionAssignments WHERE paID = ?', [$paID]);
             if ($inUse === 0) {
+                $db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
+                $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
+            }
+        }
+        foreach ($fixtureAreaAccessIDs as $paID) {
+            $inUse = (int) $db->fetchOne('SELECT COUNT(*) FROM PagePermissionAssignments WHERE paID = ?', [$paID])
+                + (int) $db->fetchOne('SELECT COUNT(*) FROM AreaPermissionAssignments WHERE paID = ?', [$paID])
+                + (int) $db->fetchOne('SELECT COUNT(*) FROM PermissionAssignments WHERE paID = ?', [$paID]);
+            if ($inUse === 0) {
+                $db->executeStatement('DELETE FROM AreaPermissionBlockTypeAccessList WHERE paID = ?', [$paID]);
+                $db->executeStatement('DELETE FROM AreaPermissionBlockTypeAccessListCustom WHERE paID = ?', [$paID]);
                 $db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
                 $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
             }
@@ -431,6 +465,17 @@ return (function () use ($args, $output) {
     $headings->addBlock($contentType, 'Main', ['content' =>
         '<h2>Seed Closing Heading</h2><p>A short closing paragraph.</p>',
     ]);
+
+    // Scenario 07 adds a block to this page's Main area. Adding a block is governed by the global block-type key, which
+    // the page grant above doesn't cover, so the Main area on this one page gets its own copy of the page's permissions
+    // plus an add-block entry for the editor (all block types). No other page or area is changed.
+    $headingsMain = Area::getOrCreate($headings, 'Main');
+    $headingsMain->overridePagePermissions();
+    $addBlockKey = PermissionKey::getByHandle('add_block_to_area');
+    $addBlockKey->setPermissionObject($headingsMain);
+    $addBlockAccess = $addBlockKey->getPermissionAccessObject()->duplicate();
+    $addBlockAccess->addListItem(UserEntity::getOrCreate($user));
+    $addBlockKey->getPermissionAssignmentObject()->assignPermissionAccess($addBlockAccess);
 
     // 2. A container block with nested blocks: bold-paragraph headings in column 1, h2/h3 headings in column 2.
     $columns = $addPage($root, 'Columns', 'columns');
