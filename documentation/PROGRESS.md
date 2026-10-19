@@ -4,8 +4,8 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.2 (golden scenarios, PR #7). Before that, P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
-- **Next open:** P1.3 (PHPUnit setup), then P1.4 (scenario runner). P1.7 (chat endpoint security fix) can be done any time in Phase 1 and must be done before Neuron is installed on any non-dev site.
+- **Last completed:** P1.3 (PHPUnit setup, PR open). Before that, P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Next open:** P1.4 (scenario runner). P1.7 (chat endpoint security fix) can be done any time in Phase 1 and must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** not recorded yet (P1.5)
 
 ## Decisions
@@ -43,6 +43,33 @@ Record decisions that change the plan or design, with the date and who made them
 
 ## Log
 (newest first)
+
+### 2026-10-19: P1.3 PHPUnit setup
+- Branch / PR: `task/P1.3-phpunit-setup` (PR open, number to be added). Commits: `533c621` (setup, bootstrap, registry test) and `f6b6088` (guard moved into the boot function, unit-tested checks), both with the `P1.3:` prefix.
+- Done:
+  - **PHPUnit 11.5 as dev tooling:** `composer.dev.json` and its lock file install into `tools/phpunit/` (gitignored). The shipped `composer.json` and the bundled `vendor/` are unchanged. Run with Herd's PHP: `php tools/phpunit/vendor/bin/phpunit` (options in `SETUP.md`).
+  - **Two suites** in `phpunit.xml.dist`:
+    - `unit` doesn't boot Concrete and doesn't need the dev site.
+    - `integration` boots Concrete against the dev database.
+  - **One boot path, with the guard inside it.** `tests/Support/ConcreteBoot.php` is the only code that boots Concrete. `boot()` checks that the canonical URL is a `.test`, `.localhost` or `localhost` host (same rule as the seed script) before it returns the application, and ends the process if not. Integration tests extend `ConcreteTestCase`, which boots in `setUpBeforeClass()`. Booting there, rather than in `setUp()`, keeps Concrete's own error and exception handlers out of PHPUnit's per-test check, which otherwise flagged the first test as risky and reported 9 deprecations from Concrete code.
+  - **`tests/Integration/ToolRegistryTest.php`** (the registry test for P2.3, also a guard for the P1.6 collision rule). It builds the agent's tool list through the agent's own `getTools()`, flattens the toolkits, and never touches the provider or an API key. It checks name, description, input schema and duplicate names across all tools. Building the list needed no page or user context, so it doesn't use `neuron_editor` or `/neuron-test`.
+  - **The checks can fail, and that is tested.** Duplicate-name and array-items detection live in `tests/Support/ToolListChecks.php`. `tests/Unit/ToolListChecksTest.php` feeds them synthetic tools (a duplicate, three copies of one name, an array without items, arrays with items) and asserts what they report.
+  - **Docs:** `SETUP.md` has a "Running the PHPUnit tests" section. `CLAUDE.md` Testing has the corrected command and the standing rule that no test may call the AI provider or use an API key (both approved by Glyn).
+- Not done / left for later:
+  - No tool-level tests (new tools and the P3.5 denied-case tests come later), no scenario runner (P1.4), no CI.
+  - **11 array properties have no `items` in their JSON schema** (e.g. `batch_update_page_content.blocks`, `create_page_attribute.options`, `update_person_topics.topic_ids`): they're declared as a bare `PropertyType::ARRAY`. Neuron passes the schema to the provider unchanged. I haven't called OpenAI, so I don't know whether it rejects them. `testArrayPropertiesDeclareItems` has an explicit allowlist of the 11: a new array without `items` fails, and so does an allowlist entry that has been fixed but not removed. I didn't fix the tools, because that means editing write tools outside P1.3.
+  - Booting Concrete reads the dev database before the guard can see the site URL (the canonical URL is read from site config). The guard stops the tests from running further; it doesn't stop that first read. It is documented in `SETUP.md`.
+- Checks: PHPUnit `unit` 20 tests OK, `integration` 8 tests OK, full run 28 tests, 108 assertions, exit 0. Scenarios not applicable (no runner yet, no baseline). Manual:
+  - **Read-only:** per-table row counts for all 608 tables other than `Logs` were identical before and after a full run.
+  - **Guard:** with the `.test` suffix temporarily changed in `ConcreteBoot.php` (restored afterwards), the integration suite refused to run ("Refusing to run tests: the canonical URL ... is not a ... dev host", exit 1). The unit suite still ran, and its host-rule tests failed as expected.
+  - **Unit suite doesn't boot Concrete:** a unit test in a separate process asserts that `C5_EXECUTE` and `DIR_BASE` are undefined.
+  - Unit, integration and full runs all pass, in that order of loading. The package's bundled Guzzle loads before Concrete's autoloader in a full run and after it in an integration-only run (as in production); both pass.
+  - Not tested: a real duplicate tool name in the agent's list. The check is proved by the unit test on synthetic tools; the first real duplicate is expected in P1.6.
+- Plan changes proposed (I haven't edited the plan):
+  - Tick P1.3 in `DELIVERY_PLAN.md`. Reword its bootstrap sentence to say that only integration tests boot Concrete, through a guarded boot function, and that PHPUnit is installed from `composer.dev.json` into `tools/phpunit/`.
+  - **P2.2:** check Neuron 4's minimum PHP version. PHPUnit 11 needs PHP 8.2 or later, which is fine for Herd 8.4, but the package declares `^8.1`. If Neuron 4 needs 8.2 or later, the package's `^8.1` changes then, on purpose.
+  - **Array schemas:** if the first P1.4 run shows the provider rejecting the tool schemas (arrays without `items`), fixing the 11 arrays becomes a pre-baseline fix, its own small PR, before P1.5. Otherwise it stays with P2.3 / P3, and entries come off the allowlist as they are fixed.
+- Questions for review: none.
 
 ### 2026-10-19: P1.2 Golden scenarios
 - Branch / PR: `task/P1.2-golden-scenarios` (PR #7, merged). Commits: `b0a644c` (scenarios, seed, spec map), `d90c28b` (`PLAN:` CLAUDE.md rule change, approved by Glyn), `5b3a857` (review changes). After the merge, on `development`: scenario 3's names check made primary and its `known_to_fail_today` note corrected (its own `P1.2:` commit), and Glyn's `PLAN:` commit ticking P1.2 and moving scenario 8 under `/neuron-test`.
