@@ -167,10 +167,10 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   **Add a pre-boot guard to `ConcreteBoot`:** before booting, read `application/config/database.php` and refuse unless the database host is local (`127.0.0.1`, `localhost` or a socket), so no run can connect to a non-local database.
 - [x] P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade. Done: 18 scenarios × 3 runs on gpt-4o, recorded in `documentation/eval-results/baseline-20261019.md` and `.json` (majority labels: 5 pass, 4 partial, 9 fail; scenarios 11, 12 and 16 are unstable).
 - [x] P1.5a Fixture fix for scenario 07: give neuron_editor add-block permission on the Main area of /neuron-test/headings in the seed script, then re-run 07 only with --repeat=3 and append a dated amendment to the baseline files (reason, old and new result). No other baseline row changes. Done (PR #11).
-- P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
+- [x] P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios. Done (PR #13).
   - **Tool name collisions:** `katalysis_pro` defines its own `list_people`, as does the core `PeopleToolkit`. When an external tool has the same name as a core tool, the external, package-owned tool wins, the core one is dropped for that request, and a warning is logged. Add a PHPUnit test that the final tool list never contains duplicate names.
   - The core `PeopleToolkit` is removed for good in P3.10. Namespacing provider tool names is decided there.
-- P1.6a `add_block_to_page_area` description: make the block type choice explicit. List the common handles with one-line meanings (`content` = rich text; `html` = raw HTML; …) and require the handle the user asked for, not a substitute. Scenario 07 regressed with a larger tool list (P1.6), so the description, not the count, has to carry the choice. **Done before P1.6 merges.** Change only that tool's description; run 07 with `--repeat=5` and record the result.
+- [x] P1.6a `add_block_to_page_area` description: make the block type choice explicit. List the common handles with one-line meanings (`content` = rich text; `html` = raw HTML; …) and require the handle the user asked for, not a substitute. Scenario 07 regressed with a larger tool list (P1.6), so the description, not the count, has to carry the choice. **Done before P1.6 merges.** Change only that tool's description; run 07 with `--repeat=5` and record the result. Done (PR #12).
 - P1.7 **Security fix** (its own PR; any time in Phase 1). **Required before Neuron is installed on any non-dev site.**
   1. Every chat endpoint applies the same access check as the panel (B-ACC-1), server-side.
   2. `delete_file` is disabled (B-T1-11).
@@ -209,7 +209,7 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - Tiers are cumulative and map to Concrete groups chosen in settings: "Neuron AI – Content", "Neuron AI – Configure", "Neuron AI – Generate". Superusers get Tier 3 (B-ACC-9).
   - This replaces the settings-page access check.
   - Add `neuron_editor` to the Content group in the seed script.
-- P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/` and the root scripts.
+- P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/` and the root scripts. Describe each tool's input fields explicitly (e.g. the html block's field is `content`; scenario 07 failed with `htmlContent`).
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform

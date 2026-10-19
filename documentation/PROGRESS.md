@@ -4,8 +4,8 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.5a (scenario 07 fixture fix and baseline amendment, PR #11). Before that, P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
-- **Next open:** P1.7 (security fix, now also disables `approve_page_version`), P1.8 (draft edits must not change live content; confirmed by the baseline, so it must be merged) and P1.6 (load external toolkits). P1.7 and P1.8 must be done before Neuron is installed on any non-dev site.
+- **Last completed:** P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Next open:** P1.7 (security fix, now also disables `approve_page_version`; reuse `DisabledTools` from P1.6 for `delete_file`, `set_user_attribute_value` and `approve_page_version`) and P1.8 (draft edits must not change live content; confirmed by the baseline, so it must be merged). P1.7 and P1.8 must be done before Neuron is installed on any non-dev site. Open follow-ups: remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines (separate PR in that repo); P3.3 now includes explicit input-field descriptions.
 - **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26), **with one amendment (P1.5a, appended at the end of each file, so read it before comparing).** Majority labels: 6 pass (01, 02, 07, 12, 13, 15), 4 partial (03, 08, 10, 11), 8 fail (04, 05, 06, 09, 14, 16, 17, 18). Unstable: 07 (2 of 3), 11, 12, 16 (a comparison run uses `--repeat=5`).
 
 ## Decisions
