@@ -10,47 +10,41 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
 use PHPUnit\Framework\TestCase;
 
 /**
- * A filtered toolkit must keep the original's short name, because Neuron uses
- * it to title the toolkit's guidelines in the system prompt. No Concrete, no
+ * A filtered toolkit must keep the original's guidelines and name them, because
+ * Neuron titles every filtered toolkit "FilteredToolkit". No Concrete, no
  * database.
  */
 final class FilteredToolkitTest extends TestCase
 {
-    public function testItKeepsTheOriginalToolkitShortName(): void
+    public function testGuidelinesStartWithTheOriginalToolkitName(): void
     {
-        $original = new FilteredToolkitTestPagesToolkit();
+        $filtered = FilteredToolkit::from(new FilteredToolkitTestPagesToolkit(), [new Tool('keep', 'd')]);
 
-        $filtered = FilteredToolkit::from($original, [new Tool('keep', 'd')]);
-
-        $this->assertInstanceOf(FilteredToolkit::class, $filtered);
-        // What HandleTools::bootstrapTools() uses for the heading.
-        $this->assertSame('FilteredToolkitTestPagesToolkit', (new \ReflectionClass($filtered))->getShortName());
-        $this->assertSame('Pages guidance.', $filtered->guidelines());
+        $this->assertSame("Toolkit: FilteredToolkitTestPagesToolkit\nPages guidance.", $filtered->guidelines());
         $this->assertSame(['keep'], array_map(static fn ($t): string => $t->getName(), $filtered->tools()));
     }
 
-    public function testTheSameNameReusesTheGeneratedClass(): void
+    public function testAToolkitWithoutGuidelinesStaysWithoutThem(): void
     {
-        $original = new FilteredToolkitTestPagesToolkit();
-
-        $a = FilteredToolkit::from($original, []);
-        $b = FilteredToolkit::from($original, []);
-
-        $this->assertSame($a::class, $b::class);
+        // Neuron adds a title only when there is guideline text, so null must stay null.
+        $this->assertNull(FilteredToolkit::from(new FilteredToolkitTestNoGuidelinesToolkit(), [])->guidelines());
     }
 
-    public function testAnAnonymousToolkitFallsBackToTheDefaultName(): void
+    public function testAnAnonymousToolkitKeepsItsGuidelinesWithoutAName(): void
     {
         $original = new class () extends AbstractToolkit {
+            public function guidelines(): ?string
+            {
+                return 'Anonymous guidance.';
+            }
+
             public function provide(): array
             {
                 return [];
             }
         };
 
-        $filtered = FilteredToolkit::from($original, []);
-
-        $this->assertSame(FilteredToolkit::class, $filtered::class);
+        $this->assertSame('Anonymous guidance.', FilteredToolkit::from($original, [])->guidelines());
     }
 }
 
@@ -64,5 +58,13 @@ final class FilteredToolkitTestPagesToolkit extends AbstractToolkit
     public function provide(): array
     {
         return [new Tool('a', 'd'), new Tool('keep', 'd')];
+    }
+}
+
+final class FilteredToolkitTestNoGuidelinesToolkit extends AbstractToolkit
+{
+    public function provide(): array
+    {
+        return [new Tool('a', 'd')];
     }
 }

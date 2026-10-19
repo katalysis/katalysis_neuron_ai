@@ -16,23 +16,27 @@ use NeuronAI\Tools\Toolkits\ToolkitInterface;
  * objects, so a single tool can't be dropped by name that way. Used by
  * ToolNameResolver and DisabledTools.
  *
- * Neuron titles a toolkit's guidelines in the system prompt with the toolkit's
- * class short name (HandleTools::bootstrapTools). So that the prompt still
- * says "PagesToolkit" and not "FilteredToolkit", from() returns an instance of
- * a trivial subclass that has the original's short name, in the namespace
- * Katalysis\NeuronAi\Tools\FilteredAs. These subclasses are generated at
- * runtime, once per short name; the name is checked to be a plain identifier
- * first, and anything else falls back to FilteredToolkit itself.
+ * Why a wrapper and not a filter on the agent's flattened tool list: Neuron
+ * (HandleTools::bootstrapTools) builds the guideline text, including the list
+ * of each toolkit's tool names, from the original toolkit's own tools(). A
+ * filter applied afterwards would leave dropped and disabled tool names in the
+ * prompt. The wrapper keeps that list correct.
+ *
+ * Neuron titles a toolkit's guidelines with the toolkit's class short name,
+ * which can't be changed, so the title is "FilteredToolkit". To keep the
+ * original name visible to the model, the guidelines start with a line naming
+ * the original toolkit.
  */
-class FilteredToolkit extends AbstractToolkit
+final class FilteredToolkit extends AbstractToolkit
 {
-    private const GENERATED_NAMESPACE = 'Katalysis\\NeuronAi\\Tools\\FilteredAs';
-
     /**
      * @param ToolInterface[] $tools
      */
-    public function __construct(private readonly array $tools, private readonly ?string $guidelines = null)
-    {
+    public function __construct(
+        private readonly array $tools,
+        private readonly ?string $guidelines = null,
+        private readonly ?string $originalName = null
+    ) {
     }
 
     /**
@@ -40,44 +44,26 @@ class FilteredToolkit extends AbstractToolkit
      */
     public static function from(ToolkitInterface $original, array $tools): self
     {
-        $class = self::classNamed((new \ReflectionClass($original))->getShortName());
+        $shortName = (new \ReflectionClass($original))->getShortName();
 
-        return new $class(array_values($tools), $original->guidelines());
+        // An anonymous class has no usable name ("class@anonymous" plus a path).
+        $name = preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $shortName) === 1 ? $shortName : null;
+
+        return new self(array_values($tools), $original->guidelines(), $name);
     }
 
     public function guidelines(): ?string
     {
-        return $this->guidelines;
+        // Neuron adds the guidelines (and the title) only when there is text, so keep null/empty as it is.
+        if ($this->guidelines === null || $this->guidelines === '' || $this->originalName === null) {
+            return $this->guidelines;
+        }
+
+        return 'Toolkit: ' . $this->originalName . PHP_EOL . $this->guidelines;
     }
 
     public function provide(): array
     {
         return $this->tools;
-    }
-
-    /**
-     * @return class-string<self>
-     */
-    private static function classNamed(string $shortName): string
-    {
-        // Anonymous classes ("class@anonymous\0/path...") and anything else that isn't a
-        // plain identifier keep the default name.
-        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $shortName) !== 1) {
-            return self::class;
-        }
-
-        $fqcn = self::GENERATED_NAMESPACE . '\\' . $shortName;
-        if (class_exists($fqcn, false)) {
-            return $fqcn;
-        }
-
-        try {
-            // $shortName passed the identifier check above, so nothing else can reach the code.
-            eval(sprintf('namespace %s; final class %s extends \\%s {}', self::GENERATED_NAMESPACE, $shortName, self::class));
-        } catch (\Throwable) {
-            return self::class;
-        }
-
-        return class_exists($fqcn, false) ? $fqcn : self::class;
     }
 }
