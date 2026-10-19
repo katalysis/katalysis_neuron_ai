@@ -129,7 +129,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
 
 ### Phase 1: Behaviour spec and baseline (M)
 - [x] P1.1 Write `documentation/BEHAVIOUR_SPEC.md`: what the assistant must do, must ask about, and must refuse, per tier. Done (PR #6): 80 rules with IDs, a "Today" status for each, and decisions 1–14 in §10.
-- P1.2 Write about 15–20 golden scenarios (`tests/Scenarios/*.yaml`), each with a starting fixture, a prompt, the expected end state or answer, and **the `BEHAVIOUR_SPEC.md` rule IDs it checks**:
+- [x] P1.2 Write about 15–20 golden scenarios (`tests/Scenarios/*.yaml`), each with a starting fixture, a prompt, the expected end state or answer, and **the `BEHAVIOUR_SPEC.md` rule IDs it checks**. Done: 18 scenarios (the 15 below plus 16 injection, 17 multi-page confirmation and 18 file delete), with the format in `tests/Scenarios/README.md`:
   1. "What page am I on?"
   2. "How many content blocks are on this page?"
   3. "List the people on the site." (needs the external toolkit, so it fails today)
@@ -137,7 +137,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   5. Change all h3 headings to h2 on this page, with the body text unchanged
   6. Turn bold-paragraph headings in column 1 into h3
   7. Move the content of a Content block into another block type
-  8. Create a child page under /about with a given page type
+  8. Create a child page under /neuron-test with a given page type
   9. Move a page
   10. Update a page attribute
   11. A non-admin editor asks to delete a page → refused, with the reason
