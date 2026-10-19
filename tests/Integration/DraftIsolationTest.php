@@ -22,6 +22,8 @@ use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\AttributesToolkit;
+use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
 use NeuronAI\Tools\ToolInterface;
 
@@ -515,6 +517,160 @@ final class DraftIsolationTest extends ConcreteTestCase
         $draftText = $this->contentOf($draft['blocks']);
         $this->assertStringContainsString('First added block', $draftText);
         $this->assertStringContainsString('Second added block', $draftText);
+    }
+
+    // ---- Page attributes and versions toolkits -----------------------------
+
+    private function callAttributesTool(object $toolkit, string $name, array $inputs): string
+    {
+        return $this->runTool($toolkit->tools(), $name, $inputs);
+    }
+
+    /**
+     * A value of a text or textarea page attribute in one version, read from the database.
+     */
+    private function attributeValue(int $cID, int $cvID, string $handle): ?string
+    {
+        $value = $this->db()->fetchOne(
+            'SELECT ad.value FROM CollectionAttributeValues cav
+             JOIN AttributeKeys ak ON ak.akID = cav.akID
+             JOIN atDefault ad ON ad.avID = cav.avID
+             WHERE cav.cID = ? AND cav.cvID = ? AND ak.akHandle = ?',
+            [$cID, $cvID, $handle]
+        );
+
+        return $value === false ? null : (string) $value;
+    }
+
+    /**
+     * Gives the approved version of the page meta_title and meta_description values, so the
+     * draft starts with attribute values that the live version also holds.
+     */
+    private function giveLiveVersionAttributes(int $cID): void
+    {
+        $this->actAs('superuser');
+        $page = Page::getByID($cID, 'ACTIVE');
+        $page->setAttribute('meta_title', 'Live title');
+        $page->setAttribute('meta_description', 'Live description');
+        $this->actAs('neuron_editor');
+    }
+
+    private function assertLiveAttributesUntouched(int $cID): void
+    {
+        $liveVersion = $this->approved($cID)['cvID'];
+        $this->assertSame('Live title', $this->attributeValue($cID, $liveVersion, 'meta_title'), 'The live meta_title must be unchanged');
+        $this->assertSame('Live description', $this->attributeValue($cID, $liveVersion, 'meta_description'), 'The live meta_description must be unchanged');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('attributeToolkits')]
+    public function testTwoAttributeWritesInOneRequestShareOneDraft(string $toolkitClass): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->giveLiveVersionAttributes($cID);
+        $before = $this->approved($cID);
+        $toolkit = new $toolkitClass();
+
+        $this->callAttributesTool($toolkit, 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_title', 'value' => 'Draft title']);
+        $this->callAttributesTool($toolkit, 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_description', 'value' => 'Draft description']);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'Both writes go to the same draft');
+        $this->assertLiveAttributesUntouched($cID);
+        $draftVersion = $this->draft($cID)['cvID'];
+        $this->assertSame('Draft title', $this->attributeValue($cID, $draftVersion, 'meta_title'));
+        $this->assertSame('Draft description', $this->attributeValue($cID, $draftVersion, 'meta_description'));
+    }
+
+    /**
+     * @return array<string, array{class-string}>
+     */
+    public static function attributeToolkits(): array
+    {
+        return [
+            'PageAttributesToolkit' => [PageAttributesToolkit::class],
+            'AttributesToolkit' => [AttributesToolkit::class],
+        ];
+    }
+
+    public function testAttributeWriteAfterAnotherToolsDraftUsesThatDraftWhenThePageIsFoundByName(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->giveLiveVersionAttributes($cID);
+        $before = $this->approved($cID);
+        $name = (string) $this->db()->fetchOne('SELECT cvName FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1', [$cID]);
+
+        // Another tool makes the draft first. A page found by name comes from a page list, as its approved version.
+        $this->callPagesTool('update_page', ['pageID' => $cID, 'description' => 'A draft description']);
+        $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageName' => $name, 'handle' => 'meta_title', 'value' => 'Draft title']);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'The attribute goes to the draft that already exists');
+        $this->assertLiveAttributesUntouched($cID);
+        $this->assertSame('Draft title', $this->attributeValue($cID, $this->draft($cID)['cvID'], 'meta_title'));
+        $this->assertSame('A draft description', (string) $this->db()->fetchOne('SELECT cvDescription FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 0', [$cID]), 'The other tool\'s edit is still there');
+    }
+
+    public function testARefusedAttributeWriteLeavesNoDraftBehind(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $before = $this->versions($cID);
+
+        try {
+            $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'no_such_attribute_handle', 'value' => 'x']);
+            $this->fail('An unknown attribute should be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('not found', $e->getMessage());
+        }
+
+        $this->assertSame($before, $this->versions($cID), 'A refused write must not make a draft');
+    }
+
+    public function testCreatePageDraftReusesAnExistingDraftAndSaysSo(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $versions = new VersionsToolkit();
+
+        $first = $this->callAttributesTool($versions, 'create_page_draft', ['pageID' => $cID]);
+        $this->assertStringContainsString('created draft v2', $first);
+        $second = $this->callAttributesTool($versions, 'create_page_draft', ['pageID' => $cID]);
+        $this->assertStringContainsString('reused existing draft v2', $second);
+
+        $this->assertCount(2, $this->versions($cID), 'Calling it twice makes one draft');
+    }
+
+    public function testEditsAfterCreatePageDraftAllLandInThatDraft(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->giveLiveVersionAttributes($cID);
+        $before = $this->approved($cID);
+
+        $this->callAttributesTool(new VersionsToolkit(), 'create_page_draft', ['pageID' => $cID]);
+        $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_title', 'value' => 'Draft title']);
+        $this->callPagesTool('update_page', ['pageID' => $cID, 'description' => 'A draft description']);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'Three tools, one draft');
+        $this->assertLiveAttributesUntouched($cID);
+        $draftVersion = $this->draft($cID)['cvID'];
+        $this->assertSame('Draft title', $this->attributeValue($cID, $draftVersion, 'meta_title'));
+        $this->assertSame('A draft description', (string) $this->db()->fetchOne('SELECT cvDescription FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 0', [$cID]));
+    }
+
+    public function testCreatePageDraftBasedOnAnOlderVersionMakesANewDraftThatLaterWritesUse(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->callAttributesTool(new VersionsToolkit(), 'create_page_draft', ['pageID' => $cID]);
+        $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_title', 'value' => 'In the first draft']);
+
+        $result = $this->callAttributesTool(new VersionsToolkit(), 'create_page_draft', ['pageID' => $cID, 'basedOnVersionID' => $this->approved($cID)['cvID']]);
+        $this->assertStringContainsString('created draft v3', $result);
+        $this->callAttributesTool(new PageAttributesToolkit(), 'set_page_attribute_value', ['pageID' => $cID, 'handle' => 'meta_description', 'value' => 'In the new draft']);
+
+        $this->assertCount(3, $this->versions($cID), 'The approved version and two drafts');
+        $this->assertSame('In the new draft', $this->attributeValue($cID, 3, 'meta_description'));
+        $this->assertNull($this->attributeValue($cID, 3, 'meta_title'), 'The new draft was cloned from the approved version, not the first draft');
+        $this->assertNull($this->attributeValue($cID, 2, 'meta_description'), 'The first draft is untouched by the later write');
+        $this->assertSame('In the first draft', $this->attributeValue($cID, 2, 'meta_title'));
     }
 
     // ---- Delete ------------------------------------------------------------
