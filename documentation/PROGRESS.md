@@ -4,8 +4,8 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.7 (security fix: endpoint access check, CSRF token, three tools disabled, PR #14), P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
-- **Next open:** P1.8 (draft edits must not change live content; confirmed by the baseline, so it must be merged; now also includes `update_page` refusing `pageType` changes) and P1.9 (page context across navigation, B-CTX-1, scenario 19). P1.7 and P1.8 must be done before Neuron is installed on any non-dev site. Open follow-ups: remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines (separate PR in that repo); P3.3 now includes explicit input-field descriptions.
+- **Last completed:** P1.8 (draft edits no longer change live content; PR pending merge), P1.7 (security fix: endpoint access check, CSRF token, three tools disabled, PR #14), P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Next open:** P1.8a (remaining draft-isolation gaps: the other three toolkits, and nested blocks refused in `batch_update_page_content`) and then P1.9 (page context across navigation, B-CTX-1, scenario 19). Each starts in a fresh session with a plan for review before any code. P1.7 and P1.8 must be done before Neuron is installed on any non-dev site. Open follow-ups: remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines (separate PR in that repo); P3.3 now includes explicit input-field descriptions.
 - **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26), **with one amendment (P1.5a, appended at the end of each file, so read it before comparing).** Majority labels: 6 pass (01, 02, 07, 12, 13, 15), 4 partial (03, 08, 10, 11), 8 fail (04, 05, 06, 09, 14, 16, 17, 18). Unstable: 07 (2 of 3), 11, 12, 16 (a comparison run uses `--repeat=5`).
 
 ## Decisions
@@ -43,6 +43,60 @@ Record decisions that change the plan or design, with the date and who made them
 
 ## Log
 (newest first)
+
+### 2026-10-19: P1.8 Draft edits must not change live content
+- Branch / PR: `task/P1.8-draft-edits-isolated`, PR pending. Commits: `822a965` (batch tools copy shared blocks, plus `DraftIsolationTest`), `85c6ef2` (one draft per edit), `4a3e858` (block delete in a draft), `bb36ff3` (`update_page` refuses page type changes), `47a902c` (EPRA sync tool disabled), `4dcde5a` (`PLAN:` P1.8a, approved by Glyn), and the PROGRESS commit.
+- Done:
+  - **Probe first** (as `neuron_editor` on `/neuron-test` pages only, after a DB snapshot, `~/Herd/backups/prodb_before_P1.8_*.sql`, kept outside git). It confirmed:
+    - `batch_update_page_content` and `batch_update_content_headings` changed the **live** block: the draft shared the block ID with the approved version.
+    - `batch_update_content_headings` made a new draft on each call.
+    - `update_block_in_page_area` and `move_block_between_areas` made two drafts (the live version was untouched, the core trait copies the block).
+    - A refused `move_block_between_areas` still left a stray draft.
+    - `delete_block_from_page_area` deleted the block from the **live** version with no draft.
+    - Containers: the core `getBlockToEdit` copies nested blocks correctly (new block IDs in the same sub-area, live untouched), so the plan's stop condition didn't apply.
+  - **Commit 1, shared blocks.** `batch_update_page_content` and the headings tool call the core `getBlockToEdit()` (copy-on-write) before they change a block, and use the copy's ID. The headings tool now reads only the draft's blocks. `includeInactive` on it is ignored.
+  - **Commit 2, one draft per edit.** New `getDraftOf(Page)` in `PagesToolkit`. It makes the draft once and puts it in the request cache, so later tool calls in the same request edit the same draft. `update_block_in_page_area` and `move_block_between_areas` check permissions and input first and make the draft only then, so a refused write leaves no draft. `update_page` uses `getDraftOf` too.
+  - **Commit 3, delete.** `delete_block_from_page_area` deletes through `DeleteBlockCommand` on the draft's version. The live version keeps the block. Discarding the draft restores everything.
+  - **Commit 4, page type.** `update_page` no longer writes `Pages.ptID`. A `pageType` that differs from the page's current one gets an error saying a person must change the page type in the CMS. The current type is accepted and ignored. The property description says so.
+  - **Commit 5, EPRA sync.** `sync_multi_links_to_epra_resources_list` is in `DisabledTools` (reason: writes to the live version; EPRA-only; moves out in P3.4). Its code is untouched. `DisabledToolsTest` and `tool-classification.txt` (write to off) are updated.
+  - **Tests:** new `tests/Integration/DraftIsolationTest.php`, 14 tests. It builds throwaway pages under `/neuron-test` from scratch (not copies of the seeded pages) and deletes them afterwards. Covered:
+    - both batch tools leave the approved version unchanged
+    - nested column blocks are copied
+    - undo: discarding the draft after an edit leaves the page as it was, with no stray blocks
+    - delete: the block is gone from the draft only, and discarding the draft brings it back
+    - repeated and mixed tool calls make one draft
+    - a refused move and a refused update leave no draft
+    - `update_page` refuses a page type change and still renames in a draft
+    Each fix's tests failed without it and pass with it.
+  - **Behaviour that changes for the model:** after a copy-on-write the block has a **new block ID**. The tool's own output still shows the old one (see Known issues).
+- Found:
+  - **The stale `RECENT` cache was hidden by the shared blocks.** `Page::getByID($id, 'RECENT')` is cached for the request, so a second write clones the old version and loses the first. Fixing the shared blocks exposed it. `getDraftOf()` fixes it for `PagesToolkit`.
+  - **The same pattern is still in `PageAttributesToolkit`, `AttributesToolkit` and `VersionsToolkit`** (direct `getVersionToModify()` calls). Not changed here. Now P1.8a (a).
+  - **`batch_update_page_content` can't address nested blocks.** The block ID remap fails and leaves a stray draft. The live version is unchanged. Now P1.8a (b), refusal before any draft.
+- Not done / left for later: P1.8a, and the P3.3 notes (both listed under Plan changes proposed).
+- Known issues:
+  - **Double update in `update_block_in_page_area`:** `UpdatePageBlockCommand` and then `$blockToEdit->update()`. Harmless, left alone (P3.3, unless P1.8a fixes it).
+  - **4 orphan `Blocks` rows** (no row in `CollectionVersionBlocks`): bIDs 41 (`core_scrapbook_display`), 43 (`katalysis_feature_box`), 54 (`katalysis_people`) and 256 (`katalysis_reviews`), added 27 March to 29 April 2026. I checked after a `--reset` reseed: the same 4, no more and no fewer, so neither the seed nor these tests create them. They predate this task. Not deleted. They may be referenced from another table (scrapbook, for example), so they are not confirmed garbage.
+  - **A reused block ID in scenario 05:** in 2 of the 6 scenario 05 runs (the `--repeat=3` run, and the full run) the model made one successful `batch_update_page_content` call, then called it again with the old block ID, which the copy had replaced. That call failed with "Cannot remap block ... block not found in the pre-update page layout". The model recovered by calling `get_page_blocks` and using the new ID. Proposed fix: P3.3 returns the new IDs in the tool output.
+  - **`includeInactive`** on `batch_update_content_headings` is ignored, and its description says so (P3.3 removes it).
+- Checks:
+  - PHPUnit 156 tests, 913 assertions, OK (was 142 / 730). Lint clean.
+  - Scenario 05 ×3 (`20261019-180907`) and 06 ×3 (`20261019-181005`), gpt-4o, code `47a902c`:
+    - `live_version_unchanged` is not reported as failed in any run: **6 of 6 on 05, 3 of 3 on 06**. The baseline failed it in 2 of 3 and 3 of 3.
+    - 05 is still not a pass overall (full run: 1 partial, 2 fail; baseline 3 fail). The failures I looked at are the model's choice of heading mode and a reply without the draft and undo wording, not a live-version change.
+    - **06 heading choice (reported separately, as agreed):** 3 of 3 fail, as in the baseline. Heading A becomes h3 but Heading B does not, and `<strong>` is still present in Column 1.
+  - Full run ×3 (`20261019-181030`, local and gitignored; 54 runs, about $3.97, upper bound): **21 pass, 14 partial, 19 fail** (baseline 16, 12, 26).
+    - No pass to fail or partial to fail, by majority label or by individual run against the amended baseline. **No pass to partial** to list.
+    - Better: 07 3 of 3 pass (amended baseline 2 of 3), 11 2 of 3 pass (baseline 1 of 3), 18 1 pass and 2 partial (baseline 3 fail; this is P1.7's `delete_file` change, not P1.8), 05 1 partial (baseline 3 fail). The rest are unchanged, including 12 and 16 (unstable).
+  - Seed reset at the end; the fixture is clean.
+  - Not checked: a browser run of the panel. The changes are in tools only.
+- Plan changes proposed:
+  - Tick P1.8 with the PR number after the merge (`PLAN:` commit on `development`).
+  - Already in the branch, as `4dcde5a` at Glyn's request: P1.8a added, with P1.8a in the Phase 1 exit, and four P1.8 follow-ups under P3.3.
+  - No other plan or design doc changed.
+- Questions for review:
+  - `PageAttributesToolkit`, `AttributesToolkit` and `VersionsToolkit` have the same stale-cache pattern, and `set_page_attribute_value` is a write that could land on the wrong version. P1.8a covers it. Does P1.8a need to be done before any non-dev install, like P1.8?
+  - Should the PROGRESS "Known issues" line become a standing field in the entry template?
 
 ### 2026-10-19: P1.7 Security fix: endpoint access, CSRF token, three tools disabled
 - Branch / PR: `task/P1.7-security-fix`. PR #14, merged after Glyn's admin browser check. Commits: `e455697` (code and tests), `84a91e2` (smoke script), `6727278` (scenario 18 note only), `c0a053a` (PROGRESS), `95a3678` (session-expired message), `732b2e3` (scenario 18 regex), `dc58571` (PLAN edits).
