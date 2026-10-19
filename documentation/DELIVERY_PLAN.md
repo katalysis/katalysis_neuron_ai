@@ -63,7 +63,10 @@ The first real users are EPRA (content editing and their Claude-built data apps)
 - **Client-specific tools live in their own packages**, registered through `ExternalToolkitRegistry`.
 - **Scenario merge rule** (same as `CLAUDE.md`):
   - before the P1.5 baseline exists, no regressions in the manual checks
-  - after it, no regressions against the baseline
+  - after it, no regressions against the baseline:
+    - pass → partial is not a regression, but it must be listed in the PR (`partial` means only a secondary reply check failed)
+    - pass → fail and partial → fail are regressions and block the merge
+    - any change to a scenario's expected values or regexes needs its own commit, with the reason
   - from the end of Phase 3, all scenarios must pass
 - **Don't upgrade and refactor at the same time.** A dependency upgrade gets its own PR and must keep scenario results the same.
 

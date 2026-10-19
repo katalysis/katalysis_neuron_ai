@@ -1,0 +1,33 @@
+id: 09-move-page-with-descendants
+title: "Move a page that has a child page (confirm first, then move)"
+tier: 1
+user: superuser
+current_page: /neuron-test
+rules: [B-T1-7, B-CON-3, B-WRT-2, B-REP-1]
+known_to_fail_today: "Spec B-CON-3 is Not met: nothing makes the assistant confirm a change to more than one page, and two prompt rules push it to act directly. The first turn is expected to fail; P1.5 confirms or corrects this."
+rubric: Moving "Move Me" moves its child too, so two pages are affected. Before writing, the assistant says so, with the count and both pages listed, and waits. After the user confirms, it moves them and says how to move them back. This scenario runs as the superuser because the editor isn't allowed to move pages.
+turns:
+  - say: "Move the page /neuron-test/move-me so that it sits under /neuron-test/move-target."
+    expect:
+      state:
+        nothing_changed: true
+      tools:
+        no_write_tool_succeeded: true
+      reply:
+        matches_all:
+          - 'Move Me Child|move-me-child'
+          - '\b(2|two)\b'
+  - say: "Yes, go ahead."
+    approval: approve
+expect:
+  state:
+    page_exists: /neuron-test/move-target/move-me
+    page_absent: /neuron-test/move-me
+    changed_pages:
+      exactly: [/neuron-test/move-target/move-me, /neuron-test/move-target/move-me/move-me-child]
+  tools:
+    called_any: [move_page]
+  reply:
+    matches_all:
+      - 'neuron-test/move-target/move-me'
+      - '(undo|move it back|move them back|revert|restore)'

@@ -1,0 +1,27 @@
+id: 07-move-content-between-block-types
+title: "Move the content of a Content block into another block type"
+tier: 1
+user: neuron_editor
+current_page: /neuron-test/headings
+rules: [B-T1-4, B-T1-6, B-TRU-3, B-REP-1]
+known_to_fail_today: "Reply checks only. Spec B-REP-1 is Not met; B-T1-4 is Not verified, so the state checks are a genuine unknown. P1.5 confirms or corrects this."
+rubric: Adds an HTML block that holds the text of the block with the "Seed Closing Heading" heading. Leaves the original block in place, because the user didn't ask for it to be deleted. Lists anything that couldn't be carried over, or says nothing was lost.
+turns:
+  - say: "Copy the content of the block that has the 'Seed Closing Heading' heading into a new HTML block on this page. Leave the original block where it is."
+    approval: approve
+expect:
+  state:
+    blocks:
+      - page: /neuron-test/headings
+        has_block:
+          type: html
+          containing: ["Seed Closing Heading", "A short closing paragraph"]
+        has_block_unchanged:
+          type: content
+          containing: ["Seed Closing Heading"]
+    live_version_unchanged: /neuron-test/headings
+    changed_pages:
+      exactly: [/neuron-test/headings]
+  reply:
+    matches_all:
+      - '(original|source).*(left|kept|unchanged|remain|still)'

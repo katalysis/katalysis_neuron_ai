@@ -1,0 +1,2 @@
+Neuron AI test fixture file.
+Created for the behaviour scenarios by seed_test_content.php. Safe to delete.

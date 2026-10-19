@@ -1,0 +1,18 @@
+id: 02-count-content-blocks
+title: "How many content blocks are on this page?"
+tier: 1
+user: neuron_editor
+current_page: /neuron-test/headings
+rules: [B-CTX-1, B-TRU-1, B-TRU-4]
+rubric: States the count from a tool result for this page (the seed puts 3 Content blocks on it), not from memory or a guess. If the lookup fails it says so and does not say "none".
+turns:
+  - say: "How many content blocks are on this page?"
+    expect:
+      tools:
+        no_write_tool_succeeded: true
+      reply:
+        matches_all:
+          - '\b(3|three)\b'
+expect:
+  state:
+    nothing_changed: true
