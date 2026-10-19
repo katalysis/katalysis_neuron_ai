@@ -180,9 +180,12 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   6. `approve_page_version` is disabled until P3.6 approval exists. Publishing stays a human action (baseline scenario 14 published a live change from injected text).
   7. CSRF token on the chat POSTs (`send_message`, `new_chat`, `delete_chat`, `delete_current_chat`), checked with the access check. An invalid or expired token gets a 403, and the panel shows "Your session has expired — please reload the page." GETs stay token-free but access-checked.
 - P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check). Also: `update_page` refuses `pageType` changes and says a person must change the page type in the CMS (found in P1.7: `Page::update()` writes `Pages.ptID` live, with no draft).
+- P1.8a **Remaining draft-isolation gaps** (its own PR; found in P1.8, which fixed `PagesToolkit` only).
+  - (a) `PageAttributesToolkit`, `AttributesToolkit` and `VersionsToolkit` use `getDraftOf()` instead of calling `getVersionToModify()` directly. `Page::getByID($id, 'RECENT')` is cached for the request, so a second write in one request clones the old version and loses the first. Each toolkit gets a `DraftIsolationTest` case: two writes in one request, both survive, and the live version is unchanged.
+  - (b) `batch_update_page_content` refuses blocks inside containers with a clear message, **before** any draft is created. Today the block ID remap fails and leaves a stray draft. The test shows that no draft is left.
 - P1.9 **Page context across navigation** (B-CTX-1; its own PR). Add scenario 19: two turns in one chat with the current page changing between turns (`/neuron-test/headings` then `/neuron-test/columns`); the second answer must name the new page (primary check). The runner needs a per-turn `current_page`. Reproduce it, find out whether the model reuses chat history or the context is lost on the way, and fix it in code, not with a prompt rule. Wrong page context means edits can land on the wrong page.
 
-Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, P1.8 is merged (the P1.5 baseline confirmed it is needed), and P1.9 is merged.
+Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, P1.8 is merged (the P1.5 baseline confirmed it is needed), P1.8a is merged, and P1.9 is merged.
 
 #### Phase 1b: EPRA app kit (S, in parallel)
 A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure: the approved chart library, theme tokens, the API proxy pattern and the file layout. It doesn't depend on Neuron and becomes the seed of the Tier 3 app spec.
@@ -211,7 +214,11 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - Tiers are cumulative and map to Concrete groups chosen in settings: "Neuron AI – Content", "Neuron AI – Configure", "Neuron AI – Generate". Superusers get Tier 3 (B-ACC-9).
   - This replaces the settings-page access check.
   - Add `neuron_editor` to the Content group in the seed script.
-- P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/` and the root scripts. Describe each tool's input fields explicitly (e.g. the html block's field is `content`; scenario 07 failed with `htmlContent`).
+- P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/` and the root scripts. Describe each tool's input fields explicitly (e.g. the html block's field is `content`; scenario 07 failed with `htmlContent`). Also, from P1.8:
+  - support for nested (container) blocks in batch updates, which P1.8a only refuses
+  - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored"
+  - remove the double update in `update_block_in_page_area` (`UpdatePageBlockCommand`, then `$blockToEdit->update()`), unless P1.8a fixes it
+  - return the new block IDs in the tool output after a copy, so the model doesn't reuse an ID that the copy replaced (seen in a scenario 05 run)
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform

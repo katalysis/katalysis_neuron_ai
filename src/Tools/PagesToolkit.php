@@ -15,6 +15,7 @@ use Concrete\Core\Block\Exception\BlockNotFoundException;
 use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Block\Traits\ValidateBlockRequestTrait;
 use Concrete\Core\Block\BlockType\BlockType;
+use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Attribute\Category\PageCategory;
 use Concrete\Core\Page\Page;
@@ -670,7 +671,7 @@ class PagesToolkit extends AbstractToolkit
 
             // Create new version
             try {
-                $pageToModify = $page->getVersionToModify();
+                $pageToModify = $this->getDraftOf($page);
             } catch (\Exception $e) {
                 throw new \RuntimeException("Failed to create new page version: " . $e->getMessage() . ". This may indicate a database or permissions issue.");
             }
@@ -711,6 +712,14 @@ class PagesToolkit extends AbstractToolkit
                     if (!$block) {
                         throw new \RuntimeException("Block {$newBlockID} not found in area '{$areaHandle}' on page version {$pageToModify->getVersionID()}");
                     }
+
+                    // A new version shares its blocks with the live one. Copy this block into the
+                    // draft first (as Concrete's own editor does), so the update can't change the live version.
+                    $block = $this->getBlockToEdit($pageToModify, $area, $areaHandle, $newBlockID);
+                    if (!$block) {
+                        throw new \RuntimeException("Block {$newBlockID} could not be prepared for editing in area '{$areaHandle}'");
+                    }
+                    $newBlockID = (int) $block->getBlockID();
 
                     $controller = $block->getController();
                     $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
@@ -988,7 +997,7 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'includeInactive',
             PropertyType::BOOLEAN,
-            'Include draft/pending placements when resolving candidate blocks (default: true)',
+            'Ignored. This tool always works on the blocks of the new draft version, never on the live version.',
             false
         ));
 
@@ -1053,7 +1062,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}");
             }
 
-            $pageToModify = $page->getVersionToModify();
+            $pageToModify = $this->getDraftOf($page);
             $contentBt = BlockType::getByHandle('content');
             if (!$contentBt) {
                 throw new \RuntimeException('Content block type is not available');
@@ -1066,16 +1075,16 @@ class PagesToolkit extends AbstractToolkit
                 ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
                 ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
                 ->where('cvb.cID = :cID')
+                // Only the blocks of the draft being edited: the draft shares blocks with the live
+                // version until they are copied, and the live copies must never be updated.
+                ->andWhere('cvb.cvID = :cvID')
                 ->andWhere('b.btID = :btID')
                 ->setParameter('cID', $pageID)
+                ->setParameter('cvID', $pageToModify->getVersionID())
                 ->setParameter('btID', $contentBt->getBlockTypeID())
                 ->orderBy('b.bID', 'ASC')
                 ->addOrderBy('cv.cvIsApproved', 'DESC')
                 ->addOrderBy('cvb.cvID', 'DESC');
-
-            if (!$includeInactive) {
-                $qb->andWhere('cv.cvIsApproved = 1');
-            }
 
             $placements = $qb->execute()->fetchAllAssociative();
             if (empty($placements)) {
@@ -1186,7 +1195,14 @@ class PagesToolkit extends AbstractToolkit
                         throw new \RuntimeException("text integrity check failed for '{$headingText}' (body text changed)");
                     }
 
-                    $block->update(['content' => $transformedContent]);
+                    // Copy the block into the draft before changing it (see getBlockToEdit), so the live
+                    // version keeps its text. The copy has a new block ID.
+                    $editBlock = $this->getBlockToEdit($pageToModify, $area, $areaHandle, (int) $blockID);
+                    if (!$editBlock) {
+                        throw new \RuntimeException("Block {$blockID} could not be prepared for editing in area '{$areaHandle}'");
+                    }
+                    $blockID = (int) $editBlock->getBlockID();
+                    $editBlock->update(['content' => $transformedContent]);
 
                     $afterRecord = $this->getBlockTableRecord($dbTable, (int) $blockID);
                     $afterContent = is_string($afterRecord['content'] ?? null) ? (string) $afterRecord['content'] : '';
@@ -1908,7 +1924,8 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'pageType',
             PropertyType::STRING,
-            'New page type handle',
+            'Not supported: a page type can only be changed by a person in the CMS. A different value is refused; the page'
+            . ' type the page already has is accepted and ignored.',
             false
         ));
 
@@ -1949,12 +1966,13 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}");
             }
 
-            $targetType = null;
-            if ($pageType !== null) {
-                $targetType = PageType::getByHandle($pageType);
-                if (!$targetType) {
-                    throw new \RuntimeException("Page type '{$pageType}' not found");
-                }
+            // Page::update() writes the page type (Pages.ptID) straight to the live page: it isn't
+            // part of a page version, so it can't go to a draft or be undone with version history.
+            if ($pageType !== null && trim($pageType) !== '' && trim($pageType) !== (string) $page->getPageTypeHandle()) {
+                throw new \RuntimeException(
+                    "Changing a page's type isn't possible with this assistant: the change would be live at once and "
+                    . 'could not be undone from the page versions. A person must change the page type in the CMS.'
+                );
             }
 
             $targetTemplate = null;
@@ -1965,7 +1983,7 @@ class PagesToolkit extends AbstractToolkit
                 }
             }
 
-            $pageToModify = $page->getVersionToModify();
+            $pageToModify = $this->getDraftOf($page);
             
             $data = [];
             if ($name !== null) {
@@ -1973,9 +1991,6 @@ class PagesToolkit extends AbstractToolkit
             }
             if ($description !== null) {
                 $data['cDescription'] = $description;
-            }
-            if ($targetType) {
-                $data['ptID'] = $targetType->getPageTypeID();
             }
             if ($targetTemplate) {
                 $data['pTemplateID'] = $targetTemplate->getPageTemplateID();
@@ -2320,17 +2335,17 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
 
-            $pageToModify = $page->getVersionToModify();
-
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
             } catch (AreaNotFoundException|BlockNotFoundException $e) {
-                $fallbackArea = $pageToModify->getArea($areaHandle);
+                // Look again on the newest version, as a plain lookup. This must not make a draft:
+                // a block that isn't there is an error, and an error must leave no draft behind.
+                $fallbackArea = $page->getArea($areaHandle);
                 if (!$fallbackArea) {
                     $fallbackArea = new Area($areaHandle);
-                    $fallbackArea->c = $pageToModify;
+                    $fallbackArea->c = $page;
                 }
-                $fallbackBlock = Block::getByID($blockID, $pageToModify, $fallbackArea);
+                $fallbackBlock = Block::getByID($blockID, $page, $fallbackArea);
                 if (!$fallbackBlock) {
                     if ($e instanceof AreaNotFoundException) {
                         throw new \RuntimeException("Area '{$areaHandle}' not found on page {$pageID}");
@@ -2357,7 +2372,10 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Block validation failed: {$validationBody}");
             }
 
-            $blockToEdit = $this->getBlockToEdit($page, $area, $areaHandle, $blockID);
+            // Make the draft only now that the checks have passed. If it exists already this
+            // returns it, so getBlockToEdit doesn't make a second one.
+            $pageToModify = $this->getDraftOf($page);
+            $blockToEdit = $this->getBlockToEdit($pageToModify, $area, $areaHandle, $blockID);
 
             $command = new UpdatePageBlockCommand();
             $command->setPage($pageToModify);
@@ -2685,10 +2703,14 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot delete block {$blockID} on page {$pageID}");
             }
 
+            // Delete in a draft, never in the version the page may be showing. The block stays
+            // in the live version, and discarding the draft restores the page.
+            $pageToModify = $this->getDraftOf($page);
+
             $command = new DeleteBlockCommand(
                 $block->getBlockID(),
-                $page->getCollectionID(),
-                $page->getVersionID(),
+                $pageToModify->getCollectionID(),
+                $pageToModify->getVersionID(),
                 $area->getAreaHandle()
             );
 
@@ -2766,15 +2788,18 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot move block {$blockID} on page {$pageID}");
             }
 
-            $pageToModify = $page->getVersionToModify();
-            $destinationArea = Area::getOrCreate($pageToModify, $toAreaHandle);
+            // Check the destination before making a draft, so a refused move leaves no draft behind.
+            // (Areas belong to the page, not to a version.)
             $destinationBlockType = $block->getBlockTypeObject();
-            $destinationChecker = new Checker($destinationArea);
+            $destinationChecker = new Checker(Area::getOrCreate($page, $toAreaHandle));
             if ($destinationBlockType && !$destinationChecker->canAddBlock($destinationBlockType)) {
                 throw new \RuntimeException("Permission denied: Cannot move '{$block->getBlockTypeHandle()}' blocks to area '{$toAreaHandle}' on page {$pageID}");
             }
 
-            $editableBlock = $this->getBlockToEdit($page, Area::getOrCreate($pageToModify, $fromAreaHandle), $fromAreaHandle, $blockID);
+            $pageToModify = $this->getDraftOf($page);
+            $destinationArea = Area::getOrCreate($pageToModify, $toAreaHandle);
+
+            $editableBlock = $this->getBlockToEdit($pageToModify, Area::getOrCreate($pageToModify, $fromAreaHandle), $fromAreaHandle, $blockID);
             if (!$editableBlock) {
                 throw new \RuntimeException("Block {$blockID} could not be prepared for moving");
             }
@@ -2801,6 +2826,26 @@ class PagesToolkit extends AbstractToolkit
 
             return $callable(...$args);
         };
+    }
+
+    /**
+     * The version of the page to edit: the newest version if it is already a draft,
+     * otherwise a new draft cloned from it.
+     *
+     * Concrete keeps the Page::getByID($id, 'RECENT') object for the rest of the
+     * request, so after a draft is made the cached page is still the old version.
+     * Without the cache update, the next tool call in the same request would clone
+     * the old version again and make a second draft, without the first call's edits.
+     */
+    protected function getDraftOf(Page $page): Page
+    {
+        $latest = Page::getByID($page->getCollectionID(), 'RECENT');
+        $draft = $latest->getVersionToModify();
+        if ($draft !== $latest) {
+            CacheLocal::set('page', $page->getCollectionID() . '/RECENT/' . Page::class, $draft);
+        }
+
+        return $draft;
     }
 
     protected function resolveCurrentContextPage(): array
