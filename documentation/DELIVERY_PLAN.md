@@ -153,7 +153,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   - an endpoint call by a user without access (B-ACC-1), which may be a PHPUnit test rather than a scenario
 
   Also decide whether the permission scenarios need an "Editors" group, added to the seed, rather than per-page grants to `neuron_editor`.
-- P1.3 PHPUnit setup for the package, run with Herd's PHP. Add a bootstrap that loads Concrete for integration tests against the dev site database.
+- [x] P1.3 PHPUnit setup for the package, run with Herd's PHP. Integration tests boot Concrete through `tests/Support/ConcreteBoot.php`, behind the dev-host guard; unit tests don't boot Concrete. Done (PR #8).
 - P1.4 A scenario runner, `concrete/bin/concrete neuron:eval [--scenario=]`. It:
   - resets the fixture (`seed_test_content.php --reset`)
   - runs the agent
@@ -163,6 +163,8 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   **Scenarios find fixture content by path, handle or name, never by ID**, because IDs change on every reset.
 
   **The runner runs the agent in-process as the scenario's user** (e.g. `neuron_editor`), not over HTTP, so it doesn't depend on the endpoint access check (spec §10, decision 14).
+
+  **Add a pre-boot guard to `ConcreteBoot`:** before booting, read `application/config/database.php` and refuse unless the database host is local (`127.0.0.1`, `localhost` or a socket), so no run can connect to a non-local database.
 - P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade.
 - P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
   - **Tool name collisions:** `katalysis_pro` defines its own `list_people`, as does the core `PeopleToolkit`. When an external tool has the same name as a core tool, the external, package-owned tool wins, the core one is dropped for that request, and a warning is logged. Add a PHPUnit test that the final tool list never contains duplicate names.

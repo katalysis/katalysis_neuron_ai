@@ -4,7 +4,7 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.3 (PHPUnit setup, PR open). Before that, P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Last completed:** P1.3 (PHPUnit setup, PR #8). Before that, P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
 - **Next open:** P1.4 (scenario runner). P1.7 (chat endpoint security fix) can be done any time in Phase 1 and must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** not recorded yet (P1.5)
 
@@ -45,7 +45,7 @@ Record decisions that change the plan or design, with the date and who made them
 (newest first)
 
 ### 2026-10-19: P1.3 PHPUnit setup
-- Branch / PR: `task/P1.3-phpunit-setup` (PR open, number to be added). Commits: `533c621` (setup, bootstrap, registry test) and `f6b6088` (guard moved into the boot function, unit-tested checks), both with the `P1.3:` prefix.
+- Branch / PR: `task/P1.3-phpunit-setup` (PR #8, merged). Commits: `533c621` (setup, bootstrap, registry test) and `f6b6088` (guard moved into the boot function, unit-tested checks), both with the `P1.3:` prefix.
 - Done:
   - **PHPUnit 11.5 as dev tooling:** `composer.dev.json` and its lock file install into `tools/phpunit/` (gitignored). The shipped `composer.json` and the bundled `vendor/` are unchanged. Run with Herd's PHP: `php tools/phpunit/vendor/bin/phpunit` (options in `SETUP.md`).
   - **Two suites** in `phpunit.xml.dist`:
