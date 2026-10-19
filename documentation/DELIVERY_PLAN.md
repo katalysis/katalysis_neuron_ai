@@ -170,6 +170,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
 - P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
   - **Tool name collisions:** `katalysis_pro` defines its own `list_people`, as does the core `PeopleToolkit`. When an external tool has the same name as a core tool, the external, package-owned tool wins, the core one is dropped for that request, and a warning is logged. Add a PHPUnit test that the final tool list never contains duplicate names.
   - The core `PeopleToolkit` is removed for good in P3.10. Namespacing provider tool names is decided there.
+- P1.6a `add_block_to_page_area` description: make the block type choice explicit. List the common handles with one-line meanings (`content` = rich text; `html` = raw HTML; …) and require the handle the user asked for, not a substitute. Scenario 07 regressed with a larger tool list (P1.6), so the description, not the count, has to carry the choice. **Done before P1.6 merges.** Change only that tool's description; run 07 with `--repeat=5` and record the result.
 - P1.7 **Security fix** (its own PR; any time in Phase 1). **Required before Neuron is installed on any non-dev site.**
   1. Every chat endpoint applies the same access check as the panel (B-ACC-1), server-side.
   2. `delete_file` is disabled (B-T1-11).
