@@ -4,7 +4,7 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.5 (baseline on v3.15.26, PR pending). Before that, P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Last completed:** P1.5 (baseline on v3.15.26, PR #10). Before that, P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
 - **Next open:** P1.7 (security fix, now also disables `approve_page_version`), P1.8 (draft edits must not change live content; confirmed by the baseline, so it must be merged), P1.6 (load external toolkits), and a small seed fix for scenario 07 in its own PR (Glyn's decision). P1.7 and P1.8 must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26). Majority labels: 5 pass (01, 02, 12, 13, 15), 4 partial (03, 08, 10, 11), 9 fail (04, 05, 06, 07, 09, 14, 16, 17, 18). Unstable: 11, 12, 16 (a comparison run uses `--repeat=5`).
 
@@ -45,7 +45,7 @@ Record decisions that change the plan or design, with the date and who made them
 (newest first)
 
 ### 2026-10-19: P1.5 Baseline run on Neuron 3.15.26
-- Branch / PR: `task/P1.5-baseline-v3` (PR pending). Commits:
+- Branch / PR: `task/P1.5-baseline-v3` (PR #10, merged). Commits:
   - `1191505`: runner reporting (header temperature and cost, tool calls and reply in the details of failed runs)
   - `01400bd`, `46e0659`, `9520bae`, `63f0ff1`, `a375a30`, `2646093`: one `known_to_fail_today` note correction each for 03, 05, 06, 07, 12, 16
   - `6a2aa30`: the baseline files
