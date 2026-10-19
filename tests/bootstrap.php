@@ -3,9 +3,10 @@
 /**
  * PHPUnit bootstrap for the Katalysis Neuron AI package.
  *
- * Boots Concrete against the dev site database, so every test run touches the
- * real dev database. Because of that, the dev-host guard below lives here and
- * cannot be skipped by an individual test.
+ * It does NOT boot Concrete. Unit tests run without the dev site. Tests that
+ * need Concrete extend Tests\Support\ConcreteTestCase, which boots it through
+ * Tests\Support\ConcreteBoot. That is the only boot path, and it enforces the
+ * dev-host guard, so no test can use Concrete without passing it.
  *
  * Rules for tests (see CLAUDE.md, Testing):
  * - No test may call the AI provider or use an API key. Only the scenario
@@ -15,39 +16,7 @@
 
 declare(strict_types=1);
 
-// Package root: .../httpdocs/packages/katalysis_neuron_ai
 $packageDir = dirname(__DIR__);
-// Site web root: .../httpdocs
-$siteDir = dirname($packageDir, 2);
-
-if (!is_file($siteDir . '/concrete/bootstrap/configure.php')) {
-    fwrite(STDERR, "Cannot find the Concrete web root at {$siteDir}. The package must be installed in httpdocs/packages/.\n");
-    exit(1);
-}
-
-// Concrete's own CLI entry point works out these values the same way.
-define('DIR_BASE', str_replace(DIRECTORY_SEPARATOR, '/', $siteDir));
-$_SERVER['SCRIPT_FILENAME'] = $siteDir . '/index.php';
-$_SERVER['PHP_SELF'] = '/index.php';
-$_SERVER['SCRIPT_NAME'] = '/index.php';
-
-require $siteDir . '/concrete/bootstrap/configure.php';
-require $siteDir . '/concrete/bootstrap/autoload.php';
-
-/** @var \Concrete\Core\Application\Application $app */
-$app = require $siteDir . '/concrete/bootstrap/start.php';
-
-// Dev-only guard (same rule as documentation/fixtures/seed_test_content.php).
-$canonical = (string) $app->make('site')->getSite()->getConfigRepository()->get('seo.canonical_url');
-$host = strtolower((string) parse_url($canonical, PHP_URL_HOST));
-$isDevHost = $host !== '' && ($host === 'localhost' || substr($host, -5) === '.test' || substr($host, -10) === '.localhost');
-if (!$isDevHost) {
-    fwrite(STDERR, "Refusing to run tests: the canonical URL \"{$canonical}\" is not a .test/.localhost/localhost dev host.\n");
-    exit(1);
-}
-
-// The package's own classes (Concrete loads this from the package controller).
-require_once $packageDir . '/vendor/autoload.php';
 
 // Test classes.
 spl_autoload_register(static function (string $class) use ($packageDir): void {
@@ -61,5 +30,16 @@ spl_autoload_register(static function (string $class) use ($packageDir): void {
     }
 });
 
-unset($packageDir, $siteDir, $canonical, $host, $isDevHost);
-$GLOBALS['neuron_test_app'] = $app;
+// Package and Neuron classes, for unit tests that run without Concrete. When
+// Concrete boots, ConcreteBoot loads the same autoloader after its own, as the
+// package controller does.
+spl_autoload_register(static function (string $class): void {
+    static $loaded = false;
+    if ($loaded || !(str_starts_with($class, 'Katalysis\\NeuronAi\\') || str_starts_with($class, 'NeuronAI\\'))) {
+        return;
+    }
+    $loaded = true;
+    \Katalysis\NeuronAi\Tests\Support\ConcreteBoot::loadPackageAutoload();
+    // The loader registered above isn't consulted for the class being loaded right now.
+    spl_autoload_call($class);
+});

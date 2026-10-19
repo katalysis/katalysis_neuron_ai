@@ -102,7 +102,8 @@ php tools/phpunit/vendor/bin/phpunit --testsuite unit
 php tools/phpunit/vendor/bin/phpunit --testsuite integration
 ```
 
-- `tests/bootstrap.php` boots Concrete against the dev site database for every run, so even the `unit` suite needs the dev site to work. It refuses to run unless the canonical URL is a `.test`, `.localhost` or `localhost` host. Individual tests can't skip this.
+- The `unit` suite does not boot Concrete and doesn't need the dev site. The `integration` suite boots Concrete against the dev site database. Integration tests extend `tests/Support/ConcreteTestCase`, which boots through `tests/Support/ConcreteBoot.php`, the only place that boots Concrete.
+- The dev-host guard is inside that boot function. It ends the run unless the canonical URL is a `.test`, `.localhost` or `localhost` host, so no test can use Concrete without passing it. Booting itself reads the dev database before the guard can see the site's URL, so don't point the package at a non-dev site.
 - Tests must not call the AI provider or use an API key. Only the scenario runner does that.
 - Tests are read-only unless they say otherwise. A test that writes must clean up after itself.
 - Test content comes from the seed script above (`neuron_editor`, `/neuron-test`).

@@ -6,6 +6,7 @@ namespace Katalysis\NeuronAi\Tests\Integration;
 
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\ToolListChecks;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\ToolPropertyInterface;
@@ -18,6 +19,9 @@ use NeuronAI\Tools\Toolkits\ToolkitInterface;
  * Read-only. It builds the agent's tool list through the agent's own
  * getTools(), flattens the toolkits, and never calls the AI provider or uses
  * an API key. Building the list needs no page or user context.
+ *
+ * The duplicate-name and array-items checks live in Support\ToolListChecks,
+ * which tests/Unit/ToolListChecksTest.php proves can fail.
  */
 final class ToolRegistryTest extends ConcreteTestCase
 {
@@ -146,16 +150,7 @@ final class ToolRegistryTest extends ConcreteTestCase
 
     public function testArrayPropertiesDeclareItems(): void
     {
-        $missing = [];
-        foreach ($this->tools() as $tool) {
-            foreach ($tool->getProperties() as $property) {
-                $schema = $property->getJsonSchema();
-                if (($schema['type'] ?? null) === 'array' && !isset($schema['items']['type'])) {
-                    $missing[] = $tool->getName() . '.' . $property->getName();
-                }
-            }
-        }
-        sort($missing);
+        $missing = ToolListChecks::arraysWithoutItems($this->tools());
 
         $expected = self::ARRAYS_WITHOUT_ITEMS_TODAY;
         sort($expected);
@@ -169,8 +164,7 @@ final class ToolRegistryTest extends ConcreteTestCase
 
     public function testNoTwoToolsShareAName(): void
     {
-        $counts = array_count_values(array_map(static fn (ToolInterface $t): string => $t->getName(), $this->tools()));
-        $duplicates = array_keys(array_filter($counts, static fn (int $n): bool => $n > 1));
+        $duplicates = ToolListChecks::duplicateNames($this->tools());
 
         $this->assertSame([], $duplicates, 'Duplicate tool names: ' . implode(', ', $duplicates));
     }
