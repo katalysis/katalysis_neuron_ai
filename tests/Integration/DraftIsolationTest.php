@@ -673,6 +673,181 @@ final class DraftIsolationTest extends ConcreteTestCase
         $this->assertSame('In the first draft', $this->attributeValue($cID, 2, 'meta_title'));
     }
 
+    // ---- batch_update_page_content refuses blocks in containers and layouts ------
+
+    /**
+     * The seeded /neuron-test/columns page: its newest version's blocks, and its ID. The refusal
+     * tests only read it (a refused call must not write anything). The newest version is used
+     * because that is the version the tools edit, and a scenario run may have left a draft.
+     *
+     * @return array{0: int, 1: list<array<string, mixed>>}
+     */
+    private function seededColumnsPage(): array
+    {
+        $this->actAs('superuser');
+        $page = Page::getByPath('/neuron-test/columns');
+        $this->assertFalse($page->isError(), '/neuron-test/columns does not exist. Run the seed script first.');
+        $cID = (int) $page->getCollectionID();
+        $this->actAs('neuron_editor');
+        $versions = $this->versions($cID);
+
+        return [$cID, end($versions)['blocks']];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    private function blockInASubArea(array $blocks): array
+    {
+        foreach ($blocks as $block) {
+            if (str_contains($block['area'], ' : ') && $block['type'] === 'content') {
+                return $block;
+            }
+        }
+        $this->fail('The page has no Content block in a sub-area');
+    }
+
+    /**
+     * @param list<array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    private function blockInATopLevelArea(array $blocks): array
+    {
+        foreach ($blocks as $block) {
+            if (!str_contains($block['area'], ' : ')) {
+                return $block;
+            }
+        }
+        $this->fail('The page has no block in a top-level area');
+    }
+
+    private function assertRefusedAsNested(int $cID, array $inputs): void
+    {
+        $versionsBefore = $this->versions($cID);
+        $countsBefore = $this->blockCounts();
+
+        try {
+            $this->callPagesTool('batch_update_page_content', ['pageID' => $cID] + $inputs);
+            $this->fail('A block inside a container or area layout should be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('inside a container or area layout', $e->getMessage());
+            $this->assertStringContainsString('Nothing was changed', $e->getMessage());
+        }
+
+        $this->assertSame($versionsBefore, $this->versions($cID), 'A refused call must not leave a draft, or change any version');
+        $this->assertSame($countsBefore, $this->blockCounts(), 'A refused call must not leave stray blocks behind');
+    }
+
+    public function testBatchUpdateRefusesABlockInAContainerColumnAndLeavesNoDraft(): void
+    {
+        [$cID, $blocks] = $this->seededColumnsPage();
+        $nested = $this->blockInASubArea($blocks);
+
+        $this->assertRefusedAsNested($cID, ['blocks' => [['areaHandle' => $nested['area'], 'blockID' => $nested['bID'], 'value' => ['content' => '<p>x</p>']]]]);
+    }
+
+    public function testBatchUpdateRefusesANestedBlockEvenWhenTheAreaGivenIsTheTopLevelOne(): void
+    {
+        [$cID, $blocks] = $this->seededColumnsPage();
+        $nested = $this->blockInASubArea($blocks);
+
+        $this->assertRefusedAsNested($cID, ['blocks' => [['areaHandle' => 'Main', 'blockID' => $nested['bID'], 'value' => ['content' => '<p>x</p>']]]]);
+    }
+
+    public function testBatchUpdateRefusesTheWholeCallWhenOnlyOneBlockIsNested(): void
+    {
+        [$cID, $blocks] = $this->seededColumnsPage();
+        $nested = $this->blockInASubArea($blocks);
+        $topLevel = $this->blockInATopLevelArea($blocks);
+
+        $this->assertRefusedAsNested($cID, [
+            'continueOnError' => true,
+            'blocks' => [
+                ['areaHandle' => $topLevel['area'], 'blockID' => $topLevel['bID'], 'value' => ['content' => '<p>x</p>']],
+                ['areaHandle' => $nested['area'], 'blockID' => $nested['bID'], 'value' => ['content' => '<p>y</p>']],
+            ],
+        ]);
+    }
+
+    public function testBatchUpdateRefusesABlockInAnAreaLayoutColumnAndLeavesNoDraft(): void
+    {
+        $cID = $this->newLayoutPage();
+        $versions = $this->versions($cID);
+        $nested = $this->blockInASubArea(end($versions)['blocks']);
+
+        $this->assertRefusedAsNested($cID, ['blocks' => [['areaHandle' => $nested['area'], 'blockID' => $nested['bID'], 'value' => ['content' => '<p>x</p>']]]]);
+    }
+
+    /**
+     * A page with a core area layout in Main, with a Content block in each of its two columns
+     * (their areas are sub-areas, like the columns of a container). Leaves the tests acting as neuron_editor.
+     */
+    private function newLayoutPage(): int
+    {
+        $this->actAs('superuser');
+        $page = $this->newPage();
+        $layoutBlock = $page->addBlock(BlockType::getByHandle('core_area_layout'), 'Main', [
+            'gridType' => 'FF', 'isautomated' => 1, 'spacing' => 0, 'columns' => 2, 'width' => [],
+        ]);
+        $layoutBlock = Block::getByID($layoutBlock->getBlockID(), $page, 'Main');
+        $layout = $layoutBlock->getController()->getAreaLayoutObject();
+        $layout->setAreaObject(Area::getOrCreate($page, 'Main'));
+        foreach ($layout->getAreaLayoutColumns() as $index => $column) {
+            $subArea = $column->getSubAreaObject();
+            $subArea->create($page, $subArea->getAreaHandle());
+            $page->addBlock(BlockType::getByHandle('content'), $subArea, ['content' => '<p>In layout column ' . ($index + 1) . '</p>']);
+        }
+
+        return $this->startFromOneApprovedVersion($page);
+    }
+
+    /**
+     * The refusal message points at update_block_in_page_area, so it has to work in a column.
+     */
+    public function testUpdateBlockInPageAreaEditsABlockInAContainerColumnInTheDraft(): void
+    {
+        $cID = $this->newColumnsPage();
+        $before = $this->approved($cID);
+        $nested = $this->blockInASubArea($before['blocks']);
+
+        $this->callPagesTool('update_block_in_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => $nested['area'],
+            'blockID' => $nested['bID'],
+            'value' => ['content' => $nested['content'] . '<p>Column edit</p>'],
+        ]);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'One draft');
+        $draft = $this->draft($cID);
+        $this->assertStringContainsString('Column edit', $this->contentOf($draft['blocks'], $nested['area']));
+        $this->assertSame(array_column($before['blocks'], 'area'), array_column($draft['blocks'], 'area'), 'Every block stays in its column');
+    }
+
+    public function testUpdateBlockInPageAreaEditsABlockInAnAreaLayoutColumnInTheDraft(): void
+    {
+        $cID = $this->newLayoutPage();
+        $before = $this->approved($cID);
+        $nested = $this->blockInASubArea($before['blocks']);
+
+        // As the superuser: this checks that the tool works on layout columns, not the editor's rights
+        // there (the layout column areas made by this test don't get the editor's permissions).
+        $this->actAs('superuser');
+        $this->callPagesTool('update_block_in_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => $nested['area'],
+            'blockID' => $nested['bID'],
+            'value' => ['content' => $nested['content'] . '<p>Layout edit</p>'],
+        ]);
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'One draft');
+        $draft = $this->draft($cID);
+        $this->assertStringContainsString('Layout edit', $this->contentOf($draft['blocks'], $nested['area']));
+        $this->assertSame(array_column($before['blocks'], 'area'), array_column($draft['blocks'], 'area'), 'Every block stays in its column');
+    }
+
     // ---- Delete ------------------------------------------------------------
 
     public function testDeletingABlockRemovesItFromTheDraftOnly(): void
