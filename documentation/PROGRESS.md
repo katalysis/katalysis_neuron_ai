@@ -4,7 +4,7 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.5a (scenario 07 fixture fix and baseline amendment). Before that, P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Last completed:** P1.5a (scenario 07 fixture fix and baseline amendment, PR #11). Before that, P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
 - **Next open:** P1.7 (security fix, now also disables `approve_page_version`), P1.8 (draft edits must not change live content; confirmed by the baseline, so it must be merged) and P1.6 (load external toolkits). P1.7 and P1.8 must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26), **with one amendment (P1.5a, appended at the end of each file, so read it before comparing).** Majority labels: 6 pass (01, 02, 07, 12, 13, 15), 4 partial (03, 08, 10, 11), 8 fail (04, 05, 06, 09, 14, 16, 17, 18). Unstable: 07 (2 of 3), 11, 12, 16 (a comparison run uses `--repeat=5`).
 
@@ -45,7 +45,7 @@ Record decisions that change the plan or design, with the date and who made them
 (newest first)
 
 ### 2026-10-19: P1.5a Fixture fix for scenario 07, baseline amended
-- Branch / PR: `task/P1.5a-fixture-fix-scenario-07` (PR number to be added once opened). Commits:
+- Branch / PR: `task/P1.5a-fixture-fix-scenario-07` (PR #11, merged). Commits:
   - `6c76fe9`: the seed change
   - `81e75d0`: the baseline amendment (markdown and JSON)
   - `5c9a7b1`: the `known_to_fail_today` note on scenario 07 (note only)
