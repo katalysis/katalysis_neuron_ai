@@ -1,7 +1,10 @@
 # Katalysis Neuron AI: Delivery Plan
 
-Status: Draft for Glyn and Alex to review, 19 October 2026.
+Status: v2 draft, 19 October 2026. For Glyn and Alex to review.
+Branch: `development`. Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5).
 Supersedes the "Next Steps" section of `KATALYSIS_NEURON_AI_PLAN.md`. Keep that file for its tool policy.
+
+Task IDs (e.g. `P2.3`) are meant to become GitHub issues, one branch and one PR each.
 
 ---
 
@@ -13,7 +16,7 @@ The design rests on one principle: **for anything beyond content edits, the AI n
 
 | Tier | Capability | What the AI produces | Who can use it |
 |---|---|---|---|
-| 1. Content | Edit pages and blocks, move content between block types, import structured content (e.g. People from pasted HTML) | Tool calls, previewed before saving | Editors |
+| 1. Content | Edit pages and blocks, move content between block types, import structured content (e.g. People from pasted HTML) | Tool calls. Writes need approval in the chat | Editors |
 | 2. Configure | Express objects, forms, entry lists, single pages using approved components | Tool calls against Concrete's own APIs. No code | Site admins |
 | 3. Generate | Custom packages: Doctrine entities, dashboard CRUD, search, blocks, single-page apps | An **app spec** (JSON), checked against a schema. A fixed generator writes the code, which goes to staging and is reviewed | Admins, with review |
 | 4. Custom | Free-form code | Code | Developers only, in Claude Code, not inside the CMS |
@@ -22,163 +25,225 @@ The first real users are EPRA (content editing and their Claude-built data apps)
 
 ---
 
-## 2. Current state (code review, 19 October 2026)
+## 2. Current state
+
+### Environment (done 19 October 2026)
+- All the work, including the previously uncommitted toolkits, is committed on `development` ("Commit for broken dev branch").
+- Local dev site `katalysis_pro_theme` runs Concrete 9.5.5, with `katalysis_pro` (branch `themeintegrationtemplates`) and the Katalysis Pro theme. The Neuron package is a nested repo in that site and is gitignored by the parent.
+- The EPRA site still has its own copy, on `main` with uncommitted changes. Treat it as a deployment target from now on, not a place to develop.
 
 ### What works and is worth keeping
 - The chat panel UI, the routes, and chat persistence (save, list, load, new, delete).
 - Page context injection (`ConcreteCmsAgent::getCurrentContext`). The assistant knowing where it is was the strongest part.
-- The native-toolkit policy in `KATALYSIS_NEURON_AI_PLAN.md`: reuse core API logic and enforce Concrete permissions. It's sound, so keep it.
-- `BlockIdRemapper` and the text-integrity checks (checksums, `formatting_only`, `scoped_text` modes). These are real safety ideas.
-- The People toolkit and the heading and batch edit tools, as working behaviour to reproduce.
+- The native-toolkit policy in `KATALYSIS_NEURON_AI_PLAN.md`: reuse core API logic and enforce Concrete permissions.
+- `BlockIdRemapper` and the text-integrity checks (checksums, `formatting_only`, `scoped_text` modes).
+- The `ExternalToolkitRegistry` pattern. `katalysis_pro` already uses it to register `KatalysisProEntitiesToolkit` (people, places, reviews), with a sensible guard for when the package is uninstalled.
 
 ### Problems found
-1. **Most of the work isn't in git.** The last commit was 28 July 2026. Since then there are 11 modified files (+3,034 / −611 lines) and 10 untracked toolkits (Blocks, Attributes, People, Topics, Versions and others). The September edits to `PagesToolkit.php`, `BlocksToolkit.php`, `controllers/chat.php` and `ConcreteCmsAgent.php` are most likely the "wrong turn". There is no committed copy of the working August state to compare against or roll back to.
-2. **Too many tools in one agent.** There are roughly 70–130 tools across 11 toolkits, all loaded on every request, and `PagesToolkit.php` alone is 3,073 lines. Model accuracy at choosing tools falls off sharply at this scale, and every request pays the token cost of carrying every tool definition.
-3. **The prompt is being used as a patch layer.** `instructions()` holds dozens of situation-specific rules (heading edits, truncation checks, EPRA migrations). Each bug fix has added a rule. Rules like these belong in tool behaviour and tests, not in prose.
-4. **Client-specific code is mixed into the core.** `sync_multi_links_to_epra_resources_list`, `epra_resources_list` handling and `get_doc_download_files_on_page` are EPRA-only, but they sit inside the generic Pages toolkit and the system prompt.
-5. **There is dead or duplicate code.** `src/Toolkits/` duplicates the older `src/Tools/` files. There are also stray root scripts (`test_tools.php`, `repair_chat_history.php`, `validate_all_chats.php`, `test_container_search.php`) and committed `.DS_Store` files.
-6. **The provider is hardcoded.** The agent always uses OpenAI `gpt-4o`. The settings for Anthropic (still `claude-2`) and Ollama exist but aren't used.
-7. **The schema is managed by hand.** `CREATE TABLE IF NOT EXISTS` runs on **every request** in `on_start()`, even though `src/Entity/Chat.php` exists. Concrete/Doctrine should manage the table instead.
-8. **There are no automated tests**, so nothing catches a regression like the one that happened.
-9. **The repo lives inside the EPRA site** (`epra_com_kat/httpdocs/packages/`). Product development is tied to one client's install.
+1. **External toolkits are registered but never loaded.** `ConcreteCmsAgent` imports `ExternalToolkitRegistry`, but `tools()` returns a fixed list and never calls `getExternalToolkits()`. So `katalysis_pro`'s people/places/reviews tools are invisible to the agent. This is probably part of what the "rebuild" broke, and it would explain the people import regressing.
+2. **Neuron AI is a major version behind.** The bundled version is `neuron-core/neuron-ai` **3.15.26**. The current version is **4.1.12** (16 October 2026); 4.0.0 shipped on 30 September 2026. 3.x is still being patched (3.17.2, 8 October). See §4.
+3. **Too many tools in one agent.** There are 112 `new Tool(...)` definitions across 11 toolkits, all loaded on every request, and `PagesToolkit.php` is 3,073 lines. Tool-selection accuracy and token cost both suffer at this scale.
+4. **The prompt is being used as a patch layer.** `instructions()` holds dozens of situation-specific rules (heading edits, truncation checks, EPRA migrations) and a hard-coded claim of "71 tools".
+5. **Client-specific code is mixed into the core.** `sync_multi_links_to_epra_resources_list`, `epra_resources_list` handling and `get_doc_download_files_on_page` are EPRA-only.
+6. **Permission checks are uneven.** Some toolkits' `guarded()` wrapper only checks that a user is logged in, not Concrete permissions for the object being changed. That contradicts the stated policy.
+7. **There is dead or duplicate code.** `src/Toolkits/` duplicates `src/Tools/`. There are root scripts (`test_tools.php`, `repair_chat_history.php`, `validate_all_chats.php`, `test_container_search.php`) and several analysis `.md` files in the package root.
+8. **The provider is hardcoded.** The agent always uses OpenAI `gpt-4o`. The Anthropic (`claude-2`) and Ollama settings aren't used.
+9. **The schema is managed by hand.** `CREATE TABLE IF NOT EXISTS` runs on every request in `on_start()`, even though `src/Entity/Chat.php` exists.
+10. **There are no automated tests.**
 
 ---
 
 ## 3. Guard rails (apply to all work)
 
-- **Context is assembled by fixed code.** The model is handed "where am I, what's here, what can this user do". It never has to work that out with exploratory tool calls.
-- **Every write is previewed first and can be undone.** Writes go to a new page version, the user sees a diff or summary, and nothing is published without an explicit OK. Undo uses Concrete's version history.
-- **Permissions come from the Concrete user**, and every tool checks them (existing policy). A tool is only offered to the model if the user's tier allows it.
-- **Each tool has a typed contract** (input schema plus an `{ok, data | error}` envelope) and a test.
-- **Rules belong in tools, not prompts.** If behaviour must always hold (e.g. "don't drop body text"), enforce it in code and test it.
-- **Client-specific tools live in their own packages.** They register through `ExternalToolkitRegistry`.
+- **Context is assembled by fixed code.** The model is handed "where am I, what's here, what can this user do".
+- **Every write needs approval and can be undone.** Write tools require approval: the user sees what will change and approves or denies it in the chat. Neuron 4 has this built in (see §4). Changes go to a new page version, and undo uses version history.
+- **Permissions come from the Concrete user** and are checked inside every tool for the specific object. A tool is only offered to the model if the user's tier allows it.
+- **Each tool has a typed contract** (input properties plus an `{ok, data | error}` envelope) and a test.
+- **Rules belong in tools, not prompts.**
+- **Client-specific tools live in their own packages**, registered through `ExternalToolkitRegistry`.
 - **Behaviour scenarios must pass** before anything is merged.
+- **Don't upgrade and refactor at the same time.** A dependency upgrade gets its own PR and must keep scenario results the same.
 
 ---
 
-## 4. Target architecture
+## 4. Neuron AI 3.x → 4.x upgrade
 
-```
-Chat panel (JS)
-   │
-Chat controller ── Conversation store (Doctrine entity)
-   │
-Agent orchestrator
-   ├── ContextBuilder       fixed: page, areas, blocks, user, permissions, tier
-   ├── Intent router        picks 1–3 capability groups per request
-   ├── Capability registry  tool groups, tagged by tier and permission
-   │     ├── core: pages, blocks, content, files, users, attributes, versions
-   │     ├── configure: express, forms, single pages
-   │     ├── generate: app-spec authoring and validation
-   │     └── external: per-client/per-package toolkits (e.g. EPRA)
-   ├── Change set + preview  stage writes, show diff, apply on confirm
-   └── Provider adapter     Anthropic / OpenAI / Ollama from settings
-   
-Generator (separate from the agent)
-   app spec (JSON Schema) → templates → package on a staging/branch → review → install
-```
+### Why upgrade, and why early
+- Neuron 4's features match our design closely:
+  - **built-in tool approval**: a per-tool approval policy, with the status stored on the tool call so the UI can show Approve/Deny. That's our "preview before write" guard rail for free.
+  - **context window management** that archives old messages instead of deleting them
+  - **frontend tools**
+  - **PSR-14 events** for logging
+  - a **classifier** that can be used for guard rails and prompt-injection checks
+- v4 makes `Tool` an abstract class that must be extended. **All 112 of our tools will have to change shape anyway.** Doing that before the refactor means we only touch them once.
+- v4 drops the Guzzle and Inspector dependencies (it uses `ext-curl`). That shrinks the bundled `vendor/` and lowers the risk of clashing with Concrete core's own Guzzle.
+- Upgrading later means doing a major migration on a larger codebase.
+
+### What changes for us (checked against our code)
+
+| Area | v3 (ours) | v4 | Impact |
+|---|---|---|---|
+| Tools | `new Tool(name, desc)` + `addProperty` + `setCallable` (112 tools, also in `katalysis_pro`) | `Tool` is abstract. Set `$name`/`$description` properties and implement `__invoke()`. `setCallable` is gone | **High.** Plan below |
+| Instructions | `instructions(): string` | Must return a `SystemMessage` | Low |
+| Chat history | `DatabaseChatHistory extends AbstractChatHistory` | `ChatHistoryInterface` replaced by `MessageStoreInterface` (persistence only) | Medium: rewrite as a `MessageStore` on the `Chat` entity |
+| Agent state | `resolveState()->getChatHistory()` in the error path | Returns `AgentState` (a `WorkflowState`) | Low to medium |
+| Provider | `new OpenAI(key, model)` | Interface changed. Built-in providers are fine; check the constructor arguments | Low |
+| Observers | `ConcreteCmsLogObserver` (SplObserver) | Deprecated in favour of PSR-14 events | Low. It still works, so migrate later |
+| Dependencies | Bundled Guzzle and Inspector | Neither needed. Requires `ext-curl` | Low. Check `ext-curl` on uk1 / Plesk PHP |
+| Tool approval | None | `requiresApproval()` / `approvalPolicy()` per tool, with state on `ToolCallMessage` | Opportunity |
+
+### Tool migration approach
+1. **Spike (P2.1):** write `Katalysis\NeuronAi\Tools\Support\CallableTool extends Tool`. It takes a name, description, properties and a closure, and passes the model's inputs to that closure, as `setCallable` did. v4's `execute()` matches inputs to `__invoke()`'s parameters by reflection, so the adapter will probably need to override `execute()` and reflect on the wrapped closure instead. The spike confirms this against the actual v4 source in `vendor/` after install.
+2. If the spike works, convert all toolkits **mechanically**: `new Tool(...)` → `CallableTool::make(...)`, with no behaviour changes. `katalysis_pro`'s toolkit gets the same treatment in a coordinated PR.
+3. During the Phase 3 refactor, tools move to proper `Tool` subclasses gradually, toolkit by toolkit, as each one is split up.
+4. Fallback if the adapter fights v4: convert to subclasses straight away, starting with the toolkits used in the golden scenarios.
+
+Neuron 4 ships an `upgrade/` folder with a step-by-step plan written for AI coding agents. Point Claude Code at it in P2.2.
 
 ---
 
 ## 5. Phases
 
-Sizes: S = up to 2 days, M = about a week, L = 2–3 weeks of focused work.
+Sizes: S = up to 2 days, M = about a week, L = 2–3 weeks of focused work. Phases 4 (theme) and 1b (EPRA app kit) can run alongside the others.
 
-### Phase 0: Make it safe to change anything (S, do this first)
-1. **Look for the August working versions** before anything else changes:
-   - VS Code: Explorer → Timeline (Local History) on `PagesToolkit.php`, `BlocksToolkit.php`, `ConcreteCmsAgent.php` and `controllers/chat.php`
-   - Time Machine, if enabled
-   - other copies on dev, staging or live servers
-2. Commit the current state as-is on a branch `wip/sept-2026-snapshot` and push it. That way nothing else can be lost.
-3. If an August version turns up, commit it on `wip/aug-2026-working` too, so the two can be diffed.
-4. Add a `.gitignore` covering `.DS_Store` and local scripts, and remove the `.DS_Store` files from the repo.
-5. Clone the repo into a dedicated dev site (e.g. `neuron-dev.test`) with seeded content: a People list, Content blocks, containers and an Express object. The EPRA copy then just consumes released versions.
-6. Add `CLAUDE.md` (see the draft) and turn on branch protection on `main` (changes only through PRs).
+### Phase 0: Make it safe to change anything (S, mostly done)
+- [x] P0.1 Commit all the work on `development`
+- [x] P0.2 Set up the local dev site (`katalysis_pro_theme`, Concrete 9.5.5)
+- [ ] P0.3 Protect `main` on GitHub (PRs only), and make `development` the integration branch
+- [ ] P0.4 Clean up `.gitignore` (`.DS_Store`, local scripts) and remove the committed `.DS_Store` files
+- [ ] P0.5 Move the analysis `.md` files from the package root into `documentation/archive/`
+- [ ] P0.6 Seed the dev site with test content:
+  - pages with Content blocks and h2/h3/bold-paragraph headings
+  - a container block with nested blocks
+  - a People list (katalysis_pro)
+  - one Express object
+  - a non-admin editor user
+  - a SQL dump in `documentation/fixtures/` so the site can be reset
+- [ ] P0.7 Decide whether the EPRA copy on `main` holds anything not in `development`. Diff the two, then retire the EPRA working copy.
 
-Exit: all code is in git, there's a dev site, and `main` is protected.
+Exit: everything is in git, the dev site can be reset to a known state, and `main` is protected.
 
-### Phase 1: Behaviour spec and test harness (M)
-1. Write `documentation/BEHAVIOUR_SPEC.md`: what the assistant must do, must ask about, and must refuse, per tier.
-2. Write about 15 **golden scenarios** as fixtures plus expected outcomes, for example:
-   - "What page am I on?" and "How many content blocks are on this page?"
-   - Create a People list from a pasted HTML chunk
-   - Move content from a Content block into a different block type, keeping the text
-   - Change all h3 headings to h2 on this page without altering the body text
-   - Create a child page under /about with page type X
-   - A user without permission asks to delete a page → refused, with a clear reason
-   - Follow-up questions ("and are there others?") resolve from prior context
-3. Build two test layers:
-   - **PHPUnit** for tool contracts (deterministic, runs on every commit)
-   - **Scenario evals** that run the real agent against the dev site and check the end state, run before each merge or release
-4. A runner command: `concrete/bin/concrete neuron:eval`.
+### Phase 1: Behaviour spec and baseline (M)
+- P1.1 Write `documentation/BEHAVIOUR_SPEC.md`: what the assistant must do, must ask about, and must refuse, per tier.
+- P1.2 Write about 15 golden scenarios (`tests/Scenarios/*.yaml`), each with a starting fixture, a prompt, and the expected end state or answer:
+  1. "What page am I on?"
+  2. "How many content blocks are on this page?"
+  3. "List the people on the site." (needs the external toolkit, so it fails today)
+  4. Create People from pasted HTML
+  5. Change all h3 headings to h2 on this page, with the body text unchanged
+  6. Turn bold-paragraph headings in column 1 into h3
+  7. Move the content of a Content block into another block type
+  8. Create a child page under /about with a given page type
+  9. Move a page
+  10. Update a page attribute
+  11. A non-admin editor asks to delete a page → refused, with the reason
+  12. Follow-up: "and are there others?" resolves from context
+  13. A request needs a tool that doesn't exist → says so; doesn't make it up
+  14. Paste a long page and ask for a summary → no writes
+  15. A failed write → reported clearly, and the chat continues
+- P1.3 PHPUnit setup for the package, run with Herd's PHP. Add a bootstrap that loads Concrete for integration tests against the dev site database.
+- P1.4 A scenario runner, `concrete/bin/concrete neuron:eval [--scenario=]`. It resets the fixture, runs the agent, checks the end state, and writes a results table to `documentation/eval-results/`.
+- P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade.
+- P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
 
-Exit: scenarios run automatically, and we know which ones pass today.
+Exit: scenarios run with one command, and there's a recorded v3 baseline.
 
-**Quick win in parallel (S): EPRA app kit.** A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure. It covers the approved chart library, theme tokens, the API proxy pattern and file layout. This doesn't depend on the package and becomes the seed of the Tier 3 app spec.
+#### Phase 1b: EPRA app kit (S, in parallel)
+A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure: the approved chart library, theme tokens, the API proxy pattern and the file layout. It doesn't depend on Neuron and becomes the seed of the Tier 3 app spec.
 
-### Phase 2: Core refactor (L)
-1. Add the **ContextBuilder** class: pull the context code out of the agent, make it richer (area and block tree, permissions, tier), and cover it with unit tests.
-2. Add the **capability registry and intent router**: group the tools, tag them by tier and permission, and send only the relevant groups per request.
-3. **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and Batch Edit. Remove `src/Toolkits/` and the root scripts.
-4. **Move the EPRA tools out** into a `katalysis_epra_tools` package (or the EPRA theme package) that registers through `ExternalToolkitRegistry`.
-5. **Cut the prompt down** to identity, tier and how to use context. Move each rule it holds into a tool check or a scenario.
-6. **Provider adapter**: pick the provider and model from settings, update the default model choices, and support Anthropic properly.
-7. **Housekeeping**:
-   - store chats through the Doctrine entity and remove the per-request `CREATE TABLE`
-   - use framework JSON responses in the controllers
-   - add a tool-loop guard (stop repeated calls with the same arguments)
+### Phase 2: Neuron AI 4.x upgrade (M)
+- P2.1 Adapter spike (see §4). Do it on a throwaway branch, against the v4 source. Shape the adapter as the public `Katalysis\NeuronAi\Extension\ToolDefinition` builder (see `EXTENSIONS.md`), so extensions never extend Neuron classes directly.
+- P2.2 Update dependencies:
+  - set `neuron-core/neuron-ai: ^4.1` in `composer.json`
+  - run `composer update` with Herd's PHP and composer
+  - remove Guzzle and Inspector if nothing else needs them
+  - commit the rebuilt `vendor/`
+  - note `ext-curl` as a requirement in `SETUP.md`
+- P2.3 Convert all toolkits to `CallableTool`, mechanically and with no behaviour changes.
+- P2.4 `instructions()` → `SystemMessage`.
+- P2.5 Rewrite `DatabaseChatHistory` as a `MessageStoreInterface` implementation backed by the `Chat` entity. Keep the existing JSON format readable, or add a one-off migration, so old chats still load.
+- P2.6 Fix the agent error path (`resolveState()`) and the controller's `getOrRestoreAgent` / `saveAgentState` for the v4 `AgentState`.
+- P2.7 Check that `ConcreteCmsLogObserver` still works. Add a PSR-14 listener later, in Phase 3.
+- P2.8 Coordinated `katalysis_pro` PR: convert `KatalysisProEntitiesToolkit` to `ToolDefinition`s, so it no longer touches Neuron classes and is unaffected by future library upgrades. The full provider and event registration follows in P3.10.
+- P2.9 Run the scenarios. **Exit: the pass rate is at least the P1.5 baseline, with no new failures**, and old chats still load.
 
-Exit: all Phase 1 scenarios pass, the tool count per request is at most about 25, and the prompt is under about 60 lines.
+Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter isn't workable, bump to the latest 3.17.x instead (a low-risk minor update), re-baseline, and do the v4 move during Phase 3 alongside the toolkit split.
 
-### Phase 3: Editor assistant v1, Tier 1 (M)
-1. Change sets: every write is staged, the panel shows a diff or summary, and the user confirms or rejects.
-2. Polish the import flows: pasted HTML or a URL → structured blocks or entities (People, lists, resources).
-3. Move and convert content between block types, using per-block-type field mappers.
-4. Undo the last change using page versions.
-5. Release to EPRA editors as the first live users, and log failures as new scenarios.
+### Phase 3: Core refactor (L)
+- P3.1 **ContextBuilder**: pull the context code out of the agent and add the area and block tree, the user's permissions on the current page, and the tier. Add unit tests.
+- P3.2 **Capability registry and intent router**: group the tools, tag them by tier and permission, and send only the relevant groups per request (target: at most about 25 tools per request). External toolkits declare their group and tier.
+- P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/` and the root scripts.
+- P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
+  - descriptors for `epra_resources_list` and `doc_download`
+  - a `multi_link → epra_resources_list` transform
+  - guidelines
+  
+  All of it ships in the EPRA theme package, and the EPRA code is deleted from core.
+- P3.5 **Permissions:** replace the login-only `guarded()` with per-object permission checks in every write tool. Add one PHPUnit test per tool for the "denied" case.
+- P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change.
+- P3.7 **Cut the prompt down** to identity, tier and how to use context, under about 60 lines. Each rule it currently holds becomes a tool check or a scenario.
+- P3.8 **Provider adapter:** pick the provider and model from settings, with current Anthropic and OpenAI model choices. Use the cost-efficient model for routing and the stronger model for writes.
+- P3.10 **Extension model (see `EXTENSIONS.md`):**
+  1. the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface
+  2. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
+  3. the descriptor engine: JSON Schema, field types, validation, mapping, `describe_block_type`
+  4. transforms plus the core `convert_blocks` tool
+  5. the Extensions dashboard page
+  6. `katalysis_pro` moved to a provider, and `PeopleToolkit` removed from core
+  7. a shim for `ExternalToolkitRegistry` for one release
+  8. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
+- P3.9 **Housekeeping:**
+  - Doctrine-managed table, with the `CREATE TABLE` removed from `on_start()`
+  - framework JSON responses in the controllers
+  - a loop guard
+  - a PSR-14 logging listener
 
-Exit: EPRA uses it for real tasks, and every reported failure has become a scenario.
+Exit: all scenarios pass, and per-request tool count and prompt size are within targets.
 
 ### Phase 4: Twig/Tailwind base theme (L, a parallel track that could be Alex's)
-1. A lightweight Twig/Tailwind v4 theme built with Vite, plus design tokens.
-2. Override templates for the core blocks so they don't depend on Bootstrap/Bedrock.
-3. A policy for editor content: semantic HTML styled with the typography plugin, and a controlled safelist rather than utility classes in content.
-4. Document the theme's structure as the target the generator writes into.
+- P4.1 A lightweight Twig/Tailwind v4 theme built with Vite, plus design tokens, as a new package. The existing Bootstrap Katalysis Pro theme stays for current sites.
+- P4.2 Override templates for the core blocks so they don't depend on Bootstrap/Bedrock.
+- P4.3 Editor content: semantic HTML styled with the typography plugin, plus a controlled safelist.
+- P4.4 Make `katalysis_pro`'s theme integration (autonav templates, contrast helpers) theme-agnostic. Some of this has started.
+- P4.5 Document the theme's structure as the target the generator writes into.
 
-### Phase 5: Configure, Tier 2 (M)
-1. Express tools: create objects, attributes, associations, forms and entry list/detail blocks.
-2. A single page with approved components (for EPRA: chart and data components plus the API proxy).
-3. Scenarios: "set up a bookable rooms list" built entirely in Express.
+### Phase 5: Editor assistant v1, Tier 1 (M)
+- P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
+- P5.2 Move and convert content between block types, using per-block-type field mappers.
+- P5.3 Undo the last change via page versions.
+- P5.4 Release to EPRA editors. Every failure they report becomes a scenario.
 
-### Phase 6: App spec and generator, Tier 3 (L+)
-1. `app-spec.schema.json` covering entities, fields, relations, validation, list and search views, blocks, permissions, and data sources and API proxies.
-2. A generator console command (`neuron:generate spec.json`) with templates for:
-   - the package controller and Doctrine entities/migrations
-   - dashboard CRUD and search pages
-   - blocks and Twig/Tailwind views
-3. Extension points: generated code goes in `src/Generated/`, custom code in `src/Custom/` and overrides, and regeneration never touches custom code.
-4. Output goes to staging or a git branch, a person reviews it, and then it's installed.
-5. An agent tool that writes and validates the spec with the user. It never writes PHP.
-6. Pilots: an EPRA data app, plus a re-creation of one past Katalysis booking or admin system.
+### Phase 6: Configure, Tier 2 (M)
+- Express tools: create objects, attributes, associations, forms and entry list/detail blocks.
+- Single pages built from approved components (for EPRA: chart and data components plus the API proxy).
+- Scenario: "set up a bookable rooms list", built entirely in Express.
 
-### Phase 7: Community release (M)
-1. Separate the open-source core from the Katalysis-only parts (theme, generator templates, client tools).
-2. Docs, a demo site, a video, and a case study (EPRA).
-3. Talk to Portland Labs early, ideally before or during Phase 3.
+### Phase 7: App spec and generator, Tier 3 (L+)
+- `app-spec.schema.json` covering entities, fields, relations, validation, list and search views, blocks, permissions, and data sources and API proxies.
+- A `neuron:generate spec.json` console command, with templates for:
+  - the package controller and Doctrine entities/migrations
+  - dashboard CRUD and search pages
+  - blocks and Twig/Tailwind views
+- Extension points: generated code goes in `src/Generated/`, custom code in `src/Custom/`, and regeneration never touches custom code.
+- Output goes to staging or a branch, a person reviews it, and then it's installed. The agent writes and validates specs; it never writes PHP.
+- Pilots: an EPRA data app, plus a re-creation of a past Katalysis booking or admin system.
+
+### Phase 8: Community release (M)
+- Separate the open-source core from the Katalysis-only parts.
+- Docs, a demo site, a video, and the EPRA case study.
+- Talk to Portland Labs early, ideally during Phase 3 or 5.
 
 ---
 
 ## 6. Working practices
-
-- **One task = one branch = one PR.** Tasks come from the phase lists above, ideally as GitHub issues.
-- **Claude Code**: plan before editing, keep diffs small, never delete or rewrite files wholesale without tests passing, and run the PHPUnit tests (plus the scenarios for agent changes) before proposing a merge.
-- **Review**: Glyn or Alex reviews each PR. The other person reviews anything touching permissions, the generator, or applying writes.
-- **Releases**: bump `pkgVersion`, keep a changelog entry, and run the scenarios on the dev site before updating EPRA.
+- **One task ID = one branch = one PR into `development`.** Merge `development` into `main` at releases.
+- **Claude Code** (VS Code, running on the Mac with Herd's PHP/composer): follow `CLAUDE.md`. Plan first, keep diffs small, never rewrite wholesale, and run PHPUnit plus the scenarios before proposing a merge.
+- **Review:** Glyn or Alex reviews each PR. The other person reviews anything touching permissions, approval, the generator or dependencies.
+- **Releases:** bump `pkgVersion`, add a changelog entry, run the scenarios on the dev site, then deploy to EPRA.
 
 ## 7. Decisions needed
-
-1. Open-source licence and where the open core ends and paid/private begins.
-2. The default model and provider for production, and who pays for API usage (the client's key or Katalysis's).
-3. Whether EPRA's tools live in a separate package or the EPRA theme package.
-4. Who owns which track (suggested: Glyn on agent/spec, Alex on the theme/generator templates, or the reverse).
+1. Open-source licence, and where the open core ends and paid/private begins.
+2. The default model and provider for production, and who pays for API usage.
+3. Where EPRA's tools live: a separate package or the EPRA theme package.
+4. Track owners. Suggestion: Glyn on agent/upgrade, Alex on the theme and generator templates.
 5. When to approach Portland Labs.
