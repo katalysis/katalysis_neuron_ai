@@ -17,7 +17,8 @@
  *   php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fixtures/seed_test_content.php -- --reset
  *
  * Without options, it creates whatever is missing and leaves everything that exists alone.
- * With --reset it first deletes ONLY the content this script creates, then creates it again.
+ * With --reset it first deletes ONLY the content this script creates, then creates it again. It also removes the review
+ * folder "Assistant – to delete" if a scenario created it, but only when nothing but fixture files is in it.
  * It never reads, changes or depends on any other page, person, user or Express object.
  *
  * DEV ONLY. neuron_editor has a documented throwaway password. Never use it, or this script, on a server:
@@ -39,6 +40,7 @@ use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Support\Facade\Express;
+use Concrete\Core\Tree\Node\Node as TreeNode;
 use Concrete\Core\User\RegistrationServiceInterface;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -57,6 +59,9 @@ return (function () use ($args, $output) {
     $fileTitle = 'Neuron Test File';
     $fileMarker = $pageMarker; // the file's description; reset only touches a file with this title AND description
     $fileSource = __DIR__ . '/neuron-test-file.txt';
+    // The review folder the assistant may create (spec B-T1-11). The script never creates it; --reset removes it only
+    // when nothing else is in it. Both the en dash and the plain hyphen spelling are matched.
+    $reviewFolderNames = ['Assistant – to delete', 'Assistant - to delete'];
 
     $app = Application::getFacadeApplication();
     /** @var EntityManagerInterface $em */
@@ -181,6 +186,25 @@ return (function () use ($args, $output) {
             if ($file) {
                 $file->delete();
                 $output->writeln('  deleted file #' . $fID);
+            }
+        }
+        // Now that the fixture file is gone (even if it was moved into the review folder), a review folder holding
+        // anything else is not ours to touch: leave it and say so.
+        foreach ($db->fetchFirstColumn(
+            'SELECT tn.treeNodeID FROM TreeNodes tn JOIN TreeNodeTypes tt ON tt.treeNodeTypeID = tn.treeNodeTypeID'
+            . ' WHERE tt.treeNodeTypeHandle = ? AND tn.treeNodeName IN (?, ?) ORDER BY tn.treeNodeID',
+            array_merge(['file_folder'], $reviewFolderNames)
+        ) as $folderNodeID) {
+            $remaining = (int) $db->fetchOne('SELECT COUNT(*) FROM TreeNodes WHERE treeNodeParentID = ?', [$folderNodeID]);
+            if ($remaining > 0) {
+                $output->writeln('<comment>  review folder (node #' . $folderNodeID . ') holds ' . $remaining . ' item(s) that are not fixture files, so it was left in place.</comment>');
+
+                continue;
+            }
+            $folderNode = TreeNode::getByID((int) $folderNodeID);
+            if ($folderNode) {
+                $folderNode->delete();
+                $output->writeln('  deleted empty review folder (node #' . $folderNodeID . ')');
             }
         }
         if ($entity) {
