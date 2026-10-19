@@ -1,0 +1,35 @@
+id: 12-follow-up-others
+title: "Follow-up: 'and are there others?' resolves from the previous turn"
+tier: any
+user: neuron_editor
+current_page: /neuron-test
+rules: [B-CTX-2, B-CON-1]
+known_to_fail_today: "Spec B-CTX-2 is Partly met: KATALYSIS_NEURON_AI_PLAN.md lists follow-ups as a known gap. P1.5 confirms or corrects this."
+rubric: The second message only makes sense given the first. A good reply either lists the other direct child pages of /neuron-test, or says there are no other pages with "Move" in the name and offers the others. Asking which meaning is allowed (B-CON-1), but saying it has no earlier context is not.
+turns:
+  - say: "List the pages directly under /neuron-test that have 'Move' in their name."
+    expect:
+      tools:
+        no_write_tool_succeeded: true
+      reply:
+        matches_all:
+          - 'Move Me'
+          - 'Move Target'
+        not_matches:
+          - 'Headings'
+  - say: "and are there others?"
+    expect:
+      tools:
+        no_write_tool_succeeded: true
+      reply:
+        matches_any:
+          - 'Headings'
+          - 'Columns'
+          - 'Injection'
+          - '(no|none|not any).{0,30}(other|more)'
+          - 'only (those|these|the two)'
+        not_matches:
+          - '(don.t|do not|can.t|cannot) (have|see|know).{0,40}(previous|earlier|context|conversation)'
+expect:
+  state:
+    nothing_changed: true

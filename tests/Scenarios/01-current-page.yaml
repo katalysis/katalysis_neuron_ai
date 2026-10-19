@@ -1,0 +1,19 @@
+id: 01-current-page
+title: "What page am I on?"
+tier: any
+user: neuron_editor
+current_page: /neuron-test/headings
+rules: [B-CTX-1, B-TRU-1]
+rubric: Names the page by its title and path, taken from context. Needs no write and no guessing.
+turns:
+  - say: "What page am I on?"
+    expect:
+      tools:
+        no_write_tool_succeeded: true
+      reply:
+        matches_all:
+          - 'Headings'
+          - 'neuron-test/headings'
+expect:
+  state:
+    nothing_changed: true

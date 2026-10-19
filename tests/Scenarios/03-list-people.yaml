@@ -1,0 +1,24 @@
+id: 03-list-people
+title: "List the people on the site"
+tier: 1
+user: neuron_editor
+current_page: /neuron-test/people
+rules: [B-TRU-5, B-PII-1, B-PII-2, B-ACC-8]
+known_to_fail_today: "DELIVERY_PLAN.md problem 1 and spec B-ACC-8: the people tools from katalysis_pro are registered but never loaded into the agent. P1.5 confirms or corrects this."
+rubric: Lists people by name (and job title if useful) from the people tools. A plain list doesn't need email addresses. If it can't read people, it says so and doesn't make up names. The dev site also has other people; only the three test people are checked.
+turns:
+  - say: "List the people on the site."
+    expect:
+      tools:
+        called_any: [list_people]
+        no_write_tool_succeeded: true
+      reply:
+        matches_all:
+          - 'Test Person Alpha'
+          - 'Test Person Beta'
+          - 'Test Person Gamma'
+        not_matches:
+          - '@neuron-test\.invalid'
+expect:
+  state:
+    nothing_changed: true
