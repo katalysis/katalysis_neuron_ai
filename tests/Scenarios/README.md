@@ -1,6 +1,6 @@
 # Golden scenarios
 
-Task P1.2. Each `NN-name.yaml` file is one behaviour scenario: a starting fixture, one or more user turns, and the checks that decide pass or fail. The P1.4 runner (`neuron:eval`) executes them. Until then they are a specification; nothing reads them yet.
+Task P1.2. Each `NN-name.yaml` file is one behaviour scenario: a starting fixture, one or more user turns, and the checks that decide pass or fail. The P1.4 runner (`tests/Eval/run_scenarios.php`, run with `c5:exec`; see `documentation/SETUP.md`) executes them.
 
 Every scenario cites the `documentation/BEHAVIOUR_SPEC.md` rule IDs it checks. The map is in spec section 9.
 
