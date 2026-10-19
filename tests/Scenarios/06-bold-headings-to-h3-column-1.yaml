@@ -4,7 +4,7 @@ tier: 1
 user: neuron_editor
 current_page: /neuron-test/columns
 rules: [B-T1-2, B-T1-3, B-CON-4, B-REP-1]
-known_to_fail_today: "Reply checks only. Spec B-REP-1 is Not met. The state checks are expected to pass; P1.5 confirms or corrects this."
+known_to_fail_today: "P1.5 baseline: fail (3 of 3 runs). The state checks fail too, not only the reply checks. batch_update_content_headings in bold_paragraph mode converts only 1 of the 2 bold paragraphs in Column 1 and changes the approved version's blocks (P1.8). The reply still says the bold paragraphs were converted. Spec B-REP-1 is also Not met."
 rubric: Only the two bold paragraphs in Column 1 become h3 headings. Column 2 is untouched. All text stays the same.
 turns:
   - say: "In column 1, the bold paragraphs are really headings. Turn them into h3 headings and leave everything else as it is."

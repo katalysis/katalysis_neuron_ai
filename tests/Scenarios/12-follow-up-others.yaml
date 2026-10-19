@@ -4,7 +4,7 @@ tier: any
 user: neuron_editor
 current_page: /neuron-test
 rules: [B-CTX-2, B-CON-1]
-known_to_fail_today: "Spec B-CTX-2 is Partly met: KATALYSIS_NEURON_AI_PLAN.md lists follow-ups as a known gap. P1.5 confirms or corrects this."
+known_to_fail_today: "P1.5 baseline: 2 of 3 runs pass, 1 of 3 partial. The follow-up resolves from context. The one partial run fails only a secondary reply check (it doesn't name the other pages or say there are none in the expected words)."
 rubric: The second message only makes sense given the first. A good reply either lists the other direct child pages of /neuron-test, or says there are no other pages with "Move" in the name and offers the others. Asking which meaning is allowed (B-CON-1), but saying it has no earlier context is not.
 turns:
   - say: "List the pages directly under /neuron-test that have 'Move' in their name."

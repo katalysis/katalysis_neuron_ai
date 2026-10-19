@@ -175,12 +175,30 @@ return (function () use ($args, $output): int {
     $commit = $git('rev-parse --short HEAD') ?: 'unknown';
     $dirty = $git('status --porcelain') !== '';
 
+    // The agent doesn't set a temperature, so this normally reads "provider default". It is read from the
+    // provider's request parameters, so a later change in the agent shows up here without editing the runner.
+    $temperature = 'provider default (not set by the agent)';
+    try {
+        $providerMethod = new ReflectionMethod(ConcreteCmsAgent::class, 'provider');
+        $providerMethod->setAccessible(true);
+        $provider = $providerMethod->invoke(new ConcreteCmsAgent());
+        $parametersProperty = new ReflectionProperty($provider, 'parameters');
+        $parametersProperty->setAccessible(true);
+        $parameters = $parametersProperty->getValue($provider);
+        if (is_array($parameters) && isset($parameters['temperature'])) {
+            $temperature = (string) $parameters['temperature'];
+        }
+    } catch (Throwable) {
+        $temperature = 'not recorded';
+    }
+
     $results['meta'] = [
         'startedAt' => $startedAt,
         'durationSec' => round(microtime(true) - $started, 1),
         'repeat' => $repeat,
         'filter' => $filter,
         'model' => 'openai ' . (string) Config::get('katalysis.ai.open_ai_model', 'gpt-4o'),
+        'temperature' => $temperature,
         'commit' => $commit . ($dirty ? ' (uncommitted changes)' : ''),
         'neuronVersion' => $neuronVersion,
         'concreteVersion' => (string) Config::get('concrete.version'),

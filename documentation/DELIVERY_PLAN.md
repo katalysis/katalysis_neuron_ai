@@ -165,7 +165,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   **The runner runs the agent in-process as the scenario's user** (e.g. `neuron_editor`), not over HTTP, so it doesn't depend on the endpoint access check (spec §10, decision 14).
 
   **Add a pre-boot guard to `ConcreteBoot`:** before booting, read `application/config/database.php` and refuse unless the database host is local (`127.0.0.1`, `localhost` or a socket), so no run can connect to a non-local database.
-- P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade.
+- [x] P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade. Done: 18 scenarios × 3 runs on gpt-4o, recorded in `documentation/eval-results/baseline-20261019.md` and `.json` (majority labels: 5 pass, 4 partial, 9 fail; scenarios 11, 12 and 16 are unstable).
 - P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
   - **Tool name collisions:** `katalysis_pro` defines its own `list_people`, as does the core `PeopleToolkit`. When an external tool has the same name as a core tool, the external, package-owned tool wins, the core one is dropped for that request, and a warning is logged. Add a PHPUnit test that the final tool list never contains duplicate names.
   - The core `PeopleToolkit` is removed for good in P3.10. Namespacing provider tool names is decided there.
@@ -175,9 +175,10 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   3. `set_user_attribute_value` is disabled (B-ACC-7).
   4. The guest checks in `runtime_smoke_test.sh` change to expect a refusal.
   5. A PHPUnit test (or scripted check) proves that a logged-in user without access gets a refusal from `send_message`.
+  6. `approve_page_version` is disabled until P3.6 approval exists. Publishing stays a human action (baseline scenario 14 published a live change from injected text).
 - P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check).
 
-Exit: scenarios run with one command, there's a recorded v3 baseline, and P1.7 is merged.
+Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, and P1.8 is merged (the P1.5 baseline confirmed it is needed).
 
 #### Phase 1b: EPRA app kit (S, in parallel)
 A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure: the approved chart library, theme tokens, the API proxy pattern and the file layout. It doesn't depend on Neuron and becomes the seed of the Tier 3 app spec.
