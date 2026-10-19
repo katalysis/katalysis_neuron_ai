@@ -165,6 +165,8 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   **The runner runs the agent in-process as the scenario's user** (e.g. `neuron_editor`), not over HTTP, so it doesn't depend on the endpoint access check (spec §10, decision 14).
 - P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade.
 - P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
+  - **Tool name collisions:** `katalysis_pro` defines its own `list_people`, as does the core `PeopleToolkit`. When an external tool has the same name as a core tool, the external, package-owned tool wins, the core one is dropped for that request, and a warning is logged. Add a PHPUnit test that the final tool list never contains duplicate names.
+  - The core `PeopleToolkit` is removed for good in P3.10. Namespacing provider tool names is decided there.
 - P1.7 **Security fix** (its own PR; any time in Phase 1). **Required before Neuron is installed on any non-dev site.**
   1. Every chat endpoint applies the same access check as the panel (B-ACC-1), server-side.
   2. `delete_file` is disabled (B-T1-11).
