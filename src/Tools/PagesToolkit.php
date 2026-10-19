@@ -2180,7 +2180,21 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new Tool(
             'add_block_to_page_area',
-            'Add a new block to a specific page area'
+            'Add a new block to a specific page area. '
+            . 'blockType must be the handle of the block type the user asked for. Never substitute a different type '
+            . '(for example, do not use "content" when the user asked for an HTML block). '
+            . 'Common handles: '
+            . 'content = rich text (formatted text, headings, paragraphs); '
+            . 'html = raw HTML, for markup that must be kept exactly as written; '
+            . 'image = a single image; '
+            . 'file = a link to a downloadable file; '
+            . 'page_list = a list of pages; '
+            . 'autonav = a navigation menu; '
+            . 'youtube or video = an embedded video; '
+            . 'google_map = a map; '
+            . 'form = a Concrete form; '
+            . 'accordion, faq, feature = structured content blocks. '
+            . 'If the requested type does not exist or you are unsure of its handle, say so instead of choosing another.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -2200,7 +2214,8 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'blockType',
             PropertyType::STRING,
-            'Block type handle (for example: "content" or "image")',
+            'Handle of the block type the user asked for, used exactly as requested '
+            . '("content" = rich text, "html" = raw HTML, "image", "file", "page_list", ...). Do not pick a different type.',
             true
         ));
 

@@ -44,6 +44,19 @@ Record decisions that change the plan or design, with the date and who made them
 ## Log
 (newest first)
 
+### 2026-10-19: P1.6a add_block_to_page_area block type description
+- Branch / PR: `task/P1.6a-block-type-description` (no PR yet; P1.6 is rebased onto this branch to test the pair).
+- Done:
+  - **`add_block_to_page_area`** (`PagesToolkit::makeAddBlockToPageAreaTool`): the description now says `blockType` must be the handle the user asked for and never a substitute (with the example "don't use `content` when asked for an HTML block"), lists the common handles with one-line meanings (`content` = rich text, `html` = raw HTML, `image`, `file`, `page_list`, `autonav`, `youtube`/`video`, `google_map`, `form`, `accordion`/`faq`/`feature`), and says to report an unavailable or unknown type instead of choosing another.
+  - **The `blockType` property's description** changed in the same way (shorter, same rule). The plan says "that tool's description"; I took the property text as part of it, because it is where the model reads the handle. Descriptions only: no parameter, name, schema or behaviour change.
+  - Handles were checked against `concrete/blocks` and `katalysis_pro/blocks` on the dev site.
+- Not done / left for later:
+  - Only 07 was run, as asked; the other 17 scenarios run with P1.6 on top.
+  - The `known_to_fail_today` note on scenario 07 is unchanged.
+- Checks: PHPUnit 98 tests, 480 assertions, OK (unit and integration), classification test unchanged and passing. Scenario 07 `--repeat=5` (`20261019-170150`, gpt-4o, code `6f9733a` plus this change): **5 of 5 pass** (tokens 185,937 / 1,000, about $0.47 upper bound). Same code without the change, from the P1.6 control: 3 of 5 pass (`20261019-165640`); amended baseline 2 of 3.
+- Plan changes proposed: none.
+- Questions for review: none.
+
 ### 2026-10-19: P1.5a Fixture fix for scenario 07, baseline amended
 - Branch / PR: `task/P1.5a-fixture-fix-scenario-07` (PR #11, merged). Commits:
   - `6c76fe9`: the seed change
