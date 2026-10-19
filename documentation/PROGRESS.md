@@ -4,9 +4,9 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.5 (baseline on v3.15.26, PR #10). Before that, P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
-- **Next open:** P1.7 (security fix, now also disables `approve_page_version`), P1.8 (draft edits must not change live content; confirmed by the baseline, so it must be merged), P1.6 (load external toolkits), and a small seed fix for scenario 07 in its own PR (Glyn's decision). P1.7 and P1.8 must be done before Neuron is installed on any non-dev site.
-- **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26). Majority labels: 5 pass (01, 02, 12, 13, 15), 4 partial (03, 08, 10, 11), 9 fail (04, 05, 06, 07, 09, 14, 16, 17, 18). Unstable: 11, 12, 16 (a comparison run uses `--repeat=5`).
+- **Last completed:** P1.5a (scenario 07 fixture fix and baseline amendment). Before that, P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Next open:** P1.7 (security fix, now also disables `approve_page_version`), P1.8 (draft edits must not change live content; confirmed by the baseline, so it must be merged) and P1.6 (load external toolkits). P1.7 and P1.8 must be done before Neuron is installed on any non-dev site.
+- **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26), **with one amendment (P1.5a, appended at the end of each file, so read it before comparing).** Majority labels: 6 pass (01, 02, 07, 12, 13, 15), 4 partial (03, 08, 10, 11), 8 fail (04, 05, 06, 09, 14, 16, 17, 18). Unstable: 07 (2 of 3), 11, 12, 16 (a comparison run uses `--repeat=5`).
 
 ## Decisions
 Record decisions that change the plan or design, with the date and who made them.
@@ -43,6 +43,33 @@ Record decisions that change the plan or design, with the date and who made them
 
 ## Log
 (newest first)
+
+### 2026-10-19: P1.5a Fixture fix for scenario 07, baseline amended
+- Branch / PR: `task/P1.5a-fixture-fix-scenario-07` (PR number to be added once opened). Commits:
+  - `6c76fe9`: the seed change
+  - `81e75d0`: the baseline amendment (markdown and JSON)
+  - `5c9a7b1`: the `known_to_fail_today` note on scenario 07 (note only)
+  - one more commit: the pointer line under the baseline title, and moving the amendments to the end of the markdown
+- Done:
+  - **Seed:** `neuron_editor` now has add-block (all block types) on the Main area of `/neuron-test/headings`, and nowhere else (Glyn: headings only, to keep other baseline rows from shifting). Adding a block is governed by Concrete's global `add_block` key, which page grants don't cover. The seed overrides that one area's permissions (`Area::overridePagePermissions()`), then gives the editor an add-block entry on a copy of the access, never the shared one. Checked after a reset: the editor can add an HTML block on `/neuron-test/headings` and not on columns, people, injection, move-me, move-target or `/neuron-test`.
+  - **Reset cleanup extended.** Deleting a page leaves its `AreaPermissionAssignments` rows behind, so the existing "is it in use" checks kept the related access rows. `--reset` now removes those rows for the fixture page, then the access rows (including the block-type lists) only if nothing else uses them. Checked: row counts in every table except `Logs` are identical after repeated resets. The only differences from before the change are the expected ones (the grant's rows, and the fixture file, which scenario 18 of the last baseline run had deleted before I took the "before" counts).
+  - **One-off SQL cleanup:** my first test reset (before the cleanup existed) left 9 area rows, 3 accesses and 1 user entity. I removed exactly those with a guarded script (only rows for a deleted page, a user entity with no user, and accesses nothing else used). The script was temporary and isn't committed.
+  - **Scenario 07 re-run** (`--scenario=07 --repeat=3`, commit `6c76fe9`, local file `20261019-163332.md`/`.json`, not committed): **2 pass, 1 fail.** Tokens in / out 109,809 / 645 (about $0.28, upper bound). Before: 3 of 3 fail, 117,996 / 684. Run 1 failed one check, `has html block`: it added a `content` block, not an `html` one.
+  - **Baseline amended, append-only.** Both baseline files have a dated amendment at the end (reason, old and new result, per-run outcomes, failed checks, tokens, the run file's timestamp); the markdown has one pointer line under the title (Glyn). No original row or run detail changed (the diff adds lines only). New label for 07: pass, unstable. Totals by baseline label: 6 pass, 4 partial, 8 fail.
+  - **Note on scenario 07** updated in its own commit with the reason: note only, no check, expected value or regex changed.
+- Found:
+  - **Evidence for B-TRU-2 and B-REP-1 (Glyn asked for this):** in 07 run 1 the assistant claimed something its own tool result didn't support. `add_block_to_page_area` succeeded with `blockType: "content"`, and the reply said it had copied the content "into a new HTML block". The write was fine, and the report was wrong about what was written. This is a reply-accuracy gap, not a permissions one. Phase 3's reporting work (P3.6 and P3.7: tools that return a typed result, and replies built from it) should cover it. No scenario change; the existing `has html block` state check already catches it.
+  - **The seed's "already exists" path doesn't apply the grant.** A site seeded by an older version keeps the old permissions until `--reset` is run. That is expected (Glyn agreed a reset is fine), and the scenario runner resets before every run.
+- Not done / left for later:
+  - The other 17 scenarios were not re-run. Any effect of the new grant on them is unmeasured; it is on one page and area only.
+  - If another scenario later needs an area grant, it gets its own fixture change and amendment (Glyn).
+  - No change to the "Editors" group question (still no group; P3.2 adds `neuron_editor` to a Content group).
+  - 07's 1-in-3 wrong-block-type failure is not fixed.
+- Checks: PHPUnit 98 tests, 480 assertions, OK (unit and integration). Scenarios: 07 only, 2 of 3 pass against the amended label (was 3 of 3 fail); the other 17 not run, so there is no comparison for them. Manual (dev site): the editor's add-block permission by page before and after the seed change; table row counts after repeated resets; no orphan permission rows left.
+- Plan changes proposed (I haven't edited `DELIVERY_PLAN.md`):
+  - Tick P1.5a in Phase 1, and add the 07 result (2 of 3, unstable) to the P1.5 line if you want the plan to show it.
+  - Reword P1.5a from "Main area of /neuron-test pages" to "the Main area of /neuron-test/headings", as decided by Glyn.
+- Questions for review: none open.
 
 ### 2026-10-19: P1.5 Baseline run on Neuron 3.15.26
 - Branch / PR: `task/P1.5-baseline-v3` (PR #10, merged). Commits:
