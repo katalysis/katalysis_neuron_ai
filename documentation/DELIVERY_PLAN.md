@@ -154,7 +154,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
 
   Also decide whether the permission scenarios need an "Editors" group, added to the seed, rather than per-page grants to `neuron_editor`.
 - [x] P1.3 PHPUnit setup for the package, run with Herd's PHP. Integration tests boot Concrete through `tests/Support/ConcreteBoot.php`, behind the dev-host guard; unit tests don't boot Concrete. Done (PR #8).
-- P1.4 A scenario runner, `concrete/bin/concrete neuron:eval [--scenario=]`. It:
+- P1.4 A scenario runner. It is dev tooling under `tests/Eval/` (not shipped), run as `php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php -- [--scenario=] [--repeat=N]`. `--repeat=N` runs each scenario N times from a fresh reset and reports a pass rate. It:
   - resets the fixture (`seed_test_content.php --reset`)
   - runs the agent
   - checks the end state
@@ -175,6 +175,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   3. `set_user_attribute_value` is disabled (B-ACC-7).
   4. The guest checks in `runtime_smoke_test.sh` change to expect a refusal.
   5. A PHPUnit test (or scripted check) proves that a logged-in user without access gets a refusal from `send_message`.
+- P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check).
 
 Exit: scenarios run with one command, there's a recorded v3 baseline, and P1.7 is merged.
 
