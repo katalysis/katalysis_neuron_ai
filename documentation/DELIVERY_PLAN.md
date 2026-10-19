@@ -165,7 +165,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   **The runner runs the agent in-process as the scenario's user** (e.g. `neuron_editor`), not over HTTP, so it doesn't depend on the endpoint access check (spec §10, decision 14).
 
   **Add a pre-boot guard to `ConcreteBoot`:** before booting, read `application/config/database.php` and refuse unless the database host is local (`127.0.0.1`, `localhost` or a socket), so no run can connect to a non-local database.
-- P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade.
+- [x] P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade. Done: 18 scenarios × 3 runs on gpt-4o, recorded in `documentation/eval-results/baseline-20261019.md` and `.json` (majority labels: 5 pass, 4 partial, 9 fail; scenarios 11, 12 and 16 are unstable).
 - P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
   - **Tool name collisions:** `katalysis_pro` defines its own `list_people`, as does the core `PeopleToolkit`. When an external tool has the same name as a core tool, the external, package-owned tool wins, the core one is dropped for that request, and a warning is logged. Add a PHPUnit test that the final tool list never contains duplicate names.
   - The core `PeopleToolkit` is removed for good in P3.10. Namespacing provider tool names is decided there.
