@@ -26,6 +26,8 @@ use NeuronAI\Chat\Messages\ToolCallMessage;
 final class ScenarioRunner
 {
     public const CHAT_PREFIX = 'neuron-eval-';
+    /** The session key controllers/chat.php stores the panel's page context under. */
+    public const SESSION_KEY = 'katalysis_neuron_ai_page_context';
     /** What ConcreteCmsAgent::handle() returns when something went wrong inside it. */
     public const AGENT_ERROR_REPLY = 'I ran into an error processing that request. Please try again.';
 
@@ -203,8 +205,11 @@ final class ScenarioRunner
     }
 
     /**
-     * Tells the agent and its tools which page the user is on, as the chat panel does.
-     * The tools read it from the request (or the session, which doesn't exist on the CLI).
+     * Tells the agent and its tools which page the user is on, the way the chat endpoint does: it puts the
+     * panel's page context in $_SESSION['katalysis_neuron_ai_page_context'] (controllers/chat.php, send_message)
+     * and the tools read it from there. There is no session on the CLI, so a native one is started for the run.
+     * (The tools also look at request parameters, but through a container entry that never holds the real
+     * request, so those alone don't reach them.)
      */
     private function setPageContext(ConcreteCmsAgent $agent, string $path): void
     {
@@ -221,12 +226,19 @@ final class ScenarioRunner
         ];
         $agent->setRuntimePageContext($context);
 
-        $requests = [Request::getInstance(), $this->app->make('request')];
-        foreach ($requests as $request) {
-            $request->request->set('pageID', $context['id']);
-            $request->request->set('pagePath', $context['path']);
-            $request->request->set('pageTitle', $context['title']);
-            $request->request->set('pageUrl', $context['url']);
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            @session_start(['use_cookies' => 0, 'use_only_cookies' => 0, 'cache_limiter' => '', 'save_path' => sys_get_temp_dir()]);
+        }
+        $_SESSION[self::SESSION_KEY] = $context;
+    }
+
+    /**
+     * Ends the native session started for page context and removes its file.
+     */
+    public function endSession(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
         }
     }
 

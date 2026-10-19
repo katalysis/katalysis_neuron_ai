@@ -153,6 +153,7 @@ return (function () use ($args, $output): int {
         $output->writeln('<error>' . $e->getMessage() . '</error>');
         $exitCode = 1;
     } finally {
+        $runner->endSession();
         $deleted = $runner->deleteChats();
         $left = $runner->countChats();
         $output->writeln("Deleted {$deleted} chat row(s) created by this run" . ($left > 0 ? "; WARNING: {$left} still remain." : '.'));
