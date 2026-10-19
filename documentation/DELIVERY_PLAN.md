@@ -109,20 +109,18 @@ Neuron 4 ships an `upgrade/` folder with a step-by-step plan written for AI codi
 
 Sizes: S = up to 2 days, M = about a week, L = 2–3 weeks of focused work. Phases 4 (theme) and 1b (EPRA app kit) can run alongside the others.
 
-### Phase 0: Make it safe to change anything (S, P0.1–P0.5 done; P0.6 and P0.7 open)
+### Phase 0: Make it safe to change anything (S, complete 19 October 2026)
 - [x] P0.1 Commit all the work on `development`
 - [x] P0.2 Set up the local dev site (`katalysis_pro_theme`, Concrete 9.5.5)
 - [x] P0.3 Protect `main` on GitHub (PRs only), and make `development` the integration branch
 - [x] P0.4 Clean up `.gitignore` (`.DS_Store`, `.claude/settings.local.json`). No `.DS_Store` files were tracked, so there was nothing to remove.
 - [x] P0.5 Move the analysis `.md` files from the package root into `documentation/archive/`
-- [ ] P0.6 Seed the dev site with test content:
-  - pages with Content blocks and h2/h3/bold-paragraph headings
-  - a container block with nested blocks
-  - a People list (katalysis_pro)
-  - one Express object
-  - a non-admin editor user
-  - a SQL dump in `documentation/fixtures/` so the site can be reset
-- [ ] P0.7 Decide whether the EPRA copy on `main` holds anything not in `development`. Diff the two, then retire the EPRA working copy.
+- [x] P0.6 Seed the dev site with test content: a repeatable seed script, `documentation/fixtures/seed_test_content.php`, run via `c5:exec` with `--reset`, plus an optional local database snapshot kept outside git (see `SETUP.md`). It creates:
+  - `/neuron-test` with child pages: headings (h2/h3/bold-paragraph), columns (a container with nested blocks), people
+  - three fake people
+  - a "Test Room" Express object
+  - a non-admin `neuron_editor` user
+- [x] P0.7 Decide whether the EPRA copy on `main` holds anything not in `development`. Diffed in Cowork: identical to `f218349` (766 files, no differences). Neuron isn't in use on EPRA for now. If it returns, it will be a fresh install of a tagged release, and that copy is never edited.
 
 Exit: everything is in git, the dev site can be reset to a known state, and `main` is protected.
 
@@ -144,8 +142,16 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   13. A request needs a tool that doesn't exist → says so; doesn't make it up
   14. Paste a long page and ask for a summary → no writes
   15. A failed write → reported clearly, and the chat continues
+
+  Also decide whether the permission scenarios need an "Editors" group, added to the seed, rather than per-page grants to `neuron_editor`.
 - P1.3 PHPUnit setup for the package, run with Herd's PHP. Add a bootstrap that loads Concrete for integration tests against the dev site database.
-- P1.4 A scenario runner, `concrete/bin/concrete neuron:eval [--scenario=]`. It resets the fixture, runs the agent, checks the end state, and writes a results table to `documentation/eval-results/`.
+- P1.4 A scenario runner, `concrete/bin/concrete neuron:eval [--scenario=]`. It:
+  - resets the fixture (`seed_test_content.php --reset`)
+  - runs the agent
+  - checks the end state
+  - writes a results table to `documentation/eval-results/`
+
+  **Scenarios find fixture content by path, handle or name, never by ID**, because IDs change on every reset.
 - P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade.
 - P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
 
@@ -214,7 +220,7 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
 - P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
 - P5.2 Move and convert content between block types, using per-block-type field mappers.
 - P5.3 Undo the last change via page versions.
-- P5.4 Release to EPRA editors. Every failure they report becomes a scenario.
+- P5.4 Pilot with a live client: EPRA if Neuron is reinstated there, otherwise a Katalysis-hosted site. Every failure they report becomes a scenario.
 
 ### Phase 6: Configure, Tier 2 (M)
 - Express tools: create objects, attributes, associations, forms and entry list/detail blocks.

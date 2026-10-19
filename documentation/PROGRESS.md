@@ -4,8 +4,8 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 0
-- **Last completed:** P0.1–P0.6 (plus the workflow setup commits `af261c2` and `bf232f3`). P0.3 was done by Glyn by hand on GitHub (reported; not verified by Claude Code).
-- **Next open:** P0.7 (diff the EPRA copy against `development`).
+- **Last completed:** Phase 0 (P0.1–P0.7). P0.3 was done by Glyn on GitHub. P0.7 was done in Cowork.
+- **Next open:** P1.1 (behaviour spec).
 - **Scenario baseline:** not recorded yet (P1.5)
 
 ## Decisions
@@ -17,6 +17,7 @@ Record decisions that change the plan or design, with the date and who made them
   - the merge rule moves from "no regressions" to "all pass" at the end of Phase 3
   - planned deletions are covered by plan approval
   - mechanical conversions are covered by a registry test (Glyn)
+- 2026-10-19: Neuron isn't in use on EPRA for now. P5.4's pilot client is generalised to EPRA or a Katalysis-hosted site (Glyn).
 
 ## Entry template
 ```
@@ -32,8 +33,13 @@ Record decisions that change the plan or design, with the date and who made them
 ## Log
 (newest first)
 
+### 2026-10-19: P0.7 EPRA working copy check (done in Cowork)
+- Done: diffed the EPRA site's package copy (`main` plus its uncommitted changes) against `f218349` on `development`. They're identical: 766 files each, `diff -rq` is clean, and the `PagesToolkit.php` checksums match. Nothing exists only in the EPRA copy.
+- Decision: Neuron isn't in use on EPRA for now (Glyn). The EPRA copy is left as it is and never edited. If Neuron returns there, it will be a fresh install of a tagged release.
+- Not checked: the live EPRA server's copy. Diff it before any future deployment there.
+
 ### 2026-10-19: P0.6 Seed the dev site with test content
-- Branch / PR: `task/P0.6-seed-dev-site` (not pushed; PR not opened yet)
+- Branch / PR: `task/P0.6-seed-dev-site` (PR #5, merged)
 - Done:
   - Added `documentation/fixtures/seed_test_content.php`, run with `c5:exec` (options go after `--`: `-- --reset`). Without options it creates whatever is missing. With `--reset` it deletes only what it created, then recreates it.
   - It creates:
@@ -64,7 +70,9 @@ Record decisions that change the plan or design, with the date and who made them
   - P0.6 lists the non-admin editor user as "a non-admin editor user". It is a Registered Users member with per-page grants, not in any editor group.
 - Questions for review:
   - `neuron_editor` isn't in a group, because the seed's reset only deletes what it created. Do the scenarios need an "Editors" group instead? It would be added to the seed.
+    **Resolved (Glyn):** no group for now. Decide in P1.2.
   - The fixture IDs aren't stable between resets (page, person and Express entry IDs change). Scenarios should look things up by path, name or handle, not by ID.
+    **Resolved (Glyn):** agreed. Added to P1.4 as a rule.
 
 ### 2026-10-19: P0.4 + P0.5 Package .gitignore and archive of analysis docs
 - Branch / PR: `task/P0.4-gitignore-and-archive` (PR #4, merged)
