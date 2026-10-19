@@ -119,11 +119,6 @@ INST;
             
             protected function tools(): array
             {
-                return [];  // Toolkits are registered differently
-            }
-            
-            protected function toolkits(): array
-            {
                 return [
                     new PagesToolkit(),
                     new FilesToolkit(),

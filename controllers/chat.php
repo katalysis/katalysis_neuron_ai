@@ -103,8 +103,38 @@ class Chat extends AbstractController
             ]);
             exit;
             
-        } catch (\Exception $e) {
-            \Concrete\Core\Support\Facade\Log::error('Neuron AI Chat Error: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            // Log the full error
+            \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . $e->getMessage());
+            \Concrete\Core\Support\Facade\Log::error('Stack trace: ' . $e->getTraceAsString());
+            
+            // Try to add an error recovery message to maintain history alternation
+            try {
+                if (isset($agent)) {
+                    $chatHistory = $agent->resolveState()->getChatHistory();
+                    $messages = $chatHistory->getMessages();
+                    
+                    // Check if the last message was from the user (indicating we failed to respond)
+                    if (!empty($messages)) {
+                        $lastMessage = end($messages);
+                        if ($lastMessage->getRole() === 'user') {
+                            // Add an assistant error response to maintain alternation
+                            $errorResponse = "I ran into an error processing that request. Please try again.";
+                            $chatHistory->addMessage(new AssistantMessage($errorResponse));
+                            $this->saveAgentState($agent);
+                            
+                            \Concrete\Core\Support\Facade\Log::notice(
+                                'Added error recovery message to maintain chat history alternation'
+                            );
+                        }
+                    }
+                }
+            } catch (\Throwable $recoveryError) {
+                \Concrete\Core\Support\Facade\Log::error(
+                    'Failed to add error recovery message: ' . $recoveryError->getMessage()
+                );
+            }
+            
             http_response_code(500);
             echo json_encode([
                 'success' => false,
@@ -170,32 +200,39 @@ class Chat extends AbstractController
 
         $context = $data['pageContext'];
 
-        $resolvedId = null;
-        if (isset($context['id']) && is_numeric($context['id'])) {
-            $pageById = Page::getByID((int) $context['id'], 'ACTIVE');
-            if ($pageById && !$pageById->isError()) {
-                $resolvedId = (int) $pageById->getCollectionID();
+        $candidatePath = null;
+        if (!empty($context['path']) && is_string($context['path'])) {
+            $candidatePath = parse_url($context['path'], PHP_URL_PATH) ?: $context['path'];
+        } elseif (!empty($context['url']) && is_string($context['url'])) {
+            $candidatePath = parse_url($context['url'], PHP_URL_PATH) ?: null;
+        } else {
+            $candidatePath = $this->getReferrerPath();
+        }
+
+        $cleanPath = $this->normalizePagePath($candidatePath);
+        $pathResolvedId = null;
+        if ($cleanPath !== null) {
+            $pageByPath = Page::getByPath($cleanPath, 'ACTIVE');
+            if ($pageByPath && !$pageByPath->isError()) {
+                $pathResolvedId = (int) $pageByPath->getCollectionID();
             }
         }
 
-        $path = null;
-        if ($resolvedId !== null) {
-            $pageById = Page::getByID($resolvedId, 'ACTIVE');
-            $path = ($pageById && !$pageById->isError()) ? $pageById->getCollectionPath() : null;
-        } elseif (!empty($context['path']) && is_string($context['path'])) {
-            $path = parse_url($context['path'], PHP_URL_PATH) ?: $context['path'];
-        } elseif (!empty($context['url']) && is_string($context['url'])) {
-            $path = parse_url($context['url'], PHP_URL_PATH) ?: null;
-        } else {
-            $path = $this->getReferrerPath();
+        $idResolvedId = null;
+        if (isset($context['id']) && is_numeric($context['id'])) {
+            $pageById = Page::getByID((int) $context['id'], 'ACTIVE');
+            if ($pageById && !$pageById->isError()) {
+                $idResolvedId = (int) $pageById->getCollectionID();
+            }
         }
 
-        $cleanPath = $this->normalizePagePath($path);
+        // Prefer path-derived context when available because it reflects current navigation.
+        $resolvedId = $pathResolvedId ?? $idResolvedId;
 
-        if ($resolvedId === null && $cleanPath !== null) {
-            $page = Page::getByPath($cleanPath, 'ACTIVE');
+        if ($resolvedId !== null) {
+            $page = Page::getByID($resolvedId, 'ACTIVE');
             if ($page && !$page->isError()) {
-                $resolvedId = (int) $page->getCollectionID();
+                $cleanPath = $page->getCollectionPath();
             }
         }
 

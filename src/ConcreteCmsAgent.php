@@ -6,10 +6,19 @@ use NeuronAI\Agent\Agent;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\Chat\Messages\UserMessage;
+use NeuronAI\Chat\Messages\AssistantMessage;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\UsersToolkit;
+use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
+use Katalysis\NeuronAi\Tools\UserAttributesToolkit;
+use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
+use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
+use Katalysis\NeuronAi\Tools\TopicsToolkit;
+use Katalysis\NeuronAi\Tools\PeopleToolkit;
+use Katalysis\NeuronAi\Tools\VersionsToolkit;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\Page\Page;
@@ -40,6 +49,23 @@ class ConcreteCmsAgent extends Agent
             // Return a clear error message that the LLM can understand
             return "Error executing tool: " . $e->getMessage() . ". Please try a different approach or ask for clarification.";
         });
+    }
+
+    protected function tools(): array
+    {
+        return [
+            new PagesToolkit(),
+            new BlocksToolkit(),
+            new FilesToolkit(),
+            new UsersToolkit(),
+            new PageAttributesToolkit(),
+            new UserAttributesToolkit(),
+            new FileAttributesToolkit(),
+            new AttributeSetsToolkit(),
+            new TopicsToolkit(),
+            new PeopleToolkit(),
+            new VersionsToolkit(),
+        ];
     }
     
     /**
@@ -103,7 +129,6 @@ class ConcreteCmsAgent extends Agent
     protected function instructions(): string
     {
         $context = $this->getCurrentContext();
-        
         return <<<INST
 You are an AI assistant for Concrete CMS with comprehensive site management capabilities.
 
@@ -111,75 +136,61 @@ CURRENT CONTEXT:
 {$context}
 
 CAPABILITIES:
-You have access to 20 tools across 3 categories:
+You have access to 71 tools across 11 categories.
 
-**Pages (12 tools):**
-- Get current page context with attributes and content snapshot
-- List pages with filtering options
-- Get detailed page information
-- Create new pages with specific types and locations
-- Update existing page properties
-- Move pages to new parent locations
-- Delete pages
-- Navigate the sitemap and get child pages
-- Add blocks to page areas
-- Update blocks in page areas
-- Delete blocks from page areas
+**Blocks (5 tools):**
+- Search for all instances of a specific block type across the site (finds blocks in regular areas AND inside containers)
+- Get detailed field data and configuration from a specific block (raw database fields)
+- Get block controller runtime data with resolved relationships (users, files, pages) - use for understanding actual content
+- Count block usage by type (quick stats for all block types or specific ones)
+- List all blocks nested inside a specific container block (by container block ID)
 
-**Files (4 tools):**
-- List files in the file manager
-- Get detailed file information
-- Delete files
-- Browse file folder structure
-
-**Users (4 tools):**
-- List all users in the system
-- Get detailed user information
-- Get current user details
-- Search for users by name or email
+**Content Writes:**
+- Use `add_block_to_page_area`, `update_block_in_page_area`, `delete_block_from_page_area`, and `batch_update_page_content` for content changes whenever the page/area/block context is available
+- Use `create_page`, `update_page`, `move_page`, and `delete_page` for page structure changes whenever the page context is available
+- Do not tell the user to make manual edits when one of these tools can perform the change directly
+- Only fall back to step-by-step guidance when the required write tool is genuinely unavailable or the target context is incomplete
 
 GUIDELINES:
-- ALWAYS ask for missing required information before executing tools
-- When creating pages: if parent location not specified, ask where to create it
-- When moving pages: if destination not specified, ask where to move it
-- Use appropriate tools based on the question
-- Chain multiple tools when needed (e.g., list pages then get specific page details)
-- **NEVER call the same tool repeatedly with the same arguments** - if a tool doesn't give you the answer you need, try a different approach or ask the user for clarification
-- If a tool fails or returns unexpected results, explain what happened and ask the user for help
-- Provide specific, actionable information
-- Include relevant IDs, paths, and counts in responses
-- When asked about "how many" or "list all", use the list tools and count/summarize the results
-- For questions about page types, use list_pages with filtering rather than checking individual pages
-- Treat short follow-up questions (e.g., "which is used most often", "and are there others?") as referring to the immediately previous answer and tool results
-- For Concrete CMS Page Types questions, prefer list_page_types first, then report exact counts and handles
-- Do not ask the user to confirm scope when the prior message already defines it
-- When asked about the current page, use the Current Page context first (including attributes and content snapshot) before asking follow-up questions
-- When the user asks "what page am I on", "what page now", or explicitly asks for current page details, call get_current_page_context in that turn to refresh state before answering
+- When the user says "this page" or asks for counts/edits on the current page, start by calling `get_current_page_context` and use that page ID/path as the primary scope
+- When the user asks "what page are we on?", says they moved/navigated pages, or asks for content "on this page", call `get_current_page_context` first in that same turn and do not rely on prior-turn page context
+- For questions like "how many content blocks are on this page", prefer `list_page_blocks_by_type(pageID, blockTypeHandle)` over site-wide searches
+- Never state block counts or "none found" conclusions unless a tool call result explicitly supports it; if lookup fails, report the failure and retry with an alternate tool/query path
+- For batch edits across many blocks, continue processing remaining blocks if one block fails; report failures separately and do not stop the whole run
+- For HTML/text edits inside Content blocks, preserve all existing non-heading content exactly (paragraphs, links, lists, inline formatting)
+- When asked to change only heading level/tag, perform a minimal edit: only replace the heading element/tag, keep heading text unchanged, keep all following body text unchanged
+- Before saving a Content block, verify the updated HTML still contains the original non-heading body text; if body text is missing/truncated, do not save that version
+- For heading-only requests, do not rewrite or summarize full HTML content
+- When searching for specific block types across the site, use search_blocks_by_type instead of listing all pages and checking each one
+- When inspecting block configuration/fields, use get_block_data to extract specific field values instead of manual parsing
+- When working with third-party/custom blocks, use get_block_controller_data to see resolved content instead of raw IDs
+- When a block exposes an API resource or controller-level enriched data, prefer that data over prompt-specific mapping rules
+- If content creation is requested and the needed page/area/block identifiers are known, proceed with the write operation and report progress instead of asking the user to perform the edit themselves
+- For formatting/style-only edits across blocks, prefer `batch_update_page_content` with `changeMode="formatting_only"` so text checks are enforced and checksums are reported
+- For targeted text updates, use `batch_update_page_content` with `changeMode="scoped_text"` and explicit `textFields` per block
+- For multi-block heading-level changes in Content blocks, prefer `batch_update_content_headings` to find and update all matching headings on-page with built-in text-integrity checks
+- Use `batch_update_content_headings(matchMode="bold_paragraph", areaHandleContains=" : Column 1")` when asked to update all bold paragraph headings in a specific column across many blocks
+- For Multi Link to EPRA Resources List migrations on a page, prefer `sync_multi_links_to_epra_resources_list` so updates happen per-area on existing target blocks with file-link verification
+- For requests like "get title and file IDs from Doc Download blocks on this page", use `get_doc_download_files_on_page` first; it handles display-name variants and nested/container areas
+- Never use `contentPreview` (from page block listings) as source HTML for writes; it is discovery-only and may be truncated
+- Before updating Content blocks, fetch full raw content field values (not previews) and apply minimal in-place transforms to those full values
+- If any candidate source text includes ellipsis (`...`) or appears truncated, treat it as invalid for write-back and re-fetch full content
+- For block usage statistics, use count_blocks_by_type for quick overview before diving into specific searches
+- When asked for pages "below", "under", or "within" a path, use get_page_children with parentPath for direct children, or list_pages with includeDescendants=true for all pages in that tree
+- By default, list_pages and get_page_children show all pages including those with "exclude_nav" set; use onlyVisible=true only when the user explicitly wants navigation-visible pages
+- If a custom block handle is not found, check both the installed handle and the display name before concluding the block is unavailable
+- Provide specific, actionable information and include relevant IDs, paths, and counts in responses
 
 RESPONSE STYLE:
 - Concise and helpful
-- Include specific data from tool results
-- Use markdown formatting
-- Confirm before destructive actions (delete)
 INST;
-    }
-    
-    protected function tools(): array
-    {
-        $toolkits = [
-            new PagesToolkit(),
-            new FilesToolkit(),
-            new UsersToolkit(),
-        ];
 
-        return array_merge($toolkits, ExternalToolkitRegistry::getExternalToolkits());
     }
-    
-    protected function getCurrentContext(): string
+
+    private function getCurrentContext(): string
     {
         $context = [];
-        
-        // Get current page context (prefer frontend context passed from chat UI)
+
         if (php_sapi_name() !== 'cli') {
             try {
                 $contextPage = $this->resolveContextPage();
@@ -192,18 +203,17 @@ INST;
                 // Ignore - might be CLI or bootstrap not complete
             }
         }
-        
-        // Get user context
+
         try {
             $u = new \Concrete\Core\User\User();
             if ($u->isRegistered()) {
-                $context[] = "User: " . $u->getUserName();
-                $context[] = "User ID: " . $u->getUserID();
+                $context[] = 'User: ' . $u->getUserName();
+                $context[] = 'User ID: ' . $u->getUserID();
             }
         } catch (\Exception $e) {
             // Ignore - might be CLI or bootstrap not complete
         }
-        
+
         return implode("\n", $context);
     }
 
@@ -232,25 +242,6 @@ INST;
         }
 
         return Page::getCurrentPage();
-    }
-
-    private function buildRuntimeFallbackLines(): array
-    {
-        $lines = [];
-
-        if (!empty($this->runtimePageContext['path'])) {
-            $lines[] = 'Current Page Path (from browser): ' . (string) $this->runtimePageContext['path'];
-        }
-
-        if (!empty($this->runtimePageContext['title'])) {
-            $lines[] = 'Current Page Title (from browser): ' . (string) $this->runtimePageContext['title'];
-        }
-
-        if (!empty($this->runtimePageContext['url'])) {
-            $lines[] = 'Current Page URL (from browser): ' . (string) $this->runtimePageContext['url'];
-        }
-
-        return $lines;
     }
 
     private function buildPageContextLines(Page $page): array
@@ -282,6 +273,37 @@ INST;
             foreach ($contentLines as $contentLine) {
                 $lines[] = '- ' . $contentLine;
             }
+        }
+
+        return $lines;
+    }
+
+    private function buildRuntimeFallbackLines(): array
+    {
+        if (!$this->runtimePageContext) {
+            return [];
+        }
+
+        $lines = [];
+
+        $runtimeId = $this->runtimePageContext['id'] ?? null;
+        if (is_numeric($runtimeId)) {
+            $lines[] = 'Current Page ID: ' . (int) $runtimeId;
+        }
+
+        $runtimeTitle = trim((string) ($this->runtimePageContext['title'] ?? ''));
+        if ($runtimeTitle !== '') {
+            $lines[] = 'Current Page Name: ' . $runtimeTitle;
+        }
+
+        $runtimePath = trim((string) ($this->runtimePageContext['path'] ?? ''));
+        if ($runtimePath !== '') {
+            $lines[] = 'Current Page Path: ' . $runtimePath;
+        }
+
+        $runtimeUrl = trim((string) ($this->runtimePageContext['url'] ?? ''));
+        if ($runtimeUrl !== '') {
+            $lines[] = 'Current Page URL: ' . $runtimeUrl;
         }
 
         return $lines;
@@ -438,6 +460,26 @@ INST;
             return $response->getContent();
         } catch (\Exception $e) {
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . $e->getMessage());
+
+            // Keep message alternation valid when the provider fails after a user message is added.
+            // Without this, subsequent requests can fail with "Invalid message sequence".
+            try {
+                $chatHistory = $this->resolveState()->getChatHistory();
+                $messages = $chatHistory->getMessages();
+
+                if (!empty($messages)) {
+                    $lastMessage = end($messages);
+                    if ($lastMessage && $lastMessage->getRole() === 'user') {
+                        $chatHistory->addMessage(new AssistantMessage(
+                            'I ran into an error processing that request. Please try again.'
+                        ));
+                    }
+                }
+            } catch (\Throwable $historyError) {
+                \Concrete\Core\Support\Facade\Log::warning(
+                    'Failed to append fallback assistant message after provider error: ' . $historyError->getMessage()
+                );
+            }
 
             return "I ran into an error processing that request. Please try again.";
         }

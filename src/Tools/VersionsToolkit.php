@@ -1,0 +1,535 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Katalysis\NeuronAi\Tools;
+
+use Concrete\Core\Page\Page;
+use Concrete\Core\Page\Collection\Version\Version;
+use Concrete\Core\Page\Collection\Version\VersionList;
+use Concrete\Core\Permission\Checker;
+use Concrete\Core\User\User;
+use Concrete\Core\Support\Facade\Application;
+use Concrete\Core\Area\Area;
+use NeuronAI\Tools\Tool;
+use NeuronAI\Tools\ToolProperty;
+use NeuronAI\Tools\PropertyType;
+use NeuronAI\Tools\Toolkits\AbstractToolkit;
+
+/**
+ * Concrete CMS Version Management toolkit for Neuron AI
+ * 
+ * Provides version control for safe content editing:
+ * - List page versions and their approval status
+ * - Create draft versions for safe editing
+ * - Approve versions to publish changes
+ * - Discard draft versions to revert changes
+ * - Preview version content before publishing
+ * 
+ * SAFETY FIRST: Always work in draft versions for destructive operations.
+ */
+class VersionsToolkit extends AbstractToolkit
+{
+    public function guidelines(): ?string
+    {
+        return <<<GUIDELINES
+Version Management Guidelines:
+
+CRITICAL SAFETY PROTOCOL:
+Before ANY destructive edit (update content, delete blocks, cleanup HTML):
+1. Create a draft version first (create_page_draft)
+2. Make changes in that draft version
+3. User previews the draft
+4. User explicitly approves OR discards
+
+WORKFLOW:
+- list_page_versions: Show version history
+- create_page_draft: Create safe sandbox for edits
+- [User previews at /page?cvID=X]
+- approve_page_version: Publish if approved
+- discard_draft_version: Revert if rejected
+
+NEVER edit content directly in approved/active versions!
+ALWAYS offer a preview before destructive operations!
+
+When user says "revert to version X" → use approve_page_version
+When user says "go back" or "undo" → list versions, then approve previous one
+GUIDELINES;
+    }
+
+    public function provide(): array
+    {
+        return [
+            $this->makeListPageVersionsTool(),
+            $this->makeApprovePageVersionTool(),
+            $this->makeCreatePageDraftTool(),
+            $this->makeDiscardDraftVersionTool(),
+            $this->makeGetVersionContentTool(),
+        ];
+    }
+
+    /**
+     * Tool: list_page_versions
+     * List all versions of a page with their approval status
+     */
+    protected function makeListPageVersionsTool(): Tool
+    {
+        $tool = new Tool(
+            'list_page_versions',
+            'List all versions of a page, showing which are approved/draft and who created them.'
+        );
+
+        $tool->addProperty(new ToolProperty(
+            'pageID',
+            PropertyType::INTEGER,
+            'The page ID to list versions for',
+            true
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'limit',
+            PropertyType::INTEGER,
+            'Maximum number of versions to return (default: 10)',
+            false
+        ));
+
+        $tool->setCallable(function (int $pageID, ?int $limit = 10) {
+            try {
+                $page = Page::getByID($pageID);
+                
+                if (!$page || $page->isError()) {
+                    return "❌ **Error:** Page ID {$pageID} not found.";
+                }
+
+                // Check permissions
+                $permissions = new Checker($page);
+                if (!$permissions->canViewPageVersions()) {
+                    return "❌ **Error:** You don't have permission to view versions for this page.";
+                }
+
+                // Get version list - use the page's approved version as the base
+                $approvedPage = Page::getByID($pageID, 'ACTIVE');
+                $versionList = new VersionList($approvedPage);
+                $versions = $versionList->get($limit);
+
+                if (empty($versions)) {
+                    return "ℹ️ **No versions found** for page: " . $page->getCollectionName();
+                }
+
+                $output = "## 📚 Version History: " . $page->getCollectionName() . "\n";
+                $output .= "**Path:** " . $page->getCollectionPath() . "\n";
+                $output .= "**Page ID:** {$pageID}\n\n";
+
+                $output .= "| Version | Status | Created | Author | Comments |\n";
+                $output .= "|---------|--------|---------|--------|----------|\n";
+
+                foreach ($versions as $version) {
+                    $versionID = $version->getVersionID();
+                    $isApproved = $version->isApproved();
+                    $isNew = $version->isNew();
+                    
+                    // Status indicator
+                    if ($isApproved) {
+                        $status = "✅ **ACTIVE**";
+                    } elseif ($isNew) {
+                        $status = "📝 Draft";
+                    } else {
+                        $status = "⏸️ Pending";
+                    }
+
+                    // Format date
+                    $dateCreated = $version->getVersionDateCreated();
+                    $app = Application::getFacadeApplication();
+                    $dateHelper = $app->make('helper/date');
+                    $formattedDate = $dateHelper->formatDateTime($dateCreated, true);
+
+                    // Get author
+                    $authorUID = $version->getVersionAuthorUserID();
+                    if ($authorUID) {
+                        $authorUser = \Concrete\Core\User\UserInfo::getByID($authorUID);
+                        $author = $authorUser ? $authorUser->getUserName() : "User #{$authorUID}";
+                    } else {
+                        $author = "System";
+                    }
+
+                    // Get comments
+                    $comments = $version->getVersionComments();
+                    $comments = $comments ? trim($comments) : "—";
+                    if (strlen($comments) > 40) {
+                        $comments = substr($comments, 0, 37) . "...";
+                    }
+
+                    $output .= "| {$versionID} | {$status} | {$formattedDate} | {$author} | {$comments} |\n";
+                }
+
+                $output .= "\n**Preview URL pattern:** `/page-path?cvID=X` (replace X with version ID)\n";
+                $output .= "\n💡 Use `approve_page_version` to revert to a previous version\n";
+                $output .= "💡 Use `create_page_draft` to create a new draft for safe editing\n";
+
+                return $output;
+
+            } catch (\Exception $e) {
+                return "❌ **Error listing versions:** " . $e->getMessage();
+            }
+        });
+
+        return $tool;
+    }
+
+    /**
+     * Tool: approve_page_version
+  * Make a specific version the active/published version (use for reverting)
+     */
+    protected function makeApprovePageVersionTool(): Tool
+    {
+        $tool = new Tool(
+            'approve_page_version',
+            'Approve a version to make it the active/published page. Use this to REVERT to a previous version or publish a draft.'
+        );
+
+        $tool->addProperty(new ToolProperty(
+            'pageID',
+            PropertyType::INTEGER,
+            'The page ID',
+            true
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'versionID',
+            PropertyType::INTEGER,
+            'The version ID to approve/publish',
+            true
+        ));
+
+        $tool->setCallable(function (int $pageID, int $versionID) {
+            try {
+                // Get the page with the specific version (convert to string)
+                $page = Page::getByID($pageID, (string)$versionID);
+                if (!$page || $page->isError()) {
+                    return "❌ **Error:** Page ID {$pageID} or version {$versionID} not found.";
+                }
+
+                // Check permissions
+                $permissions = new Checker($page);
+                if (!$permissions->canApprovePageVersions()) {
+                    return "❌ **Error:** You don't have permission to approve page versions.";
+                }
+
+                // Get the version object
+                $version = $page->getVersionObject();
+                
+                if (!$version) {
+                    return "❌ **Error:** Could not load version {$versionID} for page {$pageID}.";
+                }
+
+                // Check if already approved
+                if ($version->isApproved()) {
+                    return "ℹ️ **Already Active:** Version {$versionID} is already the active version for this page.";
+                }
+
+                // Approve the version
+                $version->approve();
+
+                $pageName = $page->getCollectionName();
+                $pagePath = $page->getCollectionPath();
+
+                return "✅ **Version Approved Successfully**\n\n" .
+                       "**Page:** {$pageName}\n" .
+                       "**Path:** {$pagePath}\n" .
+                       "**Version ID:** {$versionID}\n" .
+                       "**Status:** Now active/published\n\n" .
+                       "This version is now live. Previous drafts remain in history.";
+
+            } catch (\Exception $e) {
+                return "❌ **Error approving version:** " . $e->getMessage();
+            }
+        });
+
+        return $tool;
+    }
+
+    /**
+     * Tool: create_page_draft
+     * Create a new draft version for safe editing
+     */
+    protected function makeCreatePageDraftTool(): Tool
+    {
+        $tool = new Tool(
+            'create_page_draft',
+            'Create a new draft version of a page for safe editing. Changes in draft do not affect live page until approved.'
+        );
+
+        $tool->addProperty(new ToolProperty(
+            'pageID',
+            PropertyType::INTEGER,
+            'The page ID to create a draft for',
+            true
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'comments',
+            PropertyType::STRING,
+            'Comments describing this draft version (e.g., "HTML cleanup", "Content update")',
+            false
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'basedOnVersionID',
+            PropertyType::INTEGER,
+            'Version ID to base this draft on (defaults to current approved version)',
+            false
+        ));
+
+        $tool->setCallable(function (int $pageID, ?string $comments = null, ?int $basedOnVersionID = null) {
+            try {
+                // Get the base version
+                if ($basedOnVersionID) {
+                    $page = Page::getByID($pageID, (string)$basedOnVersionID);
+                } else {
+                    $page = Page::getByID($pageID, 'ACTIVE');
+                }
+                
+                if (!$page || $page->isError()) {
+                    return "❌ **Error:** Page ID {$pageID} not found.";
+                }
+
+                // Check permissions
+                $permissions = new Checker($page);
+                if (!$permissions->canEditPageContents()) {
+                    return "❌ **Error:** You don't have permission to edit this page.";
+                }
+
+                // Set default comments if not provided
+                if (!$comments) {
+                    $user = new User();
+                    $userName = $user->isRegistered() ? $user->getUserName() : 'AI';
+                    $comments = "Draft created by {$userName} for editing";
+                }
+
+                // Create new version (clone current version)
+                $newVersion = $page->getVersionToModify();
+                
+                if (!$newVersion || $newVersion->isError()) {
+                    // If getVersionToModify fails, try cloneVersion
+                    $newVersion = $page->cloneVersion($comments);
+                }
+
+                if (!$newVersion) {
+                    return "❌ **Error:** Could not create draft version.";
+                }
+
+                $newVersionID = $newVersion->getVersionID();
+                $pageName = $page->getCollectionName();
+                $pagePath = $page->getCollectionPath();
+
+                // Get preview URL
+                $previewURL = $pagePath . "?cvID=" . $newVersionID;
+
+                return "✅ **Draft Version Created**\n\n" .
+                       "**Page:** {$pageName}\n" .
+                       "**Path:** {$pagePath}\n" .
+                       "**New Version ID:** {$newVersionID}\n" .
+                       "**Status:** Draft (not published)\n" .
+                       "**Comments:** {$comments}\n\n" .
+                       "**Preview URL:** `{$previewURL}`\n\n" .
+                       "⚠️ **IMPORTANT:**\n" .
+                       "- This draft is NOT live yet\n" .
+                       "- Make your edits using this version ID\n" .
+                       "- User should preview before approving\n" .
+                       "- Use `approve_page_version` to publish\n" .
+                       "- Use `discard_draft_version` to cancel";
+
+            } catch (\Exception $e) {
+                return "❌ **Error creating draft:** " . $e->getMessage();
+            }
+        });
+
+        return $tool;
+    }
+
+    /**
+     * Tool: discard_draft_version
+     * Discard an unapproved draft version (deletes it)
+     */
+    protected function makeDiscardDraftVersionTool(): Tool
+    {
+        $tool = new Tool(
+            'discard_draft_version',
+            'Discard (delete) an unapproved draft version. Use this to cancel unwanted changes. Cannot discard active versions.'
+        );
+
+        $tool->addProperty(new ToolProperty(
+            'pageID',
+            PropertyType::INTEGER,
+            'The page ID',
+            true
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'versionID',
+            PropertyType::INTEGER,
+            'The draft version ID to discard',
+            true
+        ));
+
+        $tool->setCallable(function (int $pageID, int $versionID) {
+            try {
+                // Get the page with the specific version (convert to string)
+                $page = Page::getByID($pageID, (string)$versionID);
+                
+                if (!$page || $page->isError()) {
+                    return "❌ **Error:** Page ID {$pageID} or version {$versionID} not found.";
+                }
+
+                // Check permissions
+                $permissions = new Checker($page);
+                if (!$permissions->canEditPageContents() && !$permissions->canApprovePageVersions()) {
+                    return "❌ **Error:** You don't have permission to discard page versions.";
+                }
+
+                // Get the version object
+                $version = $page->getVersionObject();
+                
+                if (!$version) {
+                    return "❌ **Error:** Could not load version {$versionID} for page {$pageID}.";
+                }
+
+                // Safety check: cannot discard approved version
+                if ($version->isApproved()) {
+                    return "❌ **Error:** Cannot discard an active/approved version (version {$versionID} is currently live).\n\n" .
+                           "To revert to a previous version, use `approve_page_version` instead.";
+                }
+
+                // Check if version can be discarded
+                if (!$version->canDiscard()) {
+                    return "❌ **Error:** This version cannot be discarded (it may be the only version).";
+                }
+
+                $pageName = $page->getCollectionName();
+                $pagePath = $page->getCollectionPath();
+
+                // Discard the version
+                $version->discard();
+
+                return "✅ **Draft Version Discarded**\n\n" .
+                       "**Page:** {$pageName}\n" .
+                       "**Path:** {$pagePath}\n" .
+                       "**Discarded Version ID:** {$versionID}\n\n" .
+                       "The draft has been deleted. The active version remains unchanged.";
+
+            } catch (\Exception $e) {
+                return "❌ **Error discarding version:** " . $e->getMessage();
+            }
+        });
+
+        return $tool;
+    }
+
+    /**
+     * Tool: get_version_content
+     * Get content/blocks from a specific version for preview
+     */
+    protected function makeGetVersionContentTool(): Tool
+    {
+        $tool = new Tool(
+            'get_version_content',
+            'Get blocks and content from a specific version. Use this to preview what a version contains before approving.'
+        );
+
+        $tool->addProperty(new ToolProperty(
+            'pageID',
+            PropertyType::INTEGER,
+            'The page ID',
+            true
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'versionID',
+            PropertyType::INTEGER,
+            'The version ID to get content from',
+            true
+        ));
+
+        $tool->setCallable(function (int $pageID, int $versionID) {
+            try {
+                // Get the page with the specific version (convert to string)
+                $page = Page::getByID($pageID, (string)$versionID);
+                
+                if (!$page || $page->isError()) {
+                    return "❌ **Error:** Page ID {$pageID} or version {$versionID} not found.";
+                }
+
+                // Check permissions
+                $permissions = new Checker($page);
+                if (!$permissions->canViewPageVersions()) {
+                    return "❌ **Error:** You don't have permission to view this version.";
+                }
+
+                $version = $page->getVersionObject();
+                if (!$version) {
+                    return "❌ **Error:** Could not load version {$versionID}.";
+                }
+
+                $pageName = $page->getCollectionName();
+                $pagePath = $page->getCollectionPath();
+                $isApproved = $version->isApproved();
+                $status = $isApproved ? "✅ Active" : "📝 Draft";
+
+                $output = "## 📄 Version Content Preview\n\n";
+                $output .= "**Page:** {$pageName}\n";
+                $output .= "**Path:** {$pagePath}\n";
+                $output .= "**Version ID:** {$versionID}\n";
+                $output .= "**Status:** {$status}\n";
+                $output .= "**Created:** " . $version->getVersionDateCreated() . "\n\n";
+
+                $output .= "### Content Areas:\n\n";
+
+                // Use Area::getHandleList() to get all area handles
+                $areaHandles = Area::getHandleList();
+                
+                foreach ($areaHandles as $areaHandle) {
+                    $area = Area::get($page, $areaHandle);
+                    if (!$area) {
+                        continue;
+                    }
+                    
+                    $areaName = $area->getAreaDisplayName();
+                    $blocks = $area->getAreaBlocksArray($page);
+                    
+                    if (empty($blocks)) {
+                        continue;
+                    }
+
+                    $output .= "#### {$areaName} (`{$areaHandle}`)\n";
+                    $output .= "**Blocks:** " . count($blocks) . "\n\n";
+
+                    foreach ($blocks as $block) {
+                        $blockType = $block->getBlockTypeName();
+                        $blockID = $block->getBlockID();
+                        
+                        $output .= "- **{$blockType}** (Block ID: {$blockID})\n";
+                        
+                        // Try to get content preview for common block types
+                        if ($blockType === 'Content') {
+                            $controller = $block->getController();
+                            if (method_exists($controller, 'getContent')) {
+                                $content = strip_tags($controller->getContent());
+                                $preview = strlen($content) > 100 ? substr($content, 0, 97) . "..." : $content;
+                                $output .= "  Preview: " . trim($preview) . "\n";
+                            }
+                        }
+                    }
+                    
+                    $output .= "\n";
+                }
+
+                return $output;
+
+            } catch (\Exception $e) {
+                return "❌ **Error getting version content:** " . $e->getMessage();
+            }
+        });
+
+        return $tool;
+    }
+}

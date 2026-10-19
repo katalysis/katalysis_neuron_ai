@@ -87,13 +87,21 @@
         },
         
         loadState() {
-            // Restore expanded/collapsed state (default to expanded on first visit)
-            const savedState = localStorage.getItem('neuron-chat-expanded');
-            const isExpanded = savedState === null ? true : savedState === 'true';
+            // Check if initial state was already applied by inline script
+            const initialStateApplied = this.panel.getAttribute('data-initial-state-applied');
             
-            if (isExpanded) {
-                this.panel.classList.remove('neuron-chat-collapsed');
-                this.panel.classList.add('neuron-chat-expanded');
+            if (!initialStateApplied) {
+                // Fallback: apply state from localStorage if inline script didn't run
+                const savedState = localStorage.getItem('neuron-chat-expanded');
+                const isExpanded = savedState === null ? true : savedState === 'true';
+                
+                if (isExpanded) {
+                    this.panel.classList.remove('neuron-chat-collapsed');
+                    this.panel.classList.add('neuron-chat-expanded');
+                } else {
+                    this.panel.classList.remove('neuron-chat-expanded');
+                    this.panel.classList.add('neuron-chat-collapsed');
+                }
             }
             
             // Restore the current session chat from the backend.
@@ -242,8 +250,22 @@
                     },
                     body: JSON.stringify({ message, pageContext })
                 });
-                
-                const data = await response.json();
+
+                const contentType = response.headers.get('content-type') || '';
+                let data;
+
+                if (contentType.indexOf('application/json') !== -1) {
+                    data = await response.json();
+                } else {
+                    const responseText = await response.text();
+                    const compactText = responseText.replace(/\s+/g, ' ').trim();
+                    const preview = compactText.slice(0, 240) || 'Empty response body';
+
+                    throw new Error(
+                        'Server returned ' + response.status + ' ' + response.statusText +
+                        ' with non-JSON content: ' + preview
+                    );
+                }
                 
                 // Remove loading indicator
                 this.hideLoading();
@@ -280,10 +302,16 @@
                 return null;
             }
 
-            // Concrete commonly includes page-id-<id> on body classes.
-            const match = document.body.className.match(/(?:^|\s)page-id-(\d+)(?:\s|$)/i);
+            // Concrete commonly includes either page-id-<id> or ccm-page-id-<id> on body classes.
+            const match = document.body.className.match(/(?:^|\s)(?:ccm-)?page-id-(\d+)(?:\s|$)/i);
             if (!match || !match[1]) {
-                return null;
+                const attrValue = document.body.getAttribute('data-page-id') || document.documentElement.getAttribute('data-page-id');
+                if (!attrValue) {
+                    return null;
+                }
+
+                const attrId = parseInt(attrValue, 10);
+                return Number.isFinite(attrId) && attrId > 0 ? attrId : null;
             }
 
             const id = parseInt(match[1], 10);

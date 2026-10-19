@@ -103,8 +103,17 @@ class DatabaseChatHistory extends AbstractChatHistory
                 $this->history = [];
                 return;
             }
+
+            [$historyData, $wasRepaired] = $this->repairMessageSequence($historyData);
             
             $this->history = $this->deserializeMessages($historyData);
+
+            if ($wasRepaired) {
+                $this->persistHistory();
+                \Concrete\Core\Support\Facade\Log::notice(
+                    'DatabaseChatHistory: Auto-repaired invalid message sequence for chat ID ' . $this->chatId
+                );
+            }
 
         } catch (\Exception $e) {
             \Concrete\Core\Support\Facade\Log::error(
@@ -219,6 +228,54 @@ class DatabaseChatHistory extends AbstractChatHistory
         }
 
         return (string) $content;
+    }
+
+    /**
+     * Ensure persisted history alternates user/assistant.
+     *
+     * Some provider failures can leave the history ending with a user message,
+     * and repeated failures can create user-user (or assistant-assistant) pairs.
+     * This method inserts lightweight placeholder messages so the sequence is valid.
+     *
+     * @param array<int, array<string, mixed>> $messages
+     * @return array{0: array<int, array<string, mixed>>, 1: bool}
+     */
+    private function repairMessageSequence(array $messages): array
+    {
+        $repaired = [];
+        $expectingUser = true;
+        $wasRepaired = false;
+
+        foreach ($messages as $message) {
+            if (!is_array($message)) {
+                $wasRepaired = true;
+                continue;
+            }
+
+            $role = $message['role'] ?? null;
+            if (!is_string($role) || ($role !== 'user' && $role !== 'assistant')) {
+                $wasRepaired = true;
+                continue;
+            }
+
+            $expectedRole = $expectingUser ? 'user' : 'assistant';
+            if ($role !== $expectedRole) {
+                $repaired[] = [
+                    'role' => $expectedRole,
+                    'content' => $expectedRole === 'assistant'
+                        ? '[Recovered: Assistant response was interrupted]'
+                        : '[Recovered: User message was lost]',
+                    'usage' => null,
+                    '_recovered' => true,
+                ];
+                $wasRepaired = true;
+            }
+
+            $repaired[] = $message;
+            $expectingUser = !$expectingUser;
+        }
+
+        return [$repaired, $wasRepaired];
     }
 
     /**

@@ -58,6 +58,7 @@ class Controller extends Package
             ->setNamespace('Concrete\Package\KatalysisNeuronAi\Controller')
             ->setPrefix('/ccm/system/katalysis_neuron_ai')
             ->routes(function($groupRouter) {
+                $groupRouter->get('/diagnostics/status', 'Diagnostics::status');
                 $groupRouter->post('/chat/send_message', 'Chat::send_message');
                 $groupRouter->get('/chat/list', 'Chat::chat_list');
                 $groupRouter->get('/chat/load', 'Chat::load');

@@ -10,7 +10,7 @@
     box-shadow: -2px 0 10px rgba(0,0,0,0.1);
     display: flex;
     flex-direction: column;
-    z-index: 900; /* Below C5 dashboard panel (~1040) */
+    z-index: 100; /* Behind dashboard panel so it doesn't show when collapsed */
     transition: transform 0.3s ease, right 0.15s ease-out, box-shadow 0.3s ease;
 }
 

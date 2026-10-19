@@ -1,5 +1,15 @@
 <?php defined('C5_EXECUTE') or die('Access Denied.'); ?>
 
+<script>
+// Disable transitions during initial load
+(function() {
+    var style = document.createElement('style');
+    style.id = 'neuron-no-transition';
+    style.textContent = '#neuron-chat-panel { transition: none !important; }';
+    document.head.appendChild(style);
+})();
+</script>
+
 <div id="neuron-chat-panel" class="neuron-chat-expanded ccm-ui">
     <div class="neuron-chat-header">
         <h3>
@@ -41,3 +51,30 @@
         </div>
     </div>
 </div>
+
+<script>
+// Apply saved state immediately
+(function() {
+    var savedState = localStorage.getItem('neuron-chat-expanded');
+    var panel = document.getElementById('neuron-chat-panel');
+    
+    if (panel) {
+        // Apply the correct class based on saved state
+        if (savedState === 'false') {
+            panel.classList.add('neuron-chat-collapsed');
+            panel.classList.remove('neuron-chat-expanded');
+        }
+        
+        // Mark that initial state has been applied
+        panel.setAttribute('data-initial-state-applied', 'true');
+        
+        // Re-enable transitions after state is set
+        setTimeout(function() {
+            var style = document.getElementById('neuron-no-transition');
+            if (style && style.parentNode) {
+                style.parentNode.removeChild(style);
+            }
+        }, 50);
+    }
+})();
+</script>
