@@ -171,7 +171,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   - **Tool name collisions:** `katalysis_pro` defines its own `list_people`, as does the core `PeopleToolkit`. When an external tool has the same name as a core tool, the external, package-owned tool wins, the core one is dropped for that request, and a warning is logged. Add a PHPUnit test that the final tool list never contains duplicate names.
   - The core `PeopleToolkit` is removed for good in P3.10. Namespacing provider tool names is decided there.
 - [x] P1.6a `add_block_to_page_area` description: make the block type choice explicit. List the common handles with one-line meanings (`content` = rich text; `html` = raw HTML; …) and require the handle the user asked for, not a substitute. Scenario 07 regressed with a larger tool list (P1.6), so the description, not the count, has to carry the choice. **Done before P1.6 merges.** Change only that tool's description; run 07 with `--repeat=5` and record the result. Done (PR #12).
-- P1.7 **Security fix** (its own PR; any time in Phase 1). **Required before Neuron is installed on any non-dev site.**
+- [x] P1.7 **Security fix** (its own PR; any time in Phase 1). **Required before Neuron is installed on any non-dev site.** Done (PR #14).
   1. Every chat endpoint applies the same access check as the panel (B-ACC-1), server-side.
   2. `delete_file` is disabled (B-T1-11).
   3. `set_user_attribute_value` is disabled (B-ACC-7).
@@ -180,8 +180,9 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   6. `approve_page_version` is disabled until P3.6 approval exists. Publishing stays a human action (baseline scenario 14 published a live change from injected text).
   7. CSRF token on the chat POSTs (`send_message`, `new_chat`, `delete_chat`, `delete_current_chat`), checked with the access check. An invalid or expired token gets a 403, and the panel shows "Your session has expired — please reload the page." GETs stay token-free but access-checked.
 - P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check). Also: `update_page` refuses `pageType` changes and says a person must change the page type in the CMS (found in P1.7: `Page::update()` writes `Pages.ptID` live, with no draft).
+- P1.9 **Page context across navigation** (B-CTX-1; its own PR). Add scenario 19: two turns in one chat with the current page changing between turns (`/neuron-test/headings` then `/neuron-test/columns`); the second answer must name the new page (primary check). The runner needs a per-turn `current_page`. Reproduce it, find out whether the model reuses chat history or the context is lost on the way, and fix it in code, not with a prompt rule. Wrong page context means edits can land on the wrong page.
 
-Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, and P1.8 is merged (the P1.5 baseline confirmed it is needed).
+Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, P1.8 is merged (the P1.5 baseline confirmed it is needed), and P1.9 is merged.
 
 #### Phase 1b: EPRA app kit (S, in parallel)
 A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure: the approved chart library, theme tokens, the API proxy pattern and the file layout. It doesn't depend on Neuron and becomes the seed of the Tier 3 app spec.
