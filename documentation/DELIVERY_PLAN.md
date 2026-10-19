@@ -175,6 +175,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   3. `set_user_attribute_value` is disabled (B-ACC-7).
   4. The guest checks in `runtime_smoke_test.sh` change to expect a refusal.
   5. A PHPUnit test (or scripted check) proves that a logged-in user without access gets a refusal from `send_message`.
+  6. `approve_page_version` is disabled until P3.6 approval exists. Publishing stays a human action (baseline scenario 14 published a live change from injected text).
 - P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check).
 
 Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, and P1.8 is merged (the P1.5 baseline confirmed it is needed).
