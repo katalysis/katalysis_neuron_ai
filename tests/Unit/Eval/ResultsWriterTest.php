@@ -96,6 +96,37 @@ final class ResultsWriterTest extends TestCase
         $this->assertStringNotContainsString('02-b (run', $md, 'passing runs have no details');
     }
 
+    public function testCostIsEstimatedForAKnownModelOnly(): void
+    {
+        $this->assertEqualsWithDelta(7.5, (float) ResultsWriter::costOf(['input' => 2_000_000, 'output' => 250_000], 'openai gpt-4o'), 0.0001);
+        $this->assertNull(ResultsWriter::costOf(['input' => 1, 'output' => 1], 'openai some-new-model'));
+        $this->assertNull(ResultsWriter::costOf(null, 'openai gpt-4o'));
+        $this->assertSame('about $7.50', ResultsWriter::costLabel(7.5));
+        $this->assertSame('not estimated', ResultsWriter::costLabel(null));
+    }
+
+    public function testMarkdownHeaderShowsTemperatureAndCost(): void
+    {
+        $results = $this->results(['01-a' => [$this->makeRun(1, 'pass', ['input' => 1_000_000, 'output' => 100_000])]]);
+        $results['meta']['temperature'] = 'provider default (not set by the agent)';
+        $md = ResultsWriter::toMarkdown($results);
+
+        $this->assertStringContainsString('- Model: openai gpt-4o, temperature: provider default (not set by the agent)', $md);
+        $this->assertStringContainsString('**Approximate cost:** about $3.50', $md);
+        $this->assertEqualsWithDelta(3.5, json_decode(ResultsWriter::toJson($results), true)['totals']['approxCostUsd'], 0.0001);
+    }
+
+    public function testDetailsShowToolCallsAndTheReplyOfARunThatDidNotPass(): void
+    {
+        $call = ['name' => 'update_block', 'write' => true, 'ok' => false, 'inputs' => '{"bID":5}', 'result' => '{"ok":false,"error":"nope"}'];
+        $turn = ['say' => 'change it', 'page' => '/p', 'reply' => 'I could not do that.', 'agentError' => false, 'durationSec' => 1.0, 'usage' => null, 'toolCalls' => [$call], 'logErrors' => [], 'checks' => []];
+        $md = ResultsWriter::toMarkdown($this->results(['01-a' => [$this->makeRun(1, 'fail', null, ['turns' => [$turn]])]]));
+
+        $this->assertStringContainsString('Turn 1 asked: change it', $md);
+        $this->assertStringContainsString('tool `update_block` (write, failed): {"bID":5} -> {"ok":false,"error":"nope"}', $md);
+        $this->assertStringContainsString('reply: I could not do that.', $md);
+    }
+
     public function testJsonCarriesTheSameResultsForALaterCompare(): void
     {
         $json = json_decode(ResultsWriter::toJson($this->results([

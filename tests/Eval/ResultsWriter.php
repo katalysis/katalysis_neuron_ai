@@ -22,6 +22,13 @@ final class ResultsWriter
     private const ORDER = [Expectations::PASS, Expectations::PARTIAL, Expectations::FAIL, Expectations::ERROR];
 
     /**
+     * List prices in USD per 1M tokens [input, output], used only for an approximate cost line. They are an
+     * assumption written into the code, not read from the provider: check them against the provider's price page.
+     * The estimate ignores cached-input discounts, so it is an upper bound.
+     */
+    private const PRICES = ['gpt-4o' => [2.50, 10.00]];
+
+    /**
      * "pass" for one run, or "2/3 pass, 1/3 partial" for several.
      *
      * @param list<array<string, mixed>> $runs
@@ -72,6 +79,27 @@ final class ResultsWriter
     }
 
     /**
+     * Approximate cost in USD, or null when the model has no price in PRICES or no usage was reported.
+     *
+     * @param array{input: int, output: int}|null $usage
+     * @param string                              $model e.g. "openai gpt-4o" (the part after the provider name is the model id)
+     */
+    public static function costOf(?array $usage, string $model): ?float
+    {
+        $id = trim((string) preg_replace('/^\S+\s+/', '', $model));
+        if ($usage === null || !isset(self::PRICES[$id])) {
+            return null;
+        }
+
+        return ($usage['input'] * self::PRICES[$id][0] + $usage['output'] * self::PRICES[$id][1]) / 1_000_000;
+    }
+
+    public static function costLabel(?float $cost): string
+    {
+        return $cost === null ? 'not estimated' : 'about $' . number_format($cost, 2);
+    }
+
+    /**
      * @param array<string, mixed> $results
      */
     public static function toJson(array $results): string
@@ -82,6 +110,7 @@ final class ResultsWriter
             'runs' => count($allRuns),
             'outcomes' => array_count_values(array_column($allRuns, 'outcome')),
             'usage' => self::usageOf($allRuns),
+            'approxCostUsd' => self::costOf(self::usageOf($allRuns), (string) $results['meta']['model']),
         ];
         foreach ($results['scenarios'] as &$scenario) {
             $scenario['summary'] = self::outcomeLabel($scenario['runs']);
@@ -105,7 +134,7 @@ final class ResultsWriter
         $md .= '- Run: ' . $meta['startedAt'] . ' (' . $meta['durationSec'] . " s)\n";
         $md .= '- Scenarios: ' . count($results['scenarios']) . ', repeat ' . $meta['repeat'] . ' (' . count($allRuns) . ' runs)'
             . ($meta['filter'] !== null && $meta['filter'] !== '' ? ', filter `' . $meta['filter'] . '`' : '') . "\n";
-        $md .= '- Model: ' . $meta['model'] . "\n";
+        $md .= '- Model: ' . $meta['model'] . ', temperature: ' . ($meta['temperature'] ?? 'not recorded') . "\n";
         $md .= '- Code: ' . $meta['commit'] . '; neuron-core/neuron-ai ' . $meta['neuronVersion'] . '; Concrete ' . $meta['concreteVersion'] . '; PHP ' . $meta['phpVersion'] . "\n";
         $md .= "- Write tools are recognised by name: a tool whose name doesn't start with get_, list_, search_, find_, count_, describe_, read_, lookup_, check_, validate_, preview_, inspect_, export_ or resolve_ counts as a write.\n\n";
 
@@ -132,6 +161,7 @@ final class ResultsWriter
         }
         $md .= "\n**Total:** " . implode(', ', $summary) . ' of ' . count($allRuns) . " runs.\n";
         $md .= '**Tokens (in / out), all runs:** ' . self::usageLabel($totalUsage) . ($totalUsage === null ? ' (the provider returned no usage data on any message)' : '') . ".\n";
+        $md .= '**Approximate cost:** ' . self::costLabel(self::costOf($totalUsage, (string) $meta['model'])) . " (assumed list price, no cached-input discount; an upper bound).\n";
         $md .= "Time per scenario is the average of its runs. \"Expected to fail\" is the scenario's `known_to_fail_today` note from P1.2, which P1.5 confirms or corrects.\n";
 
         $details = self::details($results);
@@ -195,6 +225,12 @@ final class ResultsWriter
                 }
 
                 foreach ($run['turns'] as $i => $turn) {
+                    $md .= '- Turn ' . ($i + 1) . ' asked: ' . self::excerpt((string) ($turn['say'] ?? ''), 200) . "\n";
+                    foreach ($turn['toolCalls'] ?? [] as $call) {
+                        $md .= '  - tool `' . $call['name'] . '` (' . (!empty($call['write']) ? 'write' : 'read') . ', ' . (!empty($call['ok']) ? 'ok' : 'failed') . '): '
+                            . self::excerpt((string) $call['inputs'], 200) . ' -> ' . self::excerpt((string) $call['result'], 200) . "\n";
+                    }
+                    $md .= '  - reply: ' . self::excerpt((string) ($turn['reply'] ?? ''), 500) . "\n";
                     if (!empty($turn['agentError'])) {
                         $md .= '- Turn ' . ($i + 1) . ": the agent returned its generic error reply.\n";
                     }
@@ -237,5 +273,12 @@ final class ResultsWriter
     private static function inline(string $text): string
     {
         return trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+    }
+
+    private static function excerpt(string $text, int $max): string
+    {
+        $text = self::inline($text);
+
+        return mb_strlen($text) > $max ? mb_substr($text, 0, $max) . '...' : $text;
     }
 }
