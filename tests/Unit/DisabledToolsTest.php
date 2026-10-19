@@ -60,13 +60,21 @@ final class DisabledToolsTest extends TestCase
 
     public function testTheListHoldsTheToolsDisabledForSafetyEachWithAReason(): void
     {
-        // P1.6 (people deletes) and P1.7 (file delete, user attribute write, publishing).
+        // P1.6 (people deletes), P1.7 (file delete, user attribute write, publishing)
+        // and P1.8 (EPRA sync writes to the live version).
         $this->assertSame(
-            ['approve_page_version', 'delete_all_people', 'delete_file', 'delete_person', 'set_user_attribute_value'],
+            [
+                'approve_page_version',
+                'delete_all_people',
+                'delete_file',
+                'delete_person',
+                'set_user_attribute_value',
+                'sync_multi_links_to_epra_resources_list',
+            ],
             DisabledTools::names()
         );
         foreach (DisabledTools::all() as $name => $reason) {
-            $this->assertMatchesRegularExpression('/P3\.[56]/', $reason, $name);
+            $this->assertMatchesRegularExpression('/P3\.[456]/', $reason, $name);
         }
     }
 

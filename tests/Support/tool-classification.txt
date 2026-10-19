@@ -63,7 +63,6 @@ read  search_blocks_by_type
 read  search_users
 write set_file_attribute_value
 write set_page_attribute_value
-write sync_multi_links_to_epra_resources_list
 write update_block_in_page_area
 write update_file_select_attribute_options
 write update_page
@@ -76,3 +75,4 @@ off   delete_all_people
 off   delete_file
 off   delete_person
 off   set_user_attribute_value
+off   sync_multi_links_to_epra_resources_list

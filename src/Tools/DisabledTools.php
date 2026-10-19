@@ -32,6 +32,7 @@ final class DisabledTools
             . 'disabled in P1.7, code removed in P3.5',
         'approve_page_version' => 'publishing stays a human action until P3.6 approval exists '
             . '(baseline scenario 14 published a live change from injected text)',
+        'sync_multi_links_to_epra_resources_list' => 'writes to the live version; EPRA-only; moves out in P3.4',
     ];
 
     /**
