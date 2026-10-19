@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Integration;
 
+use Concrete\Core\Area\Area;
 use Concrete\Core\Area\ContainerArea;
 use Concrete\Core\Block\Block;
 use Concrete\Core\Block\BlockType\BlockType;
@@ -14,6 +15,8 @@ use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
+use Concrete\Core\Permission\Access\Entity\UserEntity;
+use Concrete\Core\Permission\Key\Key as PermissionKey;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
@@ -469,6 +472,49 @@ final class DraftIsolationTest extends ConcreteTestCase
         }
 
         $this->assertSame($before, $this->versions($cID), 'A refused update must not make a draft');
+    }
+
+    /**
+     * Lets neuron_editor add blocks to Main on one throwaway page, as the seed does for
+     * /neuron-test/headings (adding a block is governed by the area's add-block key, which the
+     * page grant doesn't cover). Runs as the superuser and leaves the tests acting as neuron_editor.
+     */
+    private function allowEditorToAddBlocksToMain(int $cID): void
+    {
+        $this->actAs('superuser');
+        $editor = $this->app()->make(UserInfoRepository::class)->getByUserName('neuron_editor');
+        $main = Area::getOrCreate(Page::getByID($cID), 'Main');
+        $main->overridePagePermissions();
+        $key = PermissionKey::getByHandle('add_block_to_area');
+        $key->setPermissionObject($main);
+        $access = $key->getPermissionAccessObject()->duplicate();
+        $access->addListItem(UserEntity::getOrCreate($editor));
+        $key->getPermissionAssignmentObject()->assignPermissionAccess($access);
+        $this->actAs('neuron_editor');
+    }
+
+    public function testAddingTwoBlocksInOneRequestMakesOneDraftAndKeepsBoth(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $this->allowEditorToAddBlocksToMain($cID);
+        $before = $this->approved($cID);
+
+        foreach (['First added block', 'Second added block'] as $text) {
+            $this->callPagesTool('add_block_to_page_area', [
+                'pageID' => $cID,
+                'areaHandle' => 'Main',
+                'blockType' => 'content',
+                'value' => ['content' => '<p>' . $text . '</p>'],
+            ]);
+        }
+
+        $this->assertSame($before, $this->approved($cID), 'The approved version must be exactly as it was');
+        $this->assertCount(2, $this->versions($cID), 'Both adds go to the same draft');
+        $draft = $this->draft($cID);
+        $this->assertCount(count($before['blocks']) + 2, $draft['blocks']);
+        $draftText = $this->contentOf($draft['blocks']);
+        $this->assertStringContainsString('First added block', $draftText);
+        $this->assertStringContainsString('Second added block', $draftText);
     }
 
     // ---- Delete ------------------------------------------------------------

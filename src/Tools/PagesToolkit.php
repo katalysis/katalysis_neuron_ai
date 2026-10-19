@@ -15,7 +15,6 @@ use Concrete\Core\Block\Exception\BlockNotFoundException;
 use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Block\Traits\ValidateBlockRequestTrait;
 use Concrete\Core\Block\BlockType\BlockType;
-use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Attribute\Category\PageCategory;
 use Concrete\Core\Page\Page;
@@ -29,6 +28,7 @@ use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -2271,8 +2271,10 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot add '{$blockType}' blocks to area '{$areaHandle}' on page {$pageID}");
             }
 
+            // The command makes its own draft from the page it is given. Give it the draft, so a
+            // second write in this request adds to the same draft (see PageDraft::of()).
             $command = new AddBlockToPageCommand();
-            $command->setPage($page);
+            $command->setPage($this->getDraftOf($page));
             $command->setArea($area);
             $command->setBlockType($bt);
             $command->setData($normalizedValue);
@@ -2829,23 +2831,11 @@ class PagesToolkit extends AbstractToolkit
     }
 
     /**
-     * The version of the page to edit: the newest version if it is already a draft,
-     * otherwise a new draft cloned from it.
-     *
-     * Concrete keeps the Page::getByID($id, 'RECENT') object for the rest of the
-     * request, so after a draft is made the cached page is still the old version.
-     * Without the cache update, the next tool call in the same request would clone
-     * the old version again and make a second draft, without the first call's edits.
+     * The version of the page to edit (see PageDraft::of()).
      */
     protected function getDraftOf(Page $page): Page
     {
-        $latest = Page::getByID($page->getCollectionID(), 'RECENT');
-        $draft = $latest->getVersionToModify();
-        if ($draft !== $latest) {
-            CacheLocal::set('page', $page->getCollectionID() . '/RECENT/' . Page::class, $draft);
-        }
-
-        return $draft;
+        return PageDraft::of($page);
     }
 
     protected function resolveCurrentContextPage(): array
