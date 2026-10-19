@@ -8,6 +8,7 @@ use Concrete\Core\Package\Package;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Access\ChatAccess;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use NeuronAI\Agent\Agent;
@@ -20,10 +21,10 @@ class Diagnostics extends AbstractController
         $responseFactory = $app->make(ResponseFactory::class);
         $user = new User();
 
-        if (!$user->isRegistered()) {
+        if (!ChatAccess::canUse()) {
             return $responseFactory->json([
                 'success' => false,
-                'error' => 'Authentication required.',
+                'error' => 'Access denied.',
             ], 403);
         }
 

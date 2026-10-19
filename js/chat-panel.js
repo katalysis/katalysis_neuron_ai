@@ -14,6 +14,25 @@
         deleteCurrentBtn: null,
         dashboardToggleBtn: null,
         isListView: false,
+
+        // Shows a failed response in the chat. A 403 with code 'invalid_token' means the
+        // panel's CSRF token is missing or expired (tokens last 24 hours), so say what
+        // to do. That message isn't saved: after the reload it would be stale.
+        showFailure(data, prefix) {
+            if (data && data.code === 'invalid_token') {
+                this.addMessage('Your session has expired \u2014 please reload the page.', 'assistant', false);
+                return;
+            }
+            this.addMessage(prefix + ((data && data.error) || 'Unknown error'), 'assistant');
+        },
+
+        // Headers for POST requests: JSON plus the CSRF token the panel element carries.
+        postHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'X-Neuron-Token': (this.panel && this.panel.getAttribute('data-csrf-token')) || ''
+            };
+        },
         
         init() {
             this.panel = document.getElementById('neuron-chat-panel');
@@ -245,9 +264,7 @@
                 // Send to backend
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/send_message', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: this.postHeaders(),
                     body: JSON.stringify({ message, pageContext })
                 });
 
@@ -273,7 +290,7 @@
                 if (data.success) {
                     this.addMessage(data.response, 'assistant');
                 } else {
-                    this.addMessage('Error: ' + (data.error || 'Unknown error'), 'assistant');
+                    this.showFailure(data, 'Error: ');
                 }
             } catch (error) {
                 this.hideLoading();
@@ -336,9 +353,7 @@
                 // Call backend to create a new chat session
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/new', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
+                    headers: this.postHeaders()
                 });
                 
                 const data = await response.json();
@@ -357,7 +372,7 @@
                     // Clear input
                     this.input.value = '';
                 } else {
-                    this.addMessage('Error creating new chat: ' + data.error, 'assistant');
+                    this.showFailure(data, 'Error creating new chat: ');
                 }
             } catch (error) {
                 this.addMessage('Error creating new chat: ' + error.message, 'assistant');
@@ -372,14 +387,12 @@
             try {
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete_current', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
+                    headers: this.postHeaders()
                 });
 
                 const data = await response.json();
                 if (!data.success) {
-                    this.addMessage('Error deleting current chat: ' + (data.error || 'Unknown error'), 'assistant');
+                    this.showFailure(data, 'Error deleting current chat: ');
                     return;
                 }
 
@@ -538,15 +551,13 @@
             try {
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: this.postHeaders(),
                     body: JSON.stringify({ id: chatId })
                 });
 
                 const data = await response.json();
                 if (!data.success) {
-                    this.addMessage('Error deleting chat: ' + (data.error || 'Unknown error'), 'assistant');
+                    this.showFailure(data, 'Error deleting chat: ');
                     return;
                 }
 

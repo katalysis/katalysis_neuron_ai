@@ -101,21 +101,11 @@ class Controller extends Package
 
     /**
      * Show panel for logged-in users who can access the Neuron AI dashboard page.
+     * The chat endpoints use the same check (ChatAccess).
      */
     private function canShowChatPanel(): bool
     {
-        $u = new User();
-        if (!$u->isRegistered()) {
-            return false;
-        }
-
-        $settingsPage = Page::getByPath('/dashboard/system/ai/neuron_ai');
-        if ($settingsPage && !$settingsPage->isError()) {
-            $permissions = new Permissions($settingsPage);
-            return $permissions->canViewPage();
-        }
-
-        return $u->isSuperUser();
+        return \Katalysis\NeuronAi\Access\ChatAccess::canUse();
     }
 
     private function createDatabaseTables()

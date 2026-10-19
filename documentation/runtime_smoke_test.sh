@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Runtime smoke checks for chat endpoints and permission-scoped tool access.
 #
-# Default mode: guest/runtime checks only.
+# Default mode: guest/runtime checks only. Since P1.7 every endpoint must refuse a
+# guest with HTTP 403 (B-ACC-1); POST endpoints also need the CSRF token the chat
+# panel issues (X-Neuron-Token header).
 # Admin mutation checks are opt-in and best-effort, intended to support
 # manual validation workflows in environments where scripted login is stable.
 
@@ -30,6 +32,9 @@ trap cleanup EXIT
 
 pass_count=0
 fail_count=0
+
+# CSRF token for POST requests; set after a successful admin login.
+NEURON_TOKEN=""
 
 pass() {
     echo "PASS: $1"
@@ -73,7 +78,14 @@ http_json() {
     if [[ -n "$payload" ]]; then
         curl -sS -c "$COOKIE_FILE" -b "$COOKIE_FILE" -X "$method" \
             -H "Content-Type: application/json" \
+            -H "X-Neuron-Token: $NEURON_TOKEN" \
             -d "$payload" \
+            -o "$body_file" \
+            -w "%{http_code}" \
+            "$url"
+    elif [[ "$method" == "POST" ]]; then
+        curl -sS -c "$COOKIE_FILE" -b "$COOKIE_FILE" -X "$method" \
+            -H "X-Neuron-Token: $NEURON_TOKEN" \
             -o "$body_file" \
             -w "%{http_code}" \
             "$url"
@@ -210,9 +222,19 @@ login_admin_if_configured() {
     fi
 
     local dashboard_status
-    dashboard_status="$(curl -sS -c "$COOKIE_FILE" -b "$COOKIE_FILE" -o /dev/null -w "%{http_code}" "$BASE_URL/dashboard")"
+    dashboard_status="$(curl -sS -c "$COOKIE_FILE" -b "$COOKIE_FILE" -o "$TMP_DIR/dashboard.html" -w "%{http_code}" "$BASE_URL/dashboard")"
     if [[ "$dashboard_status" == "200" ]]; then
         pass "Admin login succeeded"
+        NEURON_TOKEN="$(php -r '
+            $h = (string)file_get_contents($argv[1]);
+            if (preg_match("/data-csrf-token=\"([0-9]+:[a-f0-9]+)\"/", $h, $m)) {
+                echo $m[1];
+            }
+        ' "$TMP_DIR/dashboard.html" 2>/dev/null || true)"
+        if [[ -z "$NEURON_TOKEN" ]]; then
+            fail "No chat panel token found on the dashboard (is this user allowed to use the assistant?)"
+            return 1
+        fi
         return 0
     fi
 
@@ -231,58 +253,43 @@ run_guest_checks() {
     local send_body="$TMP_DIR/chat_send.json"
     local status
 
-    status="$(http_json "GET" "$API_BASE/chat/list" "$list_body")"
-    if [[ "$status" == "200" && "$(json_field "$list_body" "success")" == "true" ]]; then
-        pass "GET /chat/list returns success JSON"
-    else
-        fail "GET /chat/list unexpected response (HTTP $status)"
-    fi
+    # A guest must be refused everywhere: HTTP 403 and success=false (B-ACC-1).
+    expect_guest_refused() {
+        local label="$1"
+        local method="$2"
+        local url="$3"
+        local body_file="$4"
+        local payload="${5:-}"
+        local status
 
-    status="$(http_json "GET" "$API_BASE/chat/load?id=99999999" "$load_body")"
-    if [[ "$status" == "404" && "$(json_field "$load_body" "success")" == "false" ]]; then
-        pass "GET /chat/load?id=unknown returns 404 JSON error"
-    else
-        fail "GET /chat/load?id=unknown unexpected response (HTTP $status)"
-    fi
+        status="$(http_json "$method" "$url" "$body_file" "$payload")"
+        if [[ "$status" == "403" && "$(json_field "$body_file" "success")" == "false" ]]; then
+            pass "$label refuses a guest (403)"
+        else
+            fail "$label did not refuse a guest (HTTP $status)"
+        fi
+    }
 
-    status="$(http_json "POST" "$API_BASE/chat/new" "$new_body")"
-    if [[ "$status" == "200" && "$(json_field "$new_body" "success")" == "true" ]]; then
-        pass "POST /chat/new returns success JSON"
-    else
-        fail "POST /chat/new unexpected response (HTTP $status)"
-    fi
+    expect_guest_refused "GET /chat/list" "GET" "$API_BASE/chat/list" "$list_body"
+    expect_guest_refused "GET /chat/load" "GET" "$API_BASE/chat/load?id=99999999" "$load_body"
+    expect_guest_refused "GET /chat/current" "GET" "$API_BASE/chat/current" "$TMP_DIR/chat_current.json"
+    expect_guest_refused "GET /diagnostics/status" "GET" "$API_BASE/diagnostics/status" "$TMP_DIR/diagnostics.json"
+    expect_guest_refused "POST /chat/new" "POST" "$API_BASE/chat/new" "$new_body"
+    expect_guest_refused "POST /chat/delete" "POST" "$API_BASE/chat/delete" "$TMP_DIR/chat_delete.json" '{"id":1}'
+    expect_guest_refused "POST /chat/delete_current" "POST" "$API_BASE/chat/delete_current" "$TMP_DIR/chat_delete_current.json"
 
     post_chat_message "Runtime smoke health check." "$send_body"
-    if [[ "$(json_field "$send_body" "success")" == "true" ]]; then
-        local response_text
-        response_text="$(extract_chat_response_text "$send_body")"
-        if [[ -n "$response_text" ]]; then
-            pass "POST /chat/send_message returns assistant content"
-        else
-            fail "POST /chat/send_message returned empty response"
-        fi
+    if [[ "$(json_field "$send_body" "success")" == "false" && "$(json_field "$send_body" "error")" == "Access denied." ]]; then
+        pass "POST /chat/send_message refuses a guest"
     else
-        fail "POST /chat/send_message did not return success=true"
+        fail "POST /chat/send_message did not refuse a guest"
     fi
 
-    local tool1="$TMP_DIR/tool_list_page_types.json"
-    local tool2="$TMP_DIR/tool_list_pages.json"
-    local msg1="Use list_page_types and return first five handles only."
-    local msg2="Use list_pages with limit 3 and return page ids and paths only."
-
-    post_chat_message "$msg1" "$tool1"
-    if [[ "$(json_field "$tool1" "success")" == "true" ]]; then
-        pass "Tool path smoke: list_page_types executed"
-    else
-        fail "Tool path smoke: list_page_types request failed"
-    fi
-
-    post_chat_message "$msg2" "$tool2"
-    if [[ "$(json_field "$tool2" "success")" == "true" ]]; then
-        pass "Tool path smoke: list_pages executed"
-    else
-        fail "Tool path smoke: list_pages request failed"
-    fi
+    # A guest cannot get past the check by guessing a token either.
+    NEURON_TOKEN="1:00000000000000000000000000000000"
+    expect_guest_refused "POST /chat/send_message with a made-up token" "POST" "$API_BASE/chat/send_message" \
+        "$TMP_DIR/chat_send_fake_token.json" '{"message":"Use list_pages with limit 3."}'
+    NEURON_TOKEN=""
 }
 
 run_admin_mutation_checks() {
@@ -297,6 +304,19 @@ run_admin_mutation_checks() {
     fi
 
     log "Running authenticated mutation checks"
+
+    # Even a logged-in user with access is refused a POST without the CSRF token.
+    local saved_token="$NEURON_TOKEN"
+    local no_token_file="$TMP_DIR/chat_send_no_token.json"
+    local no_token_status
+    NEURON_TOKEN=""
+    no_token_status="$(http_json "POST" "$API_BASE/chat/send_message" "$no_token_file" '{"message":"Use list_pages with limit 3."}')"
+    NEURON_TOKEN="$saved_token"
+    if [[ "$no_token_status" == "403" && "$(json_field "$no_token_file" "success")" == "false" ]]; then
+        pass "POST /chat/send_message without a token is refused (403)"
+    else
+        fail "POST /chat/send_message without a token was not refused (HTTP $no_token_status)"
+    fi
 
     local stamp
     stamp="$(date +%Y%m%d%H%M%S)"

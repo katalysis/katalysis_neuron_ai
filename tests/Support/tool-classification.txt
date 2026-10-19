@@ -1,6 +1,5 @@
 write add_attribute_to_set
 write add_block_to_page_area
-write approve_page_version
 write batch_update_content_headings
 write batch_update_page_content
 read  count_blocks_by_type
@@ -16,7 +15,6 @@ write create_topic_tree
 write create_user_attribute
 write delete_attribute_set
 write delete_block_from_page_area
-write delete_file
 write delete_page
 write delete_topic
 write discard_draft_version
@@ -65,7 +63,6 @@ read  search_blocks_by_type
 read  search_users
 write set_file_attribute_value
 write set_page_attribute_value
-write set_user_attribute_value
 write sync_multi_links_to_epra_resources_list
 write update_block_in_page_area
 write update_file_select_attribute_options
@@ -74,5 +71,8 @@ write update_page_select_attribute_options
 write update_person_specialisms
 write update_person_topics
 write update_user_select_attribute_options
+off   approve_page_version
 off   delete_all_people
+off   delete_file
 off   delete_person
+off   set_user_attribute_value
