@@ -9,6 +9,7 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
 ## Workflow (required)
 - Start every task with `/start-task <ID>` and end it with `/finish-task`. Work only on tasks listed in `documentation/DELIVERY_PLAN.md`.
 - **Never** change `DELIVERY_PLAN.md`, `EXTENSIONS.md` or the decisions in `PROGRESS.md`. Propose changes in your progress entry instead. Glyn or Alex decide, with design review in Cowork.
+  - Exception: you may fix purely factual or formatting slips in `DELIVERY_PLAN.md` and `PROGRESS.md` (PR numbers, status lines, markdown rendering, typos) and must list each one in your reply. Anything that changes scope, rules or decisions still goes to Glyn.
 - Stop and ask whenever any of these apply:
   - the task needs files outside the approved plan
   - a test or scenario that used to pass now fails
