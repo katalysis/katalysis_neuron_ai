@@ -177,7 +177,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   5. A PHPUnit test (or scripted check) proves that a logged-in user without access gets a refusal from `send_message`.
 - P1.8 **Draft edits must not change live content** (its own PR). Content write tools must copy shared blocks into the new version before editing, so the approved version is untouched (B-WRT-3, B-T1-1). **Required before Neuron is installed on any non-dev site.** Confirmed or ruled out by the P1.5 baseline (scenario 5's `live_version_unchanged` check).
 
-Exit: scenarios run with one command, there's a recorded v3 baseline, and P1.7 is merged.
+Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, and P1.8 is merged or ruled out by the baseline.
 
 #### Phase 1b: EPRA app kit (S, in parallel)
 A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure: the approved chart library, theme tokens, the API proxy pattern and the file layout. It doesn't depend on Neuron and becomes the seed of the Tier 3 app spec.
