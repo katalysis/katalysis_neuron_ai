@@ -46,14 +46,13 @@ WORKFLOW:
 - list_page_versions: Show version history
 - create_page_draft: Create safe sandbox for edits
 - [User previews at /page?cvID=X]
-- approve_page_version: Publish if approved
+- Publishing a version is done by a person in the CMS; this assistant cannot publish
 - discard_draft_version: Revert if rejected
 
 NEVER edit content directly in approved/active versions!
 ALWAYS offer a preview before destructive operations!
 
-When user says "revert to version X" → use approve_page_version
-When user says "go back" or "undo" → list versions, then approve previous one
+When user says "revert to version X" or "go back" or "undo" → list versions, then tell them a person must publish the earlier version in the CMS; this assistant cannot publish
 GUIDELINES;
     }
 
@@ -163,7 +162,7 @@ GUIDELINES;
                 }
 
                 $output .= "\n**Preview URL pattern:** `/page-path?cvID=X` (replace X with version ID)\n";
-                $output .= "\n💡 Use `approve_page_version` to revert to a previous version\n";
+                $output .= "\n💡 Publishing a version is done by a person in the CMS; this assistant cannot publish.\n";
                 $output .= "💡 Use `create_page_draft` to create a new draft for safe editing\n";
 
                 return $output;
@@ -336,7 +335,7 @@ GUIDELINES;
                        "- This draft is NOT live yet\n" .
                        "- Make your edits using this version ID\n" .
                        "- User should preview before approving\n" .
-                       "- Use `approve_page_version` to publish\n" .
+                       "- Publishing is done by a person in the CMS; this assistant cannot publish\n" .
                        "- Use `discard_draft_version` to cancel";
 
             } catch (\Exception $e) {
@@ -397,7 +396,7 @@ GUIDELINES;
                 // Safety check: cannot discard approved version
                 if ($version->isApproved()) {
                     return "❌ **Error:** Cannot discard an active/approved version (version {$versionID} is currently live).\n\n" .
-                           "To revert to a previous version, use `approve_page_version` instead.";
+                           "To revert to a previous version, a person must publish it in the CMS; this assistant cannot publish.";
                 }
 
                 // Check if version can be discarded

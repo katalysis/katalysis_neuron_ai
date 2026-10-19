@@ -10,7 +10,7 @@
 })();
 </script>
 
-<div id="neuron-chat-panel" class="neuron-chat-expanded ccm-ui">
+<div id="neuron-chat-panel" class="neuron-chat-expanded ccm-ui" data-csrf-token="<?= h(\Katalysis\NeuronAi\Access\ChatAccess::generateToken()) ?>">
     <div class="neuron-chat-header">
         <h3>
             <i class="fas fa-robot"></i>

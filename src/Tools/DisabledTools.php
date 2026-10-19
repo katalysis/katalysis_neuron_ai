@@ -26,6 +26,12 @@ final class DisabledTools
             . '(baseline scenario 04 shows injected delete attempts)',
         'delete_all_people' => 'destructive; disabled until P3.5 permission and approval work '
             . '(baseline scenario 04 shows injected delete attempts)',
+        'delete_file' => 'File::delete() is permanent and Concrete 9.5 has no file trash (B-T1-11); '
+            . 'disabled in P1.7, redirected to a review folder in P3.5 (baseline scenario 18)',
+        'set_user_attribute_value' => 'user accounts are read-only for the assistant at every tier (B-ACC-7); '
+            . 'disabled in P1.7, code removed in P3.5',
+        'approve_page_version' => 'publishing stays a human action until P3.6 approval exists '
+            . '(baseline scenario 14 published a live change from injected text)',
     ];
 
     /**

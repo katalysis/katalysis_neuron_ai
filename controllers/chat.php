@@ -6,6 +6,7 @@ use Concrete\Core\Controller\AbstractController;
 use Concrete\Core\Http\ResponseFactory;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Page\Page;
+use Katalysis\NeuronAi\Access\ChatAccess;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
@@ -16,9 +17,36 @@ use NeuronAI\Chat\History\InMemoryChatHistory;
 class Chat extends AbstractController
 {
     protected $helpers = [];
-    
+
+    /**
+     * The access check every action runs first (B-ACC-1), before any work and before
+     * the session is started. State-changing (POST) actions also need the CSRF token
+     * the chat panel sends in the X-Neuron-Token header.
+     *
+     * @return \Symfony\Component\HttpFoundation\Response|null a 403 response to return, or null if the request may go ahead
+     */
+    private function refuseIfNotAllowed(bool $isStateChanging)
+    {
+        $error = ChatAccess::refusalReason(
+            $isStateChanging,
+            $this->request->headers->get(ChatAccess::TOKEN_HEADER)
+        );
+        if ($error === null) {
+            return null;
+        }
+
+        return Application::getFacadeApplication()->make(ResponseFactory::class)->json([
+            'success' => false,
+            'error' => $error,
+        ], 403);
+    }
+
     public function send_message()
     {
+        if ($refusal = $this->refuseIfNotAllowed(true)) {
+            return $refusal;
+        }
+
         // Set proper content type before any output
         header('Content-Type: application/json');
         
@@ -353,6 +381,10 @@ class Chat extends AbstractController
      */
     public function chat_list()
     {
+        if ($refusal = $this->refuseIfNotAllowed(false)) {
+            return $refusal;
+        }
+
         header('Content-Type: application/json');
         
         try {
@@ -413,6 +445,10 @@ class Chat extends AbstractController
      */
     public function load()
     {
+        if ($refusal = $this->refuseIfNotAllowed(false)) {
+            return $refusal;
+        }
+
         header('Content-Type: application/json');
         
         try {
@@ -482,6 +518,10 @@ class Chat extends AbstractController
      */
     public function current()
     {
+        if ($refusal = $this->refuseIfNotAllowed(false)) {
+            return $refusal;
+        }
+
         header('Content-Type: application/json');
 
         try {
@@ -536,6 +576,10 @@ class Chat extends AbstractController
      */
     public function new_chat()
     {
+        if ($refusal = $this->refuseIfNotAllowed(true)) {
+            return $refusal;
+        }
+
         header('Content-Type: application/json');
         
         try {
@@ -574,6 +618,10 @@ class Chat extends AbstractController
      */
     public function delete_chat()
     {
+        if ($refusal = $this->refuseIfNotAllowed(true)) {
+            return $refusal;
+        }
+
         header('Content-Type: application/json');
 
         try {
@@ -636,6 +684,10 @@ class Chat extends AbstractController
      */
     public function delete_current_chat()
     {
+        if ($refusal = $this->refuseIfNotAllowed(true)) {
+            return $refusal;
+        }
+
         header('Content-Type: application/json');
 
         try {

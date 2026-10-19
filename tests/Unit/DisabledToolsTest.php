@@ -58,11 +58,15 @@ final class DisabledToolsTest extends TestCase
         return $names;
     }
 
-    public function testTheListHoldsTheTwoPeopleDeletesWithAReason(): void
+    public function testTheListHoldsTheToolsDisabledForSafetyEachWithAReason(): void
     {
-        $this->assertSame(['delete_all_people', 'delete_person'], DisabledTools::names());
+        // P1.6 (people deletes) and P1.7 (file delete, user attribute write, publishing).
+        $this->assertSame(
+            ['approve_page_version', 'delete_all_people', 'delete_file', 'delete_person', 'set_user_attribute_value'],
+            DisabledTools::names()
+        );
         foreach (DisabledTools::all() as $name => $reason) {
-            $this->assertStringContainsString('P3.5', $reason, $name);
+            $this->assertMatchesRegularExpression('/P3\.[56]/', $reason, $name);
         }
     }
 

@@ -14,6 +14,14 @@
         deleteCurrentBtn: null,
         dashboardToggleBtn: null,
         isListView: false,
+
+        // Headers for POST requests: JSON plus the CSRF token the panel element carries.
+        postHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'X-Neuron-Token': (this.panel && this.panel.getAttribute('data-csrf-token')) || ''
+            };
+        },
         
         init() {
             this.panel = document.getElementById('neuron-chat-panel');
@@ -245,9 +253,7 @@
                 // Send to backend
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/send_message', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: this.postHeaders(),
                     body: JSON.stringify({ message, pageContext })
                 });
 
@@ -336,9 +342,7 @@
                 // Call backend to create a new chat session
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/new', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
+                    headers: this.postHeaders()
                 });
                 
                 const data = await response.json();
@@ -372,9 +376,7 @@
             try {
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete_current', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
+                    headers: this.postHeaders()
                 });
 
                 const data = await response.json();
@@ -538,9 +540,7 @@
             try {
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: this.postHeaders(),
                     body: JSON.stringify({ id: chatId })
                 });
 
