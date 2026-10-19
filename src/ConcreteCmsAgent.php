@@ -191,7 +191,9 @@ INST;
     {
         $context = [];
 
-        if (php_sapi_name() !== 'cli') {
+        // Under the CLI there is no current page, so build page context only when the caller passed one
+        // (the scenario runner does). Outside the CLI this is always true, as before.
+        if (php_sapi_name() !== 'cli' || $this->runtimePageContext !== null) {
             try {
                 $contextPage = $this->resolveContextPage();
                 if ($contextPage && !$contextPage->isError()) {
