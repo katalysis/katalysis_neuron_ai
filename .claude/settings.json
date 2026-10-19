@@ -8,7 +8,11 @@
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard:*)",
-      "Bash(git checkout main:*)"
+      "Bash(git checkout main:*)",
+      "Bash(git switch main:*)",
+      "Bash(git push origin HEAD:main:*)",
+      "Bash(git push origin +main:*)",
+      "Bash(git push origin development:main:*)"
     ],
     "ask": [
       "Bash(git push:*)",

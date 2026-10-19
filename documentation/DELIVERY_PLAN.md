@@ -61,7 +61,10 @@ The first real users are EPRA (content editing and their Claude-built data apps)
 - **Each tool has a typed contract** (input properties plus an `{ok, data | error}` envelope) and a test.
 - **Rules belong in tools, not prompts.**
 - **Client-specific tools live in their own packages**, registered through `ExternalToolkitRegistry`.
-- **Behaviour scenarios must pass** before anything is merged.
+- **Scenario merge rule** (same as `CLAUDE.md`):
+  - before the P1.5 baseline exists, no regressions in the manual checks
+  - after it, no regressions against the baseline
+  - from the end of Phase 3, all scenarios must pass
 - **Don't upgrade and refactor at the same time.** A dependency upgrade gets its own PR and must keep scenario results the same.
 
 ---
@@ -106,7 +109,7 @@ Neuron 4 ships an `upgrade/` folder with a step-by-step plan written for AI codi
 
 Sizes: S = up to 2 days, M = about a week, L = 2–3 weeks of focused work. Phases 4 (theme) and 1b (EPRA app kit) can run alongside the others.
 
-### Phase 0: Make it safe to change anything (S, mostly done)
+### Phase 0: Make it safe to change anything (S, started: P0.1 and P0.2 done)
 - [x] P0.1 Commit all the work on `development`
 - [x] P0.2 Set up the local dev site (`katalysis_pro_theme`, Concrete 9.5.5)
 - [ ] P0.3 Protect `main` on GitHub (PRs only), and make `development` the integration branch
@@ -183,6 +186,11 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
 - P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change.
 - P3.7 **Cut the prompt down** to identity, tier and how to use context, under about 60 lines. Each rule it currently holds becomes a tool check or a scenario.
 - P3.8 **Provider adapter:** pick the provider and model from settings, with current Anthropic and OpenAI model choices. Use the cost-efficient model for routing and the stronger model for writes.
+- P3.9 **Housekeeping:**
+  - Doctrine-managed table, with the `CREATE TABLE` removed from `on_start()`
+  - framework JSON responses in the controllers
+  - a loop guard
+  - a PSR-14 logging listener
 - P3.10 **Extension model (see `EXTENSIONS.md`):**
   1. the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface
   2. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
@@ -192,11 +200,6 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   6. `katalysis_pro` moved to a provider, and `PeopleToolkit` removed from core
   7. a shim for `ExternalToolkitRegistry` for one release
   8. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
-- P3.9 **Housekeeping:**
-  - Doctrine-managed table, with the `CREATE TABLE` removed from `on_start()`
-  - framework JSON responses in the controllers
-  - a loop guard
-  - a PSR-14 logging listener
 
 Exit: all scenarios pass, and per-request tool count and prompt size are within targets.
 

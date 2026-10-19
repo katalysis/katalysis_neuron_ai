@@ -12,8 +12,10 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
 - Stop and ask whenever any of these apply:
   - the task needs files outside the approved plan
   - a test or scenario that used to pass now fails
-  - you're about to delete more than about 20 lines of working code
+  - you're about to delete more than about 20 lines of working code **that the approved plan didn't list for deletion** (planned deletions, such as `src/Toolkits/` in P3.3, are covered by plan approval)
   - a design doc and the code disagree
+- **Commit messages** start with the task ID (`P1.4: ...`). Changes to the plan, design or workflow docs made after a review start with `PLAN: ...`.
+- **Don't rewrite pushed or shared history.** Never amend or reword commits someone else made, even unpushed ones, unless you're asked to.
 - Report results honestly. "Not tested" is an acceptable answer; claiming something works when it wasn't checked is not.
 
 ## Layout
@@ -35,6 +37,11 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
    - returns the `{ok: true, data}` / `{ok: false, error}` envelope through `guarded()`
    - checks Concrete permissions for the active user
    - has a PHPUnit test
+
+   How rule 4 applies by situation:
+   - **New tools, or tools whose behaviour changes:** need their own PHPUnit test in the same PR.
+   - **Mechanical conversions** (e.g. P2.3, converting all 112 tools to `CallableTool`): covered by one registry test that checks every tool registers with a valid name, description and schema, plus the scenarios. Individual tests aren't needed.
+   - **Permission-denied tests for existing tools:** come in P3.5.
 5. **Put behavioural rules in code, not in `instructions()`.** If the model keeps getting something wrong, fix the tool or add a check and a scenario. Don't add another prompt rule.
 6. **No client-specific code in this package** (e.g. EPRA block handles). It belongs in a separate package that registers through `ExternalToolkitRegistry`.
 7. **Writes must be undoable:** edit a new page version and never publish silently. Keep the text-integrity checks (checksums, `formatting_only` / `scoped_text`) when editing content tools.
@@ -46,7 +53,11 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
 
 ## Testing
 - PHPUnit tool tests: `vendor/bin/phpunit` (set up in Phase 1).
-- Behaviour scenarios: `concrete/bin/concrete neuron:eval` against the dev site (Phase 1). All of them must pass before merging any change to the agent, context or tools.
+- Behaviour scenarios: `concrete/bin/concrete neuron:eval` against the dev site (Phase 1).
+- **The merge rule tightens as the project goes:**
+  - **Before the P1.5 baseline exists:** no regressions in the manual checks listed in the task plan.
+  - **After P1.5:** no regressions against the recorded baseline. A scenario that passed must still pass, and scenarios that are known to fail may keep failing.
+  - **From the end of Phase 3:** all scenarios must pass.
 - After changing an entity: `concrete/bin/concrete c5:package:update katalysis_neuron_ai` and clear the cache.
 
 ## Concrete conventions
