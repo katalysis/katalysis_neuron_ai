@@ -468,6 +468,24 @@ INST;
         return null;
     }
     
+    /**
+     * The user's message with the page tag in front (see PageContextTag), from the page context set with
+     * setRuntimePageContext(). Unchanged when there is no page context.
+     */
+    public function tagMessage(string $message): string
+    {
+        return PageContextTag::apply($message, $this->runtimePageContext);
+    }
+
+    /**
+     * What the chat endpoint and the scenario runner call for a user's message: handle() with the page tag added.
+     * Both go through here, so the model gets the same message in the scenarios as in the panel.
+     */
+    public function handleUserMessage(string $message): string
+    {
+        return $this->handle($this->tagMessage($message));
+    }
+
     public function handle(string $message): string
     {
         try {

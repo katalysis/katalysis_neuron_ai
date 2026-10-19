@@ -92,7 +92,7 @@ final class ScenarioRunner
                 $historyBefore = count($this->messages($agent));
 
                 $turnStarted = microtime(true);
-                $reply = $agent->handle((string) $turn['say']);
+                $reply = $agent->handleUserMessage((string) $turn['say']);
                 $turnSeconds = microtime(true) - $turnStarted;
 
                 $after = $this->snapshots->take();

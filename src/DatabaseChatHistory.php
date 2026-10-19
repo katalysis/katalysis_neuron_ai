@@ -189,8 +189,9 @@ class DatabaseChatHistory extends AbstractChatHistory
             $this->chat->setUserMessageCount(count($userMessages));
 
             if (!empty($userMessages)) {
-                $firstUserText = $this->messageToText($userMessages[0]);
-                $lastUserText = $this->messageToText($userMessages[count($userMessages) - 1]);
+                // The page tag is for the model; the chat list shows what the person typed.
+                $firstUserText = PageContextTag::strip($this->messageToText($userMessages[0]));
+                $lastUserText = PageContextTag::strip($this->messageToText($userMessages[count($userMessages) - 1]));
                 $this->chat->setFirstMessage(substr($firstUserText, 0, 500));
                 $this->chat->setLastMessage(substr($lastUserText, 0, 500));
             }
