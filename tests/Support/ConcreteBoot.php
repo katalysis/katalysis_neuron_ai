@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Support;
 
 use Concrete\Core\Application\Application;
+use Katalysis\NeuronAi\Tests\Eval\DatabaseGuard;
 
 /**
  * The only place in the test code that boots Concrete.
@@ -41,6 +42,14 @@ final class ConcreteBoot
         $siteDir = dirname(__DIR__, 4);
         if (!is_file($siteDir . '/concrete/bootstrap/configure.php')) {
             fwrite(STDERR, "Cannot find the Concrete web root at {$siteDir}. The package must be installed in httpdocs/packages/.\n");
+            exit(1);
+        }
+
+        // The pre-boot guard: read the database config files (no connection) and refuse a non-local host
+        // before Concrete boots and connects.
+        $dbProblem = DatabaseGuard::findProblem($siteDir . '/application/config');
+        if ($dbProblem !== null) {
+            fwrite(STDERR, "Refusing to run tests: {$dbProblem}\n");
             exit(1);
         }
 
