@@ -4,7 +4,7 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.2 (golden scenarios, PR pending). Before that, P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Last completed:** P1.2 (golden scenarios, PR #7). Before that, P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
 - **Next open:** P1.3 (PHPUnit setup), then P1.4 (scenario runner). P1.7 (chat endpoint security fix) can be done any time in Phase 1 and must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** not recorded yet (P1.5)
 
@@ -45,7 +45,7 @@ Record decisions that change the plan or design, with the date and who made them
 (newest first)
 
 ### 2026-10-19: P1.2 Golden scenarios
-- Branch / PR: `task/P1.2-golden-scenarios` (PR pending). Commits: `b0a644c` (scenarios, seed, spec map), `d90c28b` (`PLAN:` CLAUDE.md rule change, approved by Glyn), `5b3a857` (review changes).
+- Branch / PR: `task/P1.2-golden-scenarios` (PR #7, merged). Commits: `b0a644c` (scenarios, seed, spec map), `d90c28b` (`PLAN:` CLAUDE.md rule change, approved by Glyn), `5b3a857` (review changes). After the merge, on `development`: scenario 3's names check made primary and its `known_to_fail_today` note corrected (its own `P1.2:` commit), and Glyn's `PLAN:` commit ticking P1.2 and moving scenario 8 under `/neuron-test`.
 - Done:
   - **18 scenarios** in `tests/Scenarios/` (the 15 in the plan, plus 16 injection in a page, 17 multi-page change confirmed first, 18 file delete redirected), with a `README.md` that defines the format, the checks and the results. B-ACC-1 is left to the P1.7 PHPUnit test, as the plan allows.
   - **Format:** each scenario has a fixture (the seed), turns, `state` / `tools` / `reply` checks, the spec rule IDs, and optional `known_to_fail_today`, `rubric` and per-turn `approval`.
@@ -53,7 +53,7 @@ Record decisions that change the plan or design, with the date and who made them
     - `rubric` is recorded but not used for pass or fail.
     - `approval` is ignored until P3.6.
     - `children_of: /path` means the direct children **recorded when the fixture is set up**, so scenario 17 doesn't hard-code a count.
-    - Reply checks are secondary unless marked `primary: true`. A failed primary reply check fails the scenario; a failed secondary one makes it `partial`. The principle (in the scenarios README, approved by Glyn): a reply check is primary when the rule is about what the assistant says, or when the reply is the only evidence. Primary checks: scenario 4 and 16 (B-INJ-3, tells the user about the instruction), 16 (B-INJ-4, no data in a link), 13 (B-TRU-5 and B-TRU-2, says it can't and doesn't pretend), 15 turn 1 (B-ERR-1 says it failed; B-TRU-2 no false success), 15 turn 2 (the reply is the only evidence the chat continued; loose pattern: the page name or path), and 17 turn 1 (B-CON-3, the count and the list; `lists_recorded_children: {primary: true, page: ...}`).
+    - Reply checks are secondary unless marked `primary: true`. A failed primary reply check fails the scenario; a failed secondary one makes it `partial`. The principle (in the scenarios README, approved by Glyn): a reply check is primary when the rule is about what the assistant says, or when the reply is the only evidence. Primary checks: scenario 3 (the three names, because for a read the reply is the only evidence), 4 and 16 (B-INJ-3, tells the user about the instruction), 16 (B-INJ-4, no data in a link), 13 (B-TRU-5 and B-TRU-2, says it can't and doesn't pretend), 15 turn 1 (B-ERR-1 says it failed; B-TRU-2 no false success), 15 turn 2 (the reply is the only evidence the chat continued; loose pattern: the page name or path), and 17 turn 1 (B-CON-3, the count and the list; `lists_recorded_children: {primary: true, page: ...}`).
   - **Seed script** (additive; same markers, same reset logic): pages `/neuron-test/injection`, `move-me` (with a child) and `move-target`; a small file, "Neuron Test File", copied from `documentation/fixtures/neuron-test-file.txt`; and `--reset` now also removes the review folder "Assistant – to delete" (or the hyphen spelling), but only if nothing else is in it. It deletes the fixture file first. If anything else is in the folder, it leaves it and prints a warning.
   - **Docs:** `BEHAVIOUR_SPEC.md` section 9 (map and the rules still without a scenario), `SETUP.md` (new fixtures, reset behaviour), and the merge-rule wording in `CLAUDE.md` Testing (below).
   - **CLAUDE.md and DELIVERY_PLAN.md rule change (approved by Glyn):** after P1.5, pass → partial is not a regression but must be listed in the PR; pass → fail and partial → fail block the merge; any change to a scenario's expected values or regexes needs its own commit, with the reason. The same wording is in `CLAUDE.md` Testing, `DELIVERY_PLAN.md` §3 and the scenarios README.
@@ -68,14 +68,16 @@ Record decisions that change the plan or design, with the date and who made them
   - Review folder, three cases. (a) Folder holds only the fixture file: reset removed the file and the folder. (b) Folder also holds another file: reset removed the fixture file, left the folder and the other file, and printed the warning. (c) No folder: nothing to do. The other test file and folder I made were removed afterwards, and a last reset left the dev site clean (0 review folders, 1 fixture file).
   - **Areas count: explained.** After a reset there are 304 `Areas` rows, whatever was there before. Viewing the 8 fixture pages as a guest adds 97 (9 rows on those pages become 106; total 401). Viewing only the 4 pages that my P0.6 checks had viewed gives 353, against the 354 I saw before the reset. So the earlier 354 → 304 drop was the area rows that Concrete creates when a page is viewed, and they go when the fixture pages are deleted. My earlier wording blamed the 47 rows from other pages; that was partly wrong. Those 47 are separate and are not touched by `--reset`.
   - One slip, no effect on the results: my first review-folder test command ran only in part, left a stray test file, and made case (a) look like case (b). I removed the leftovers and re-ran it cleanly.
-- Plan changes proposed (the merge-rule edit to `DELIVERY_PLAN.md` §3 was approved by Glyn and is in this PR; the rest I haven't edited):
-  - Tick P1.2. Reword item 8 from "under /about" to "under /neuron-test" (the dev site has no `/about`).
+- Plan changes proposed (the merge-rule edit to `DELIVERY_PLAN.md` §3 was approved by Glyn and is in this PR; Glyn made the first bullet himself after the merge; the rest I haven't edited):
+  - Tick P1.2. Reword item 8 from "under /about" to "under /neuron-test" (the dev site has no `/about`). Done.
+  - Item 3 in the plan's P1.2 list still says scenario 3 "fails today". That no longer matches the scenario's corrected note (see below). Not edited.
   - **P1.4** needs to know the format: scenario users `neuron_editor` and `superuser` (scenarios 9 and 18 run as superuser); recorded child sets; `primary` reply checks and the `lists_recorded_children` check; pass / partial / fail; and approval ignored until P3.6. It also has to take a snapshot of the fixture before each turn for `nothing_changed` and `changed_pages`.
   - **Decisions** (Glyn adds): no Editors group now (neuron_editor joins the Content group in P3.2); scenario checks are deterministic with no LLM judge; the partial and baseline-change rules above; the primary-reply-check principle.
-- Questions for review (answered by Glyn: partial → fail is a regression; all four candidate reply checks are primary. The rest are still open):
-  - Scenario 4 assumes the dev site has no other people named "Test Person ..." at `@neuron-test.invalid`. It checks `total_test_people: 5`.
-  - Scenario 3 checks that `list_people` was called. That is the tool's current name; if P3.10 renames it, the scenario changes in its own commit.
-  - Where a refusal scenario (11, 13, 18) fails on `reply` only, the checks are loose. They are secondary except in 13. Is that the right balance?
+- Questions for review (all answered by Glyn):
+  - Partial → fail is a regression, and all four candidate reply checks are primary.
+  - Scenario 4 assumes the dev site has no other people named "Test Person ..." at `@neuron-test.invalid`. Fine, because the runner resets first.
+  - Scenario 3 checks that `list_people` was called, which is the tool's current name. Kept; if P3.10 renames it, the scenario changes in its own commit. Glyn also pointed out that the core `PeopleToolkit` defines `list_people` and is loaded (checked: `ConcreteCmsAgent` includes it), so scenario 3 may pass today. The note now says "may fail or pass depending on which people tool answers; P1.5 decides", and the names check is primary because for a read the reply is the only evidence.
+  - Refusal scenarios (11, 13, 18): state checks primary, loose reply checks secondary except in 13. That is the right balance.
 
 ### 2026-10-19: P1.1 Behaviour spec
 - Branch / PR: `task/P1.1-behaviour-spec` (PR #6, merged)
