@@ -154,7 +154,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
 
   Also decide whether the permission scenarios need an "Editors" group, added to the seed, rather than per-page grants to `neuron_editor`.
 - [x] P1.3 PHPUnit setup for the package, run with Herd's PHP. Integration tests boot Concrete through `tests/Support/ConcreteBoot.php`, behind the dev-host guard; unit tests don't boot Concrete. Done (PR #8).
-- P1.4 A scenario runner. It is dev tooling under `tests/Eval/` (not shipped), run as `php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php -- [--scenario=] [--repeat=N]`. `--repeat=N` runs each scenario N times from a fresh reset and reports a pass rate. It:
+- [x] P1.4 A scenario runner. Done (PR #9). It is dev tooling under `tests/Eval/` (not shipped), run as `php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php -- [--scenario=] [--repeat=N]`. `--repeat=N` runs each scenario N times from a fresh reset and reports a pass rate. It:
   - resets the fixture (`seed_test_content.php --reset`)
   - runs the agent
   - checks the end state

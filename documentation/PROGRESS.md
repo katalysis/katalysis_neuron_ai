@@ -4,7 +4,7 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.4 (scenario runner, PR open). Before that, P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Last completed:** P1.4 (scenario runner, PR #9). Before that, P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
 - **Next open:** P1.5 (baseline run). P1.7 (chat endpoint security fix) and P1.8 (draft edits must not change live content) can be done any time in Phase 1 and must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** not recorded yet (P1.5)
 
