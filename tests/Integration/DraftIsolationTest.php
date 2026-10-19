@@ -799,6 +799,11 @@ final class DraftIsolationTest extends ConcreteTestCase
             $page->addBlock(BlockType::getByHandle('content'), $subArea, ['content' => '<p>In layout column ' . ($index + 1) . '</p>']);
         }
 
+        // Concrete caches areas and their permission parents for the rest of the request. Building the
+        // layout leaves a stale entry that makes a permission check on a column block find no parent
+        // area, so the editor is wrongly denied. A real request starts with an empty cache.
+        $this->app()->make('cache/request')->flush();
+
         return $this->startFromOneApprovedVersion($page);
     }
 
@@ -831,9 +836,6 @@ final class DraftIsolationTest extends ConcreteTestCase
         $before = $this->approved($cID);
         $nested = $this->blockInASubArea($before['blocks']);
 
-        // As the superuser: this checks that the tool works on layout columns, not the editor's rights
-        // there (the layout column areas made by this test don't get the editor's permissions).
-        $this->actAs('superuser');
         $this->callPagesTool('update_block_in_page_area', [
             'pageID' => $cID,
             'areaHandle' => $nested['area'],
