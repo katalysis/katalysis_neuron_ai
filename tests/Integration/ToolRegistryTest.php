@@ -7,8 +7,11 @@ namespace Katalysis\NeuronAi\Tests\Integration;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ToolListChecks;
+use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use NeuronAI\Tools\PropertyType;
+use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\Toolkits\AbstractToolkit;
 use NeuronAI\Tools\ToolPropertyInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 
@@ -160,6 +163,58 @@ final class ToolRegistryTest extends ConcreteTestCase
             $missing,
             'Array properties without "items" differ from the known list. New ones must declare items; fixed ones must be removed from ARRAYS_WITHOUT_ITEMS_TODAY.'
         );
+    }
+
+    public function testExternalToolkitsAreLoadedAndWinNameClashes(): void
+    {
+        // The PHPUnit boot doesn't run package on_start(), so katalysis_pro's own registration
+        // isn't present here. Register a synthetic external toolkit the same way it does, run
+        // the agent's real tools() path, and restore the registry afterwards.
+        $property = new \ReflectionProperty(ExternalToolkitRegistry::class, 'factories');
+        $original = $property->getValue();
+
+        try {
+            $property->setValue(null, []);
+            ExternalToolkitRegistry::registerToolkitFactory('p16_test', static fn (): array => [
+                new class () extends AbstractToolkit {
+                    public function provide(): array
+                    {
+                        return [
+                            new Tool('list_people', 'external list_people'),
+                            new Tool('p16_external_only', 'only in the external toolkit'),
+                            new Tool('delete_person', 'must be disabled'),
+                        ];
+                    }
+                },
+            ]);
+
+            $tools = [];
+            foreach ((new ConcreteCmsAgent())->getTools() as $item) {
+                foreach ($item instanceof ToolkitInterface ? $item->tools() : [$item] as $tool) {
+                    $tools[] = $tool;
+                }
+            }
+        } finally {
+            $property->setValue(null, $original);
+        }
+
+        $this->assertSame([], ToolListChecks::duplicateNames($tools));
+
+        $byName = [];
+        foreach ($tools as $tool) {
+            $byName[$tool->getName()] = $tool;
+        }
+        $this->assertArrayHasKey('p16_external_only', $byName, 'External toolkit tools are not loaded.');
+        $this->assertSame('external list_people', $byName['list_people']->getDescription(), 'The external tool must win the clash.');
+        $this->assertArrayNotHasKey('delete_person', $byName, 'A disabled tool from an external toolkit was offered.');
+        $this->assertArrayHasKey('get_person_details', $byName, 'The rest of the core PeopleToolkit must survive.');
+    }
+
+    public function testDisabledToolsAreNotOffered(): void
+    {
+        $names = array_map(static fn (ToolInterface $t): string => $t->getName(), $this->tools());
+
+        $this->assertSame([], array_values(array_intersect($names, \Katalysis\NeuronAi\Tools\DisabledTools::names())));
     }
 
     public function testNoTwoToolsShareAName(): void
