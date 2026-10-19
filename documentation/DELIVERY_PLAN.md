@@ -125,8 +125,8 @@ Sizes: S = up to 2 days, M = about a week, L = 2–3 weeks of focused work. Phas
 Exit: everything is in git, the dev site can be reset to a known state, and `main` is protected.
 
 ### Phase 1: Behaviour spec and baseline (M)
-- P1.1 Write `documentation/BEHAVIOUR_SPEC.md`: what the assistant must do, must ask about, and must refuse, per tier.
-- P1.2 Write about 15 golden scenarios (`tests/Scenarios/*.yaml`), each with a starting fixture, a prompt, and the expected end state or answer:
+- [x] P1.1 Write `documentation/BEHAVIOUR_SPEC.md`: what the assistant must do, must ask about, and must refuse, per tier. Done (PR #6): 80 rules with IDs, a "Today" status for each, and decisions 1–14 in §10.
+- P1.2 Write about 15–20 golden scenarios (`tests/Scenarios/*.yaml`), each with a starting fixture, a prompt, the expected end state or answer, and **the `BEHAVIOUR_SPEC.md` rule IDs it checks**:
   1. "What page am I on?"
   2. "How many content blocks are on this page?"
   3. "List the people on the site." (needs the external toolkit, so it fails today)
@@ -143,6 +143,12 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   14. Paste a long page and ask for a summary → no writes
   15. A failed write → reported clearly, and the chat continues
 
+  Also add scenarios for the rules that `BEHAVIOUR_SPEC.md` §9 lists as unchecked. At minimum:
+  - a page or file containing instructions aimed at the assistant (B-INJ-1–3)
+  - a change affecting several pages that must be confirmed first (B-CON-3)
+  - a request to delete a file that must be refused or redirected to the review folder (B-T1-11)
+  - an endpoint call by a user without access (B-ACC-1), which may be a PHPUnit test rather than a scenario
+
   Also decide whether the permission scenarios need an "Editors" group, added to the seed, rather than per-page grants to `neuron_editor`.
 - P1.3 PHPUnit setup for the package, run with Herd's PHP. Add a bootstrap that loads Concrete for integration tests against the dev site database.
 - P1.4 A scenario runner, `concrete/bin/concrete neuron:eval [--scenario=]`. It:
@@ -152,10 +158,18 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   - writes a results table to `documentation/eval-results/`
 
   **Scenarios find fixture content by path, handle or name, never by ID**, because IDs change on every reset.
+
+  **The runner runs the agent in-process as the scenario's user** (e.g. `neuron_editor`), not over HTTP, so it doesn't depend on the endpoint access check (spec §10, decision 14).
 - P1.5 **Baseline run on v3.15.26.** Record which scenarios pass. This is the yardstick for the upgrade.
 - P1.6 Small fix, with its own PR and before the upgrade: load `ExternalToolkitRegistry::getExternalToolkits()` in `tools()`. Re-run the scenarios.
+- P1.7 **Security fix** (its own PR; any time in Phase 1). **Required before Neuron is installed on any non-dev site.**
+  1. Every chat endpoint applies the same access check as the panel (B-ACC-1), server-side.
+  2. `delete_file` is disabled (B-T1-11).
+  3. `set_user_attribute_value` is disabled (B-ACC-7).
+  4. The guest checks in `runtime_smoke_test.sh` change to expect a refusal.
+  5. A PHPUnit test (or scripted check) proves that a logged-in user without access gets a refusal from `send_message`.
 
-Exit: scenarios run with one command, and there's a recorded v3 baseline.
+Exit: scenarios run with one command, there's a recorded v3 baseline, and P1.7 is merged.
 
 #### Phase 1b: EPRA app kit (S, in parallel)
 A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure: the approved chart library, theme tokens, the API proxy pattern and the file layout. It doesn't depend on Neuron and becomes the seed of the Tier 3 app spec.
@@ -181,6 +195,9 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
 ### Phase 3: Core refactor (L)
 - P3.1 **ContextBuilder**: pull the context code out of the agent and add the area and block tree, the user's permissions on the current page, and the tier. Add unit tests.
 - P3.2 **Capability registry and intent router**: group the tools, tag them by tier and permission, and send only the relevant groups per request (target: at most about 25 tools per request). External toolkits declare their group and tier.
+  - Tiers are cumulative and map to Concrete groups chosen in settings: "Neuron AI – Content", "Neuron AI – Configure", "Neuron AI – Generate". Superusers get Tier 3 (B-ACC-9).
+  - This replaces the settings-page access check.
+  - Add `neuron_editor` to the Content group in the seed script.
 - P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/` and the root scripts.
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
@@ -188,7 +205,10 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - guidelines
   
   All of it ships in the EPRA theme package, and the EPRA code is deleted from core.
-- P3.5 **Permissions:** replace the login-only `guarded()` with per-object permission checks in every write tool. Add one PHPUnit test per tool for the "denied" case.
+- P3.5 **Permissions:** replace the login-only `guarded()` with per-object permission checks in every write tool. Add one PHPUnit test per tool for the "denied" case. Also:
+  - `get_user` and the people tools return only the fields the request needs (B-PII-2).
+  - `move_file_to_folder`, when used for a delete request, can only target "Assistant – to delete" (B-T1-11).
+  - Remove `set_user_attribute_value` (disabled in P1.7).
 - P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change.
 - P3.7 **Cut the prompt down** to identity, tier and how to use context, under about 60 lines. Each rule it currently holds becomes a tool check or a scenario.
 - P3.8 **Provider adapter:** pick the provider and model from settings, with current Anthropic and OpenAI model choices. Use the cost-efficient model for routing and the stronger model for writes.
@@ -197,6 +217,8 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - framework JSON responses in the controllers
   - a loop guard
   - a PSR-14 logging listener
+  - chat retention: 90 days by default, configurable, plus an admin purge (B-PII-5)
+  - errors sent to the browser are reduced to a safe message, with the detail logged (B-ERR-4)
 - P3.10 **Extension model (see `EXTENSIONS.md`):**
   1. the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface
   2. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing

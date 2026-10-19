@@ -4,8 +4,8 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.1 (behaviour spec; on branch `task/P1.1-behaviour-spec`, not yet pushed or merged). Before that, Phase 0 (P0.1–P0.7).
-- **Next open:** P1.2 (golden scenarios). P1.7 (chat endpoint security fix) is proposed and, once added to the plan, must be done before Neuron is installed on any non-dev site.
+- **Last completed:** P1.1 (behaviour spec, PR #6). Before that, Phase 0 (P0.1–P0.7).
+- **Next open:** P1.2 (golden scenarios). P1.7 (chat endpoint security fix) is now in the plan. It can be done any time in Phase 1 and must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** not recorded yet (P1.5)
 
 ## Decisions
@@ -18,6 +18,17 @@ Record decisions that change the plan or design, with the date and who made them
   - planned deletions are covered by plan approval
   - mechanical conversions are covered by a registry test (Glyn)
 - 2026-10-19: Neuron isn't in use on EPRA for now. P5.4's pilot client is generalised to EPRA or a Katalysis-hosted site (Glyn).
+- 2026-10-19: Behaviour decisions 1–14, recorded in full in `BEHAVIOUR_SPEC.md` §10 (Glyn). In summary:
+  - **Files:** never deleted; moved to "Assistant – to delete" for a person to review.
+  - **Tiers:** cumulative, mapped to Concrete groups; superusers get Tier 3.
+  - **Read-only areas:** accounts, groups and permissions are read-only at every tier.
+  - **Tier 2 areas:** attribute definitions and topic trees.
+  - **Tier 2 deletes:** no deleting Express objects or attributes that hold data.
+  - **Language:** replies in the user's language; site content follows the locale.
+  - **Chat history:** 90-day retention.
+  - **Guests:** no access.
+  - **Security:** the P1.7 fix is required before any non-dev install.
+  - **Scenario runner:** runs in-process.
 
 ## Entry template
 ```
@@ -34,7 +45,7 @@ Record decisions that change the plan or design, with the date and who made them
 (newest first)
 
 ### 2026-10-19: P1.1 Behaviour spec
-- Branch / PR: `task/P1.1-behaviour-spec` (not pushed; no PR yet)
+- Branch / PR: `task/P1.1-behaviour-spec` (PR #6, merged)
 - Done:
   - Added `documentation/BEHAVIOUR_SPEC.md` (v2): what the assistant must do, must ask about and must refuse, with 80 rule IDs (`B-ACC-*`, `B-TRU-*`, `B-INJ-*`, `B-CON-*`, `B-T1-*` and so on). Each rule has a "Today" status (Met, Partly, Not met → task, Not verified) from reading the code, with links to the files.
   - Sections: who can use the assistant; rules for every tier (honesty and prompt injection first, then scope, context, confirmation, writes and reporting, errors, personal data, secrets, language); Tiers 1–4; a map from the 15 P1.2 scenarios to rule IDs; where each rule now in `instructions()` lands (for P3.7); decisions and open questions.
