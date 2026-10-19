@@ -109,12 +109,12 @@ Neuron 4 ships an `upgrade/` folder with a step-by-step plan written for AI codi
 
 Sizes: S = up to 2 days, M = about a week, L = 2–3 weeks of focused work. Phases 4 (theme) and 1b (EPRA app kit) can run alongside the others.
 
-### Phase 0: Make it safe to change anything (S, started: P0.1 and P0.2 done)
+### Phase 0: Make it safe to change anything (S, P0.1–P0.5 done; P0.6 and P0.7 open)
 - [x] P0.1 Commit all the work on `development`
 - [x] P0.2 Set up the local dev site (`katalysis_pro_theme`, Concrete 9.5.5)
-- [ ] P0.3 Protect `main` on GitHub (PRs only), and make `development` the integration branch
-- [ ] P0.4 Clean up `.gitignore` (`.DS_Store`, local scripts) and remove the committed `.DS_Store` files
-- [ ] P0.5 Move the analysis `.md` files from the package root into `documentation/archive/`
+- [x] P0.3 Protect `main` on GitHub (PRs only), and make `development` the integration branch
+- [x] P0.4 Clean up `.gitignore` (`.DS_Store`, `.claude/settings.local.json`). No `.DS_Store` files were tracked, so there was nothing to remove.
+- [x] P0.5 Move the analysis `.md` files from the package root into `documentation/archive/`
 - [ ] P0.6 Seed the dev site with test content:
   - pages with Content blocks and h2/h3/bold-paragraph headings
   - a container block with nested blocks
