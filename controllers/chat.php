@@ -38,6 +38,7 @@ class Chat extends AbstractController
         return Application::getFacadeApplication()->make(ResponseFactory::class)->json([
             'success' => false,
             'error' => $error,
+            'code' => $error === ChatAccess::TOKEN_ERROR ? ChatAccess::TOKEN_ERROR_CODE : 'access_denied',
         ], 403);
     }
 

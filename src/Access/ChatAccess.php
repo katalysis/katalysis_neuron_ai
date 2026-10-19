@@ -27,6 +27,12 @@ final class ChatAccess
     /** Request header the panel sends the token in. */
     public const TOKEN_HEADER = 'X-Neuron-Token';
 
+    public const ACCESS_DENIED_ERROR = 'Access denied.';
+    public const TOKEN_ERROR = 'Invalid or missing security token. Please reload the page and try again.';
+
+    /** The `code` field of a 403 response caused by a missing, invalid or expired token; the panel keys its message on it. */
+    public const TOKEN_ERROR_CODE = 'invalid_token';
+
     /**
      * A registered user who can view the Neuron AI settings page. If that page
      * doesn't exist, only the super user.
@@ -55,11 +61,11 @@ final class ChatAccess
     public static function refusalReason(bool $isStateChanging, ?string $token): ?string
     {
         if (!self::canUse()) {
-            return 'Access denied.';
+            return self::ACCESS_DENIED_ERROR;
         }
 
         if ($isStateChanging && !self::isValidToken($token)) {
-            return 'Invalid or missing security token. Please reload the page and try again.';
+            return self::TOKEN_ERROR;
         }
 
         return null;

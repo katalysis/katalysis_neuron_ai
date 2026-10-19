@@ -148,6 +148,7 @@ final class ChatAccessTest extends ConcreteTestCase
         $this->assertSame(403, $status);
         $this->assertFalse($body['success']);
         $this->assertSame('Access denied.', $body['error']);
+        $this->assertSame('access_denied', $body['code'], 'A missing right is not an expired token.');
     }
 
     /**
@@ -189,6 +190,8 @@ final class ChatAccessTest extends ConcreteTestCase
             $this->assertSame(403, $status, "{$action} ({$kind})");
             $this->assertFalse($body['success'] ?? null, "{$action} ({$kind})");
             $this->assertStringContainsString('token', (string) ($body['error'] ?? ''), "{$action} ({$kind})");
+            // The panel keys its "session expired" message on this code.
+            $this->assertSame(ChatAccess::TOKEN_ERROR_CODE, $body['code'] ?? null, "{$action} ({$kind})");
         }
     }
 
