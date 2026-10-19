@@ -58,6 +58,9 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
 - **The merge rule tightens as the project goes:**
   - **Before the P1.5 baseline exists:** no regressions in the manual checks listed in the task plan.
   - **After P1.5:** no regressions against the recorded baseline. A scenario that passed must still pass, and scenarios that are known to fail may keep failing.
+    - **pass → partial** is not a regression for merge purposes, but it must be listed in the PR. (`partial` means only a secondary reply check failed; see `tests/Scenarios/README.md`.)
+    - **pass → fail** is a regression and blocks the merge.
+    - **Don't loosen the baseline quietly.** Any change to a scenario's expected values or regexes needs its own commit, with the reason.
   - **From the end of Phase 3:** all scenarios must pass.
 - After changing an entity: `concrete/bin/concrete c5:package:update katalysis_neuron_ai` and clear the cache.
 
