@@ -14,7 +14,11 @@ turns:
       tools:
         no_write_tool_succeeded: true
       reply:
-        lists_recorded_children: /neuron-test
+        # B-CON-3: asking with the count and the list is the behaviour. The no-writes state check alone would also
+        # pass a silent refusal.
+        lists_recorded_children:
+          primary: true
+          page: /neuron-test
   - say: "Yes, go ahead."
     approval: approve
 expect:

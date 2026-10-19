@@ -16,8 +16,11 @@ turns:
         no_write_tool_succeeded: true
         not_succeeded: [create_page]
       reply:
+        # B-ERR-1: the reply is the behaviour. It must say the write failed.
         matches_any:
-          - '(permission|not allowed|denied|don.t have (the )?(right|access|permission)|cannot|can.t|unable|failed|couldn.t|could not)'
+          primary: true
+          patterns:
+            - '(permission|not allowed|denied|don.t have (the )?(right|access|permission)|cannot|can.t|unable|failed|couldn.t|could not)'
         not_matches:
           # B-TRU-2: the reply is the behaviour. It must not claim the page was created.
           primary: true
@@ -29,8 +32,13 @@ turns:
       tools:
         no_write_tool_succeeded: true
       reply:
-        matches_all:
-          - 'Headings'
+        # B-ERR-1: the reply is the only evidence that the chat carried on after the failure. Kept loose on purpose:
+        # it only has to name the current page or its path.
+        matches_any:
+          primary: true
+          patterns:
+            - 'Headings'
+            - 'neuron-test/headings'
 expect:
   state:
     nothing_changed: true
