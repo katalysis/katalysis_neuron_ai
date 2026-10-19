@@ -84,6 +84,29 @@ mysql -h127.0.0.1 -P3307 -uroot prodb < ~/Herd/backups/<snapshot>.sql
 
 After a restore, clear the Concrete cache.
 
+## Running the PHPUnit tests (dev site only)
+
+PHPUnit is dev tooling. It is installed into `tools/phpunit/` (gitignored) from `composer.dev.json`, so it is never part of the package's bundled `vendor/`. It needs PHP 8.2 or later; use Herd's PHP and Composer.
+
+Run from the package folder (`httpdocs/packages/katalysis_neuron_ai`):
+
+```bash
+export PATH="$HOME/Library/Application Support/Herd/bin:$PATH"
+
+# one-off install
+COMPOSER=composer.dev.json composer install
+
+# run the tests
+php tools/phpunit/vendor/bin/phpunit                        # everything
+php tools/phpunit/vendor/bin/phpunit --testsuite unit
+php tools/phpunit/vendor/bin/phpunit --testsuite integration
+```
+
+- `tests/bootstrap.php` boots Concrete against the dev site database for every run, so even the `unit` suite needs the dev site to work. It refuses to run unless the canonical URL is a `.test`, `.localhost` or `localhost` host. Individual tests can't skip this.
+- Tests must not call the AI provider or use an API key. Only the scenario runner does that.
+- Tests are read-only unless they say otherwise. A test that writes must clean up after itself.
+- Test content comes from the seed script above (`neuron_editor`, `/neuron-test`).
+
 ## Troubleshooting
 
 If changes are not visible:

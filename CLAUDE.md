@@ -53,7 +53,8 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
 9. **Don't touch secrets:** API keys live in Concrete config (`katalysis.ai.*`) and must never be logged or returned to the frontend.
 
 ## Testing
-- PHPUnit tool tests: `vendor/bin/phpunit` (set up in Phase 1).
+- PHPUnit tests: `php tools/phpunit/vendor/bin/phpunit`, run from the package folder with Herd's PHP (install and options in `documentation/SETUP.md`). Suites: `unit` and `integration`. It boots Concrete against the dev site database, and the bootstrap refuses to run on a non-dev host.
+- **No test may call the AI provider or use an API key.** Only the scenario runner (`neuron:eval`) does that.
 - Behaviour scenarios: `concrete/bin/concrete neuron:eval` against the dev site (Phase 1).
 - **The merge rule tightens as the project goes:**
   - **Before the P1.5 baseline exists:** no regressions in the manual checks listed in the task plan.

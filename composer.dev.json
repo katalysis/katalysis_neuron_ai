@@ -1,0 +1,13 @@
+{
+    "name": "katalysis/katalysis_neuron_ai-dev",
+    "description": "Dev-only tooling for the Katalysis Neuron AI package tests. Never shipped; installs into tools/phpunit/ (gitignored). Use with COMPOSER=composer.dev.json.",
+    "type": "project",
+    "require": {
+        "php": "^8.2",
+        "phpunit/phpunit": "^11.0"
+    },
+    "config": {
+        "vendor-dir": "tools/phpunit/vendor",
+        "sort-packages": true
+    }
+}
