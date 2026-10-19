@@ -511,6 +511,43 @@ final class DraftIsolationTest extends ConcreteTestCase
         $this->assertSame($beforeCounts, $this->blockCounts(), 'No stray blocks or block data are left behind');
     }
 
+    // ---- update_page -------------------------------------------------------
+
+    public function testUpdatePageRefusesAPageTypeChangeAndLeavesTheLivePageAlone(): void
+    {
+        $cID = $this->newHeadingsPage();
+        // Any other page type that exists will do: the tool must refuse before it looks at the page.
+        $otherType = PageType::getByHandle('core_desktop') ? 'core_desktop' : null;
+        if ($otherType === null) {
+            $this->markTestSkipped('The site has no second page type to try');
+        }
+        $typeBefore = $this->db()->fetchOne('SELECT ptID FROM Pages WHERE cID = ?', [$cID]);
+        $versionsBefore = $this->versions($cID);
+
+        try {
+            $this->callPagesTool('update_page', ['pageID' => $cID, 'pageType' => $otherType]);
+            $this->fail('A page type change should be refused');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('page type', $e->getMessage());
+            $this->assertStringContainsString('person', $e->getMessage());
+        }
+
+        $this->assertEquals($typeBefore, $this->db()->fetchOne('SELECT ptID FROM Pages WHERE cID = ?', [$cID]), 'The live page type is unchanged');
+        $this->assertSame($versionsBefore, $this->versions($cID), 'A refused change makes no draft');
+    }
+
+    public function testUpdatePageRenamesInADraftAndAcceptsTheCurrentPageType(): void
+    {
+        $cID = $this->newHeadingsPage();
+        $nameBefore = (string) $this->db()->fetchOne('SELECT cvName FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1', [$cID]);
+
+        $this->callPagesTool('update_page', ['pageID' => $cID, 'name' => 'Renamed in a draft', 'pageType' => 'page']);
+
+        $this->assertSame($nameBefore, (string) $this->db()->fetchOne('SELECT cvName FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1', [$cID]), 'The live name is unchanged');
+        $this->assertCount(2, $this->versions($cID), 'The rename is in one draft');
+        $this->assertSame('Renamed in a draft', (string) $this->db()->fetchOne('SELECT cvName FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 0', [$cID]));
+    }
+
     public function testNestedColumnBlocksAreCopiedIntoTheDraftToo(): void
     {
         $cID = $this->newColumnsPage();

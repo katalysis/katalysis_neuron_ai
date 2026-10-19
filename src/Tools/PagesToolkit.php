@@ -1924,7 +1924,8 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'pageType',
             PropertyType::STRING,
-            'New page type handle',
+            'Not supported: a page type can only be changed by a person in the CMS. A different value is refused; the page'
+            . ' type the page already has is accepted and ignored.',
             false
         ));
 
@@ -1965,12 +1966,13 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}");
             }
 
-            $targetType = null;
-            if ($pageType !== null) {
-                $targetType = PageType::getByHandle($pageType);
-                if (!$targetType) {
-                    throw new \RuntimeException("Page type '{$pageType}' not found");
-                }
+            // Page::update() writes the page type (Pages.ptID) straight to the live page: it isn't
+            // part of a page version, so it can't go to a draft or be undone with version history.
+            if ($pageType !== null && trim($pageType) !== '' && trim($pageType) !== (string) $page->getPageTypeHandle()) {
+                throw new \RuntimeException(
+                    "Changing a page's type isn't possible with this assistant: the change would be live at once and "
+                    . 'could not be undone from the page versions. A person must change the page type in the CMS.'
+                );
             }
 
             $targetTemplate = null;
@@ -1989,9 +1991,6 @@ class PagesToolkit extends AbstractToolkit
             }
             if ($description !== null) {
                 $data['cDescription'] = $description;
-            }
-            if ($targetType) {
-                $data['ptID'] = $targetType->getPageTypeID();
             }
             if ($targetTemplate) {
                 $data['pTemplateID'] = $targetTemplate->getPageTemplateID();
