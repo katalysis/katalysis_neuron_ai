@@ -24,7 +24,7 @@ Maintain and harden the Concrete CMS dashboard AI assistant now that core chat, 
 
 ### Tool implementation policy (authoritative)
 - Default rule: when a built-in Concrete API endpoint exists, implement the toolkit tool so behavior aligns with that endpoint's core execution path (permissions, versioning, validation, side effects, and response semantics), even when invoked natively.
-- Access-control rule: chatbot capability is permission-scoped to the active Concrete user context (including guest context), and every tool action must enforce native Concrete permission checks; no toolkit implementation may bypass those checks.
+- Access-control rule: chatbot capability is permission-scoped to the active Concrete user. The assistant isn't available to guests; it requires a logged-in user who can view the Neuron AI settings page, and every tool action must enforce native Concrete permission checks; no toolkit implementation may bypass those checks. (Policy change approved by Glyn, 19 October 2026; see `BEHAVIOUR_SPEC.md` B-ACC-1. The code doesn't enforce this on the chat endpoints yet; that is proposed task P1.7.)
 - Preferred architecture: native invocation of the same underlying core logic used by API/controllers, rather than introducing HTTP overhead inside the package.
 - Custom-only tools are allowed only when:
   - no suitable built-in API endpoint exists, or

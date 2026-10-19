@@ -3,9 +3,9 @@
 Claude Code updates **Current position** and adds a **Log** entry at the end of every task (`/finish-task`). Review notes from Cowork are added under the entry they refer to. Only Glyn or Alex add to **Decisions**, usually after a design review in Cowork.
 
 ## Current position
-- **Phase:** 0
-- **Last completed:** Phase 0 (P0.1–P0.7). P0.3 was done by Glyn on GitHub. P0.7 was done in Cowork.
-- **Next open:** P1.1 (behaviour spec).
+- **Phase:** 1
+- **Last completed:** P1.1 (behaviour spec; on branch `task/P1.1-behaviour-spec`, not yet pushed or merged). Before that, Phase 0 (P0.1–P0.7).
+- **Next open:** P1.2 (golden scenarios). P1.7 (chat endpoint security fix) is proposed and, once added to the plan, must be done before Neuron is installed on any non-dev site.
 - **Scenario baseline:** not recorded yet (P1.5)
 
 ## Decisions
@@ -32,6 +32,34 @@ Record decisions that change the plan or design, with the date and who made them
 
 ## Log
 (newest first)
+
+### 2026-10-19: P1.1 Behaviour spec
+- Branch / PR: `task/P1.1-behaviour-spec` (not pushed; no PR yet)
+- Done:
+  - Added `documentation/BEHAVIOUR_SPEC.md` (v2): what the assistant must do, must ask about and must refuse, with 80 rule IDs (`B-ACC-*`, `B-TRU-*`, `B-INJ-*`, `B-CON-*`, `B-T1-*` and so on). Each rule has a "Today" status (Met, Partly, Not met → task, Not verified) from reading the code, with links to the files.
+  - Sections: who can use the assistant; rules for every tier (honesty and prompt injection first, then scope, context, confirmation, writes and reporting, errors, personal data, secrets, language); Tiers 1–4; a map from the 15 P1.2 scenarios to rule IDs; where each rule now in `instructions()` lands (for P3.7); decisions and open questions.
+  - Applied Glyn's decisions from the first review: files are never deleted (moved to "Assistant – to delete"); tiers map to Concrete groups (P3.2); attribute definitions are Tier 2; user accounts, groups and permissions are read-only; file upload is Tier 1; Tier 2 delete rule; reply language; chat retention (90 days); the confirmation rules (more than one page always; more than 10 blocks on one page, adjustable).
+  - Changed the guest-context wording in the access-control rule of `KATALYSIS_NEURON_AI_PLAN.md`, as approved by Glyn.
+- Not done / left for later:
+  - No code changed. The spec describes target behaviour; none of the "Not met" items are fixed here.
+  - Nothing was run. "Today" is a reading of the code, not a measurement. P1.5 replaces it with baseline results.
+  - The chat endpoints weren't tested over HTTP.
+- Checks: PHPUnit and scenarios not applicable (docs only; neither exists yet). Manual: every `../` link in the spec resolves to an existing file; each of the 15 scenarios maps to at least one rule; the file and line references were read at the time of writing.
+- Findings worth knowing:
+  - **Security gap (B-ACC-1).** The chat routes have no access check; only the panel is hidden. Any logged-in user (including a front-end member) can call them, and a guest can wherever a tool has no login check. The Files tools' `guarded()` has none. The individual file tools do check Concrete permissions on the object (`delete_file` checks `canDeleteFile`), so the exposure varies by tool, but `delete_file` is permanent. `runtime_smoke_test.sh` has guest checks that expect `send_message` to succeed.
+  - Chat list, load and delete are limited to the owner's user ID, but all guests share ID 0.
+  - `set_user_attribute_value` changes data on a user account, which breaks the rule that accounts are read-only (B-ACC-7).
+  - The prompt rules at `ConcreteCmsAgent.php` L151 and L168 push the model to act without confirming. They don't forbid confirmation, but nothing asks for it. Marked "Not met → P3.7".
+  - `neuron_editor` very likely fails today's settings-page check (it gets 403 on `/dashboard/system`; not tested), so scenario 11 can't be run over HTTP as that user once P1.7 applies the check to the endpoints. The P1.4 runner should run the agent in-process as the user.
+- Plan changes proposed (for Glyn to add; I haven't edited `DELIVERY_PLAN.md`):
+  - **P1.7 Security fix.** The chat endpoints apply the same access check as the panel, and `delete_file` and `set_user_attribute_value` are disabled. The guest checks in `runtime_smoke_test.sh` change to expect a refusal. Required before Neuron is installed on any non-dev site.
+  - **P1.1** ticked, with a pointer to `BEHAVIOUR_SPEC.md`.
+  - **P1.4:** the runner runs the agent in-process as the user, not over HTTP (decision 14).
+  - **P3.2:** tier assignment by Concrete groups ("Neuron AI – Content", "Neuron AI – Configure", "Neuron AI – Generate") chosen in the Neuron settings; superusers get Tier 3; users in none can't use the assistant; tiers are cumulative; topic tree and attribute definition tools are Tier 2 (B-ACC-9, B-T2-6). Add `neuron_editor` to the Content group in the seed.
+  - **P3.5:** include `get_user` returning only the fields the request needs (B-PII-2), and restricting `move_file_to_folder` so a move requested as a delete can only go to "Assistant – to delete" (B-T1-11).
+  - **P3.9:** chat retention (90-day default, configurable in settings, admin purge; B-PII-5), and reducing error text sent to the browser to a safe message with the detail logged (B-ERR-4).
+  - **Decisions** (Glyn adds to the Decisions list; I haven't): decisions 1–14 recorded in §10 of the spec.
+- Questions for review: one open question remains in §10 of the spec (where the bulk-limit setting lives, a P3 design detail). It doesn't block anything.
 
 ### 2026-10-19: P0.7 EPRA working copy check (done in Cowork)
 - Done: diffed the EPRA site's package copy (`main` plus its uncommitted changes) against `f218349` on `development`. They're identical: 766 files each, `diff -rq` is clean, and the `PagesToolkit.php` checksums match. Nothing exists only in the EPRA copy.
