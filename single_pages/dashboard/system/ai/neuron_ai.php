@@ -23,6 +23,9 @@ $form = $app->make('helper/form');
 // API keys are never rendered (B-SEC-1): only whether each is set. The input is always
 // empty; a blank save keeps the key, a new value replaces it, "Remove key" clears it.
 $keyStatus = isset($key_status) && is_array($key_status) ? $key_status : [];
+// A user who can only view the page sees the settings but can't change them. The server refuses a save from
+// them whatever the form says; this only keeps the form honest.
+$canEdit = !empty($can_edit);
 $renderKeyField = static function (string $field, string $label) use ($keyStatus): void {
     $isSet = !empty($keyStatus[$field]);
     ?>
@@ -44,11 +47,17 @@ $renderKeyField = static function (string $field, string $label) use ($keyStatus
 ?>
 
 <form method="post" enctype="multipart/form-data" action="<?= $controller->action('save') ?>">
-    <?php $token->output('ai.settings'); ?>
+    <?php if ($canEdit) { ?>
+        <?php $token->output('ai.settings'); ?>
+    <?php } else { ?>
+        <div class="alert alert-info">
+            <?= t('You can see these settings but not change them. Changing them needs edit permission on this page.') ?>
+        </div>
+    <?php } ?>
     <div id="ccm-dashboard-content-inner">
         <div class="row justify-content-between mb-5">
             <div class="col">
-                <fieldset class="mb-5">
+                <fieldset class="mb-5"<?= $canEdit ? '' : ' disabled' ?>>
                     <legend><?php echo t('Basic Settings'); ?></legend>
                     <div class="row">
                         <div class="col">
@@ -86,15 +95,17 @@ $renderKeyField = static function (string $field, string $label) use ($keyStatus
         </div>
     </div>
     
-    <div class="ccm-dashboard-form-actions-wrapper">
-        <div class="ccm-dashboard-form-actions">
-            <div class="float-end">
-                <button type="submit" class="btn btn-primary">
-                    <i class="fa fa-save" aria-hidden="true"></i> <?php echo t('Save'); ?>
-                </button>
+    <?php if ($canEdit) { ?>
+        <div class="ccm-dashboard-form-actions-wrapper">
+            <div class="ccm-dashboard-form-actions">
+                <div class="float-end">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fa fa-save" aria-hidden="true"></i> <?php echo t('Save'); ?>
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
+    <?php } ?>
 </form>
 
 

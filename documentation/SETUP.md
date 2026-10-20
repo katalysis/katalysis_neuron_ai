@@ -24,6 +24,7 @@ Set at least the OpenAI key in package settings:
 
 - Dashboard -> System -> AI -> Neuron AI Settings
 
+Anyone who can view that page can use the chat (B-ACC-1), but saving the settings needs the **Edit Page Properties** permission on the page. On a new site only the super user has it: the Administrators group can view the page and not change it. To let another user or group save the settings, grant that permission on the settings page (the page's permissions override the Dashboard's). Users without it see the settings ("Key set" or "Not set") with the form disabled.
 ## Verify routes
 
 The package should register:

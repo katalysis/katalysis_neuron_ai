@@ -7,6 +7,7 @@ namespace Katalysis\NeuronAi\Tests\Integration;
 use Concrete\Core\Config\Repository\Repository;
 use Concrete\Core\Http\Request;
 use Concrete\Core\Page\Page;
+use Concrete\Core\User\UserInfoRepository;
 use Concrete\Package\KatalysisNeuronAi\Controller\SinglePage\Dashboard\System\Ai\NeuronAi;
 use Katalysis\NeuronAi\Settings\ApiKeySettings;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
@@ -39,12 +40,19 @@ final class ApiKeySettingsTest extends ConcreteTestCase
     {
         InMemoryConfig::reset();
         $this->config = InMemoryConfig::repository();
+
+        // Saving the settings needs edit permission on the page (P1.7b), which the super user has.
+        // SettingsSavePermissionTest covers the users who don't.
+        $info = $this->app()->make(UserInfoRepository::class)->getByID(USER_SUPER_ID);
+        $this->assertNotNull($info);
+        Request::getInstance()->setCustomRequestUser($info);
     }
 
     protected function tearDown(): void
     {
         InMemoryConfig::reset();
         Request::getInstance()->request->replace([]);
+        Request::getInstance()->setCustomRequestUser(-1);
     }
 
     private function settings(): ApiKeySettings
