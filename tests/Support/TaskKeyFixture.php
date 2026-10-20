@@ -52,6 +52,10 @@ final class TaskKeyFixture
             'uPassword' => bin2hex(random_bytes(12)),
             'uIsValidated' => 1,
         ]);
+        // RegistrationService::create() builds the user's sign-up record but never sets it on the user, so the
+        // in-memory user has no sign-up and UserInfo::delete() cannot remove it (it fails on the sign-up
+        // foreign key, or leaves the sign-up's notification behind). Reading the user again loads the sign-up.
+        $this->app->make(EntityManagerInterface::class)->refresh($info->getEntityObject());
         $this->users[] = $info;
 
         return $info;
@@ -119,17 +123,10 @@ final class TaskKeyFixture
         }
         $this->keys = [];
 
-        // In these tests UserInfo::delete() fails on the foreign key from the user's sign-up record (the record is not
-        // in Doctrine's unit of work by then), so the record goes first, by SQL.
         foreach ($this->users as $info) {
-            $uID = (int) $info->getUserID();
-            $this->db->executeStatement('DELETE FROM UserSignupNotifications WHERE usID IN (SELECT usID FROM UserSignups WHERE uID = ?)', [$uID]);
-            $this->db->executeStatement('DELETE FROM UserSignups WHERE uID = ?', [$uID]);
             $info->delete();
         }
         $this->users = [];
-        // The sign-up records removed above may still be managed: drop them so no later flush tries to write them.
-        $this->app->make(EntityManagerInterface::class)->clear();
 
         foreach ($this->groups as $group) {
             $peID = (int) $this->db->fetchOne('SELECT peID FROM PermissionAccessEntityGroups WHERE gID = ?', [$group->getGroupID()]);
@@ -149,8 +146,7 @@ final class TaskKeyFixture
      */
     public function deleteAccess(int $paID): void
     {
-        $this->db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
-        $this->db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
+        PermissionCleanup::deleteAccess($this->db, $paID);
     }
 
     /** Permission answers are cached for the request. */
