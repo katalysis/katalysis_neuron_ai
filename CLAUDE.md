@@ -43,7 +43,7 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
    - **New tools, or tools whose behaviour changes:** need their own PHPUnit test in the same PR.
    - **Mechanical conversions** (e.g. P2.3, converting all 112 tools to `CallableTool`): covered by one registry test that checks every tool registers with a valid name, description and schema, plus the scenarios. Individual tests aren't needed.
    - **Permission-denied tests for existing tools:** come in P3.5.
-5. **Put behavioural rules in code, not in `instructions()`.** If the model keeps getting something wrong, fix the tool or add a check and a scenario. Don't add another prompt rule.
+5. **Put behavioural rules in code, not in `instructions()`.** If the model keeps getting something wrong, fix the tool or add a check and a scenario. Don't add another prompt rule. Exception: the trust-boundary rule in `instructions()`, see `plans/P1.11.md`.
 6. **No client-specific code in this package** (e.g. EPRA block handles). It belongs in a separate package that registers through `ExternalToolkitRegistry`.
 7. **Writes must be undoable:** edit a new page version and never publish silently. Keep the text-integrity checks (checksums, `formatting_only` / `scoped_text`) when editing content tools.
 8. **Don't edit `vendor/`.** Dependencies are bundled. Changes to them go through composer and a deliberate dependency update.
