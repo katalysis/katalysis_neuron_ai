@@ -20,7 +20,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
  * or needs an API key. The "allowed" path is checked through ChatAccess only,
  * because calling send_message as an allowed user would call the provider.
  *
- * Needs the seeded dev site: the non-admin user `neuron_editor` (seed_test_content.php).
+ * Needs the seeded dev site: the non-admin user `neuron_editor` (seed_test_content.php), who is in no group and so
+ * does not hold the "Use Neuron AI assistant" task permission.
  */
 final class ChatAccessTest extends ConcreteTestCase
 {
@@ -56,6 +57,8 @@ final class ChatAccessTest extends ConcreteTestCase
         $info = $who === 'superuser' ? $repository->getByID(USER_SUPER_ID) : $repository->getByUserName($who);
         $this->assertNotNull($info, "The user \"{$who}\" does not exist. Run the seed script first.");
         Request::getInstance()->setCustomRequestUser($info);
+        // Permission answers are cached for the request.
+        $this->app()->make('cache/request')->flush();
     }
 
     private function sendToken(?string $token): void
