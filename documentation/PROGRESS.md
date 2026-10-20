@@ -4,8 +4,8 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.7a (API keys never reach the browser: settings page, save rules, `SecretRedactor`; PR #18), P1.9 (page context across navigation: per-turn agent in the runner, cache reset, page tag on every user message, scenarios 19 and 20; PR #17), P1.8a (PR #16), P1.8 (draft edits no longer change live content, PR #15), P1.7 (security fix: endpoint access check, CSRF token, three tools disabled, PR #14), P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
-- **Next open:** P1.10 (`get_page_content` works under the CLI; P1.9 found it does not share P1.9's root cause). It starts in a fresh session, with a plan for review before any code. Its first step is the `neuron_chat_editor` browser test user; the settings-page check is answered (P1.7a). P1.7, P1.7a, P1.8 and P1.8a must be done before Neuron is installed on any non-dev site. Open follow-ups: remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines (separate PR in that repo); P3.3 now includes explicit input-field descriptions.
+- **Last completed:** P1.7b (settings changes need Edit Page Properties on the settings page; PR pending), P1.7a (API keys never reach the browser: settings page, save rules, `SecretRedactor`; PR #18), P1.9 (page context across navigation: per-turn agent in the runner, cache reset, page tag on every user message, scenarios 19 and 20; PR #17), P1.8a (PR #16), P1.8 (draft edits no longer change live content, PR #15), P1.7 (security fix: endpoint access check, CSRF token, three tools disabled, PR #14), P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Next open:** P1.10 (`get_page_content` works under the CLI; P1.9 found it does not share P1.9's root cause). The approved plan is in `documentation/plans/P1.10.md`; P1.10 starts in a fresh session from that file, after P1.7b is merged. Its first step is the `neuron_chat_editor` browser test user; the settings-page check is answered (P1.7a, P1.7b). P1.7, P1.7a, P1.7b, P1.8 and P1.8a must be done before Neuron is installed on any non-dev site. Open follow-ups: remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines (separate PR in that repo); P3.3 now includes explicit input-field descriptions.
 - **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26), **with one amendment (P1.5a, appended at the end of each file, so read it before comparing).** Majority labels: 6 pass (01, 02, 07, 12, 13, 15), 4 partial (03, 08, 10, 11), 8 fail (04, 05, 06, 09, 14, 16, 17, 18). Unstable: 07 (2 of 3), 11, 12, 16 (a comparison run uses `--repeat=5`).
 
 ## Decisions
@@ -43,6 +43,26 @@ Record decisions that change the plan or design, with the date and who made them
 
 ## Log
 (newest first)
+
+### 2026-10-20: P1.7b Settings changes need edit permission
+- Branch / PR: `task/P1.7b-settings-save-permission`, PR number added when opened. Commits: `18d9356` (`PLAN:` adds P1.7b), `1e48e09` (the fix), `400cec0` (positive-path test), `54f38ec` (`PLAN:` saves the P1.10 plan).
+- Done:
+  - **Fix:** `save()` in the settings controller now requires Edit Page Properties on the settings page as well as the CSRF token. If either is missing it adds an error, re-renders the page and saves nothing. The view hides the token and the Save button and disables the form for users without that permission. View-only users still see "Key set" / "Not set" and the last-four hint rules from P1.7a.
+  - **Default:** only the super user can save. Administrators hold only View Page on `/dashboard`, so they can't. [SETUP.md](SETUP.md) says how to grant it.
+  - **Tests, no provider calls:** `SettingsSavePermissionTest` (10 cases): admin saves; view-only, `neuron_editor` and guest are refused with nothing changed; missing and invalid token refused; the view-only and admin form renders; and a non-super user granted `edit_page_properties` can save. The grant is made inside the test and removed afterwards. Before/after snapshots of the permission rows for cID 439 (and its parent and `/dashboard`), global permission table counts and orphan counts are identical, the page inherits from `/dashboard` (PARENT, from cID 2) with 0 own assignments, and no test users are left.
+  - **Mutation checks (temporary, reverted):** `canEditSettings()` returning true failed 4 tests. Skipping the entity-row delete in the cleanup failed the snapshot comparison (one leaked `PermissionAccessEntities` row, removed by hand; the count is back to 13).
+  - **P1.10 plan saved:** [plans/P1.10.md](plans/P1.10.md), with a pointer in DELIVERY_PLAN's P1.10 entry.
+- Not done / left for later:
+  - A dedicated "change settings" permission is P3.2's job. This uses `edit_page_properties` as the stop-gap.
+  - Scenario runs: **not run.** Only the settings controller and view changed; no tool, prompt or agent code did.
+  - Not checked in a browser: how the disabled form and the info alert look.
+- Checks: PHPUnit 223 tests, 1383 assertions, OK (222 before the positive-path test). Scenarios not run (see above). DB after the runs: 0 `p17b` users, cID 439 inherits PARENT from cID 2 with 0 own assignments, 13 permission entities (as before).
+- Plan changes proposed:
+  - The `PLAN:` commits `18d9356` (P1.7b entry, exit criteria, "required before any non-dev install" list, P3.2 bullet) and `54f38ec` (P1.10 plan file and pointer) are on this branch for your review with the PR. Both were approved in chat.
+  - Tick P1.7b with the PR number after the merge (`PLAN:` commit on `development`).
+- Questions for review:
+  - Is `edit_page_properties` still the right stop-gap until P3.2? Approved in chat; recorded here for the PR.
+  - Extra behaviour change: a refused save now re-renders the page with the error instead of redirecting.
 
 ### 2026-10-20: P1.7a API keys never reach the browser
 - Branch / PR: `task/P1.7a-api-keys-not-in-browser`, PR #18. Commits: `4772a75` (`PLAN:` add P1.7a, already on `development`), `b6f5dc8` (settings page and save rules), `516d485` (`SecretRedactor` and where it is applied), `3a1b57a` (tests), `f319488` (`PLAN:` follow-ups), and this PROGRESS commit.
