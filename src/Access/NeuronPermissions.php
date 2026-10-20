@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Access;
 
-use Concrete\Core\Package\Package;
+use Concrete\Core\Entity\Package;
 use Concrete\Core\Permission\Access\Access;
 use Concrete\Core\Permission\Access\Entity\GroupEntity;
 use Concrete\Core\Permission\Key\Key;
@@ -30,6 +30,8 @@ final class NeuronPermissions
      * so running this again (every package upgrade does) never changes what an admin has chosen.
      *
      * Defaults: Administrators can use the assistant; nobody but the super user can configure it.
+     *
+     * @param Package $pkg the installed package entity (what Package::getByHandle() and the package controller's install() give)
      *
      * @return string[] the handles of the keys that were added
      */
