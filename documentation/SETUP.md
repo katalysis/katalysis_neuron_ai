@@ -42,7 +42,7 @@ The package should register:
 
 ## Quick validation checklist
 
-- Open any dashboard page and confirm chat panel is visible
+- Open any dashboard page as an administrator and confirm the chat panel can be opened from the toolbar button. The panel is sent only on pages where Concrete shows the user the toolbar, so a user with the use key who has no toolbar on a page (for example the home page, for an editor who cannot edit it) has no panel there.
 - Send a message and confirm response is returned
 - Click Load and confirm previous chats are listed
 - Open a previous chat and confirm history renders correctly
