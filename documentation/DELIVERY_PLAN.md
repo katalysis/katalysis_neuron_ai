@@ -216,7 +216,7 @@ A spec document and starter template EPRA staff give to their own Claude, so new
 - P2.4 `instructions()` → `SystemMessage`.
 - P2.5 Rewrite `DatabaseChatHistory` as a `MessageStoreInterface` implementation backed by the `Chat` entity. Keep the existing JSON format readable, or add a one-off migration, so old chats still load.
 - P2.6 Fix the agent error path (`resolveState()`) and the controller's `getOrRestoreAgent` / `saveAgentState` for the v4 `AgentState`.
-- P2.7 Check that `ConcreteCmsLogObserver` still works. Add a PSR-14 listener later, in Phase 3.
+- P2.7 Check that `ConcreteCmsLogObserver` still works. Add a PSR-14 listener later, in Phase 3. **Whatever logs event data (the observer now, the PSR-14 listener later) must pass it through `SecretRedactor` first** (found in P1.7a: the observer isn't attached today, but the event data can include request and provider details).
 - P2.8 Coordinated `katalysis_pro` PR: convert `KatalysisProEntitiesToolkit` to `ToolDefinition`s, so it no longer touches Neuron classes and is unaffected by future library upgrades. The full provider and event registration follows in P3.10.
 - P2.9 Run the scenarios. **Exit: the pass rate is at least the P1.5 baseline, with no new failures**, and old chats still load.
 
@@ -256,7 +256,8 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - a loop guard
   - a PSR-14 logging listener
   - chat retention: 90 days by default, configurable, plus an admin purge (B-PII-5)
-  - errors sent to the browser are reduced to a safe message, with the detail logged (B-ERR-4)
+  - errors sent to the browser are reduced to a safe message, with the detail logged (B-ERR-4). From P1.7a, six chat endpoints still return `$e->getMessage()`: `chat_list`, `load`, `current`, `new_chat`, `delete_chat` and `delete_current_chat`
+  - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
 - P3.10 **Extension model (see `EXTENSIONS.md`):**
   1. the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface
   2. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing

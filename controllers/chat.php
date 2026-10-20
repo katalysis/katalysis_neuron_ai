@@ -11,6 +11,7 @@ use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
 use Katalysis\NeuronAi\PageContextTag;
+use Katalysis\NeuronAi\Security\SecretRedactor;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\History\InMemoryChatHistory;
@@ -134,9 +135,9 @@ class Chat extends AbstractController
             exit;
             
         } catch (\Throwable $e) {
-            // Log the full error
-            \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . $e->getMessage());
-            \Concrete\Core\Support\Facade\Log::error('Stack trace: ' . $e->getTraceAsString());
+            // Log the full error. Redacted first: a provider error body can quote part of the API key (B-SEC-1).
+            \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
+            \Concrete\Core\Support\Facade\Log::error('Stack trace: ' . SecretRedactor::redact($e->getTraceAsString()));
             
             // Try to add an error recovery message to maintain history alternation
             try {

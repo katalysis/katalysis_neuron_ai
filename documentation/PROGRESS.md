@@ -4,8 +4,8 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1
-- **Last completed:** P1.9 (page context across navigation: per-turn agent in the runner, cache reset, page tag on every user message, scenarios 19 and 20; PR pending merge), P1.8a (PR #16), P1.8 (draft edits no longer change live content, PR #15), P1.7 (security fix: endpoint access check, CSRF token, three tools disabled, PR #14), P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
-- **Next open:** P1.7a (API keys never reach the browser; found at the start of P1.10, where the settings page was found to show the keys in full), then P1.10 (`get_page_content` works under the CLI; P1.9 found it does not share P1.9's root cause). P1.10 starts in a fresh session after P1.7a is merged. Its first step is the `neuron_chat_editor` browser test user, and it needs a plan for review before any code. P1.7, P1.7a, P1.8 and P1.8a must be done before Neuron is installed on any non-dev site. Open follow-ups: remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines (separate PR in that repo); P3.3 now includes explicit input-field descriptions.
+- **Last completed:** P1.7a (API keys never reach the browser: settings page, save rules, `SecretRedactor`; PR pending merge), P1.9 (page context across navigation: per-turn agent in the runner, cache reset, page tag on every user message, scenarios 19 and 20; PR #17), P1.8a (PR #16), P1.8 (draft edits no longer change live content, PR #15), P1.7 (security fix: endpoint access check, CSRF token, three tools disabled, PR #14), P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Next open:** P1.10 (`get_page_content` works under the CLI; P1.9 found it does not share P1.9's root cause). It starts in a fresh session after P1.7a is merged and ticked on `development`, with a plan for review before any code. Its first step is the `neuron_chat_editor` browser test user; the settings-page check is answered (P1.7a). P1.7, P1.7a, P1.8 and P1.8a must be done before Neuron is installed on any non-dev site. Open follow-ups: remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines (separate PR in that repo); P3.3 now includes explicit input-field descriptions.
 - **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26), **with one amendment (P1.5a, appended at the end of each file, so read it before comparing).** Majority labels: 6 pass (01, 02, 07, 12, 13, 15), 4 partial (03, 08, 10, 11), 8 fail (04, 05, 06, 09, 14, 16, 17, 18). Unstable: 07 (2 of 3), 11, 12, 16 (a comparison run uses `--repeat=5`).
 
 ## Decisions
@@ -43,6 +43,41 @@ Record decisions that change the plan or design, with the date and who made them
 
 ## Log
 (newest first)
+
+### 2026-10-20: P1.7a API keys never reach the browser
+- Branch / PR: `task/P1.7a-api-keys-not-in-browser`, PR pending. Commits: `4772a75` (`PLAN:` add P1.7a, already on `development`), `b6f5dc8` (settings page and save rules), `516d485` (`SecretRedactor` and where it is applied), `3a1b57a` (tests), `f319488` (`PLAN:` follow-ups), and this PROGRESS commit.
+- Found: at the start of P1.10, the settings page rendered the OpenAI, Anthropic and Ollama keys in full as `<input type="text" value="...">`, so they were in the form and in the page source. Chat access is "can view that settings page" (B-ACC-1), so every user who could use the assistant could read the keys. P1.10 stopped and reported, as its plan said, and P1.7a was added before it.
+- Done:
+  - **Settings page.** A stored key is never rendered. Each key shows "Key set" or "Not set" and an empty password input (`autocomplete="new-password"`), with no characters of the key, not even the last four. The controller passes only a set/not-set flag to the view. A key that is set also shows a "Remove key" checkbox. The non-secret fields (models, Ollama URL) are escaped with `h()`.
+  - **Save rules** (`src/Settings/ApiKeySettings.php`). A key is replaced only when a new non-empty value is posted. A blank field keeps it. A key is cleared only when its "Remove key" box is ticked. If both are submitted, remove wins, `save()` returns the affected fields, and the banner says "<Key label>: Key removed; the new value was not saved." after "AI settings have been updated." The dashboard shows only one banner and prefers `message` over `success`, so both sentences are in one `message`. The form keeps its CSRF token check.
+  - **`SecretRedactor`** (`src/Security/SecretRedactor.php`). Removes the configured key values, `sk-...` strings (whole, masked or cut short) and `Bearer` tokens from text. Applied to: the agent's tool error handler (log line and the message returned to the model), `ConcreteCmsAgent::handle()`'s log line, `send_message`'s catch block (message and stack trace), and the diagnostics endpoint's agent error.
+  - **Why the redactor.** Neuron's `GuzzleHttpClient::handleException` puts the whole provider response body in the exception message. For a bad OpenAI key that body is expected to quote a masked key. I did not reproduce it, because no test calls the provider; it is confirmed from the vendor code only.
+  - **Read-only checks of other leak paths** (counts only; no key printed):
+    - Database: 609 tables, 1,351 text columns (including 25,519 `Logs` rows). 0 hits for the key, its first 12 or last 4 characters, `Bearer`, `Authorization`, `sk-`-shaped strings or "API key".
+    - Files: `application/files`, the Herd logs and `/tmp`: 0 files contain the key.
+    - Git history: parent site (9 commits), package (128) and `katalysis_pro` (352, branch `themeintegrationtemplates`, all refs): 0 commits touch the key or any `sk-`-shaped string, `Bearer` token, long key/secret/token literal or `katalysis.ai.*key` setting. The key's own config file is git-ignored.
+    - Other readers of the key: the agent, the provider class, diagnostics (a configured yes/no only), the scenario runner (presence check) and `controller.php` (install defaults).
+    - Neuron's `LogObserver` is never attached.
+  - **Tests, no provider calls:** `tests/Unit/SecretRedactorTest.php` (6), `tests/Integration/ApiKeySettingsTest.php` (17, with an in-memory config and dummy keys, so the dev site's real key is never read or changed) and `tests/Support/InMemoryConfig.php`. They cover: the rendered page contains neither a dummy key nor its first 8 or last 4 characters; the controller never passes a key to the view; a blank save keeps every key; Remove clears only that key; a new value replaces only that key; remove wins when both are submitted, with the banner text; a save without a CSRF token changes nothing; the non-secret fields are escaped. Mutation checks (temporary, reverted): blank saves overwriting keys failed 5 tests, printing a key into the input failed 2, and removing `h()` failed the escaping test.
+  - **Real config:** I rendered the real page with the dev site's real OpenAI key under `c5:exec`. The full key, its first 12 characters and its last 4 were all absent.
+- Not done / left for later:
+  - Six chat endpoints still return `$e->getMessage()` to the browser: `chat_list`, `load`, `current`, `new_chat`, `delete_chat` and `delete_current_chat` (P3.9, B-ERR-4). **Correction:** my first P1.7a report said four. The code has six.
+  - Credentials in the Ollama URL are stored and shown in plain text (P3.9 note added).
+  - The log observer is not attached today. When it is (P2.7), its event data must go through `SecretRedactor` (P2.7 note added).
+  - Keys are still stored in plain text in the git-ignored `application/config/generated_overrides/katalysis.php`. That is standard Concrete behaviour.
+  - Until now anyone who could view the settings page on the dev site could read the key in full. Rotating the dev OpenAI key is optional but sensible if anyone else used that page.
+- Checks:
+  - PHPUnit: 213 tests, 1256 assertions, OK (190 tests, 1171 assertions after P1.9).
+  - Scenarios: **not run.** Nothing here changes what the agent does, apart from redacting key-shaped text in tool error messages. That path can only differ for text that contains `sk-` and three more characters at a word start, which no scenario produces.
+  - Manual: the real-config render above. Not checked in a browser: how the page and the "Key removed" banner look. The banner content and flash type are tested, not the appearance.
+- Plan changes proposed (the `PLAN:` commit `f319488` is on this branch and needs your review with the PR):
+  - B-SEC-1 becomes "Met (P1.7a)", with a note that the log observer is not covered yet.
+  - B-ERR-4's status text names the six endpoints.
+  - P3.9 gets the Ollama URL credentials note and the six endpoints. P2.7 gets the "log data through `SecretRedactor`" requirement.
+  - Tick P1.7a with the PR number after the merge (`PLAN:` commit on `development`).
+- Questions for review:
+  - I labelled each conflict line in the banner ("Open AI Key: Key removed; the new value was not saved."), so a form with two conflicts says which keys. Keep the label, or use your exact sentence alone?
+  - Remove wins over a new value was kept as agreed.
 
 ### 2026-10-20: P1.9 Page context across navigation
 - Branch / PR: `task/P1.9-page-context-navigation`, PR pending. Commits: `0496748` (scenario 19), `b82bd9b` (runner builds a new agent per turn and reloads history, as `chat.php` does per request), `1e02984` (`setRuntimePageContext()` drops the cached instructions, start event and tool bootstrap, plus `AgentPageContextTest`), `c50c13c` (`PLAN:` P1.10 evidence), `8106634` (scenario 20), `0183d89` (page tag), `941b49a` (`PLAN:` P1.10 first step and P3.2 chat permission), and this PROGRESS commit.

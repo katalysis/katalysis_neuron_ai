@@ -10,6 +10,7 @@ use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Access\ChatAccess;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
+use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use NeuronAI\Agent\Agent;
 
@@ -48,7 +49,7 @@ class Diagnostics extends AbstractController
                 new ConcreteCmsAgent();
                 $agentCheck['ok'] = true;
             } catch (\Throwable $throwable) {
-                $agentCheck['error'] = $throwable->getMessage();
+                $agentCheck['error'] = SecretRedactor::redact($throwable->getMessage());
             }
         }
 
