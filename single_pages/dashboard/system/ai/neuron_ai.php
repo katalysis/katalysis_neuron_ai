@@ -23,9 +23,17 @@ $form = $app->make('helper/form');
 // API keys are never rendered (B-SEC-1): only whether each is set. The input is always
 // empty; a blank save keeps the key, a new value replaces it, "Remove key" clears it.
 $keyStatus = isset($key_status) && is_array($key_status) ? $key_status : [];
-// A user who can only view the page sees the settings but can't change them. The server refuses a save from
-// them whatever the form says; this only keeps the form honest.
-$canEdit = !empty($can_edit);
+// Without the "Configure Neuron AI" task permission the page shows only a message: no form, no key statuses.
+// The server refuses a save from such a user whatever the page shows.
+$canConfigure = !empty($can_configure);
+if (!$canConfigure) {
+    ?>
+    <div class="alert alert-warning">
+        <?= t('You don\'t have permission to change Neuron AI settings.') ?>
+    </div>
+    <?php
+    return;
+}
 $renderKeyField = static function (string $field, string $label) use ($keyStatus): void {
     $isSet = !empty($keyStatus[$field]);
     ?>
@@ -47,17 +55,11 @@ $renderKeyField = static function (string $field, string $label) use ($keyStatus
 ?>
 
 <form method="post" enctype="multipart/form-data" action="<?= $controller->action('save') ?>">
-    <?php if ($canEdit) { ?>
-        <?php $token->output('ai.settings'); ?>
-    <?php } else { ?>
-        <div class="alert alert-info">
-            <?= t('You can see these settings but not change them. Changing them needs edit permission on this page.') ?>
-        </div>
-    <?php } ?>
+    <?php $token->output('ai.settings'); ?>
     <div id="ccm-dashboard-content-inner">
         <div class="row justify-content-between mb-5">
             <div class="col">
-                <fieldset class="mb-5"<?= $canEdit ? '' : ' disabled' ?>>
+                <fieldset class="mb-5">
                     <legend><?php echo t('Basic Settings'); ?></legend>
                     <div class="row">
                         <div class="col">
@@ -95,17 +97,15 @@ $renderKeyField = static function (string $field, string $label) use ($keyStatus
         </div>
     </div>
     
-    <?php if ($canEdit) { ?>
-        <div class="ccm-dashboard-form-actions-wrapper">
-            <div class="ccm-dashboard-form-actions">
-                <div class="float-end">
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fa fa-save" aria-hidden="true"></i> <?php echo t('Save'); ?>
-                    </button>
-                </div>
+    <div class="ccm-dashboard-form-actions-wrapper">
+        <div class="ccm-dashboard-form-actions">
+            <div class="float-end">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fa fa-save" aria-hidden="true"></i> <?php echo t('Save'); ?>
+                </button>
             </div>
         </div>
-    <?php } ?>
+    </div>
 </form>
 
 

@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Access;
 
 use Concrete\Core\Page\Page;
+use Concrete\Core\Page\View\PageView;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
-use Concrete\Core\User\User;
 use Concrete\Core\Validation\CSRF\Token;
 
 /**
@@ -15,12 +15,11 @@ use Concrete\Core\Validation\CSRF\Token;
  * every chat endpoint and the diagnostics endpoint all use it, so the panel being
  * hidden is never the only thing standing between a user and the endpoints.
  *
- * P3.2 replaces the settings-page rule with tier groups.
+ * Access is Concrete's own task permission "Use Neuron AI assistant" (see NeuronPermissions),
+ * set under Dashboard > System & Settings > Permissions & Access > Tasks. P3.2 adds tier keys.
  */
 final class ChatAccess
 {
-    public const SETTINGS_PAGE_PATH = '/dashboard/system/ai/neuron_ai';
-
     /** Action name for the CSRF token the panel sends with its POST requests. */
     public const TOKEN_ACTION = 'katalysis_neuron_ai_chat';
 
@@ -34,22 +33,39 @@ final class ChatAccess
     public const TOKEN_ERROR_CODE = 'invalid_token';
 
     /**
-     * A registered user who can view the Neuron AI settings page. If that page
-     * doesn't exist, only the super user.
+     * A registered user who has the "Use Neuron AI assistant" task permission (the super user always
+     * does). Registered users only, deliberately: guests never get the assistant, even if an admin
+     * grants the permission to the Guest group.
      */
     public static function canUse(): bool
     {
-        $user = new User();
-        if (!$user->isRegistered()) {
+        return NeuronPermissions::userHas(NeuronPermissions::USE_HANDLE);
+    }
+
+    /**
+     * Whether the panel's markup, CSS and JS go into this view: the user may use the assistant AND Concrete shows
+     * them the toolbar on this page. The panel opens only from a button in that toolbar, so without the toolbar it
+     * could not be opened. The toolbar test is Concrete's own (PageView::startRender() and page_controls_header.php
+     * both ask the page's permissions for canViewToolbar()), so it covers dashboard pages as well. Views that are
+     * not pages (dialogs, tools, errors) never get the panel.
+     *
+     * Only the panel's output depends on this. The chat endpoints use canUse() alone (refusalReason()).
+     *
+     * @param mixed $view the view named by the on_before_render event
+     */
+    public static function canShowPanelOn(mixed $view): bool
+    {
+        if (!$view instanceof PageView || !self::canUse()) {
             return false;
         }
 
-        $settingsPage = Page::getByPath(self::SETTINGS_PAGE_PATH);
-        if ($settingsPage && !$settingsPage->isError()) {
-            return (bool) (new Checker($settingsPage))->canViewPage();
+        $page = $view->getPageObject();
+        if (!$page instanceof Page || $page->isError()) {
+            return false;
         }
 
-        return $user->isSuperUser();
+        // Concrete's answer can be an int (1) rather than true, so compare as a boolean.
+        return (bool) (new Checker($page))->canViewToolbar();
     }
 
     /**

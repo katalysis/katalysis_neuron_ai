@@ -24,7 +24,13 @@ Set at least the OpenAI key in package settings:
 
 - Dashboard -> System -> AI -> Neuron AI Settings
 
-Anyone who can view that page can use the chat (B-ACC-1), but saving the settings needs the **Edit Page Properties** permission on the page. On a new site only the super user has it: the Administrators group can view the page and not change it. To let another user or group save the settings, grant that permission on the settings page (the page's permissions override the Dashboard's). Users without it see the settings ("Key set" or "Not set") with the form disabled.
+Access is controlled by two Concrete task permissions, set at Dashboard -> System & Settings -> Permissions & Access -> Tasks:
+
+- **Use Neuron AI assistant** (`use_neuron_ai`): who gets the chat panel. Administrators have it by default. Registered users only: guests never get the assistant, even if the key is granted to the Guest group.
+- **Configure Neuron AI** (`configure_neuron_ai`): who can see and save the settings. Nobody but the super user has it by default. Users without it see only "You don't have permission to change Neuron AI settings." on the settings page, with no form.
+
+The two are independent: holding one does not give the other. The super user always has both. Both keys are added on install and on upgrade to 3.1.0; an upgrade never changes a choice an admin has already made. Sites that had given other groups view on the settings page to let them chat must grant **Use Neuron AI assistant** to those groups instead.
+
 ## Verify routes
 
 The package should register:
@@ -36,7 +42,7 @@ The package should register:
 
 ## Quick validation checklist
 
-- Open any dashboard page and confirm chat panel is visible
+- Open any dashboard page as an administrator and confirm the chat panel can be opened from the toolbar button. The panel is sent only on pages where Concrete shows the user the toolbar, so a user with the use key who has no toolbar on a page (for example the home page, for an editor who cannot edit it) has no panel there.
 - Send a message and confirm response is returned
 - Click Load and confirm previous chats are listed
 - Open a previous chat and confirm history renders correctly
@@ -50,8 +56,8 @@ The package should register:
 - Three fake people, "Test Person Alpha", "Test Person Beta" and "Test Person Gamma" (`@neuron-test.invalid` emails). Reset also removes any person whose name starts with "Test Person " and whose email ends in `@neuron-test.invalid`, so people that scenarios create must follow that pattern.
 - A small text file in the file manager, "Neuron Test File", imported (copied) from `documentation/fixtures/neuron-test-file.txt`. Its description holds the fixture marker.
 - An Express object, "Test Room" (`neuron_test_room`): name, capacity, room type (meeting / training / hall) and description, with four entries.
-- A non-admin user, `neuron_editor`, who can view, edit, add subpages under and approve versions of `/neuron-test` and its children. The user cannot delete, move or change permissions on those pages, cannot edit any other page and cannot open the Dashboard. It cannot use the assistant (no view permission on the settings page), so it is the "logged-in user without access" fixture.
-- A second non-admin user, `neuron_chat_editor` (P1.10), for browser checks. It has the same `/neuron-test` rights as `neuron_editor` (including the add-block grant on the Main area of `headings`), plus **view only** on `/dashboard/system/ai/neuron_ai`, which is what the chat panel's access check asks for. It cannot save the settings (that needs edit permission on the page). Granting view makes the settings page switch from inheriting its permissions to overriding them: the page gets a copy of the `/dashboard` permissions plus that one user. The script refuses to run if the settings page already overrides its permissions in any other way, and `--reset` puts it back to inheriting.
+- A non-admin user, `neuron_editor`, who can view, edit, add subpages under and approve versions of `/neuron-test` and its children. The user cannot delete, move or change permissions on those pages, cannot edit any other page and cannot open the Dashboard. It cannot use the assistant (it is in no group that holds the use key), so it is the "logged-in user without access" fixture.
+- A second non-admin user, `neuron_chat_editor` (P1.10), for browser checks. It has the same `/neuron-test` rights as `neuron_editor` (including the add-block grant on the Main area of `headings`), plus membership of the group **Neuron Test Editors**, which the script adds to the access list of the **Use Neuron AI assistant** key. It does not hold the configure key, so it cannot save the settings. The script no longer touches the settings page's permissions. A dev site that an earlier version of the script seeded (a view grant on the settings page, which made the page override the `/dashboard` permissions) is cleaned up on the next run: the page goes back to inheriting, and only rows the script created are removed. This clean-up can be dropped in a later release. If the settings page overrides its permissions in any other way, the script leaves it alone and prints a warning.
 
 Run from `httpdocs/`. Options for the script go after `--`:
 
@@ -68,7 +74,7 @@ php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fix
 
 `--reset-only` is for checking that a reset leaves nothing behind (take a snapshot of the permission tables before the seed and after `--reset-only`; they should match) and for testing code against a site without the fixtures. The site is then without `/neuron-test` and both users until the next seed.
 
-`--reset` removes only what the script created: the `/neuron-test` tree, the three test people, the test file, the Test Room object, the `neuron_editor` and `neuron_chat_editor` users and the permission rows their grants created (including the settings-page grant: the settings page inherits from `/dashboard` again). It checks a marker on each first. If something with the same path, handle, name or file title exists without the marker, it stops and deletes nothing. It never reads or changes the other pages, people, files, users or Express objects. It also removes the review folder "Assistant – to delete" (or "Assistant - to delete") that a scenario may have created, but only once nothing else is in it: it deletes the fixture file first, and if the folder then holds anything else it leaves the folder and prints a warning. The script itself never creates the folder.
+`--reset` removes only what the script created: the `/neuron-test` tree, the three test people, the test file, the Test Room object, the `neuron_editor` and `neuron_chat_editor` users, the group Neuron Test Editors (it is taken out of the use key's access list first) and the permission rows their grants created. It checks a marker on each first. If something with the same path, handle, name or file title exists without the marker, it stops and deletes nothing. It never reads or changes the other pages, people, files, users or Express objects. It also removes the review folder "Assistant – to delete" (or "Assistant - to delete") that a scenario may have created, but only once nothing else is in it: it deletes the fixture file first, and if the folder then holds anything else it leaves the folder and prints a warning. The script itself never creates the folder.
 
 `neuron_editor` has the dev-only password `NeuronEditorDev#1`, and `neuron_chat_editor` has the dev-only password `NeuronChatEditorDev#1`. Log in by username (this site has `email_registration` off). Never use these passwords, or this script, on a server. The script refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host.
 

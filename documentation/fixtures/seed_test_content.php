@@ -10,8 +10,8 @@
  *   - one small text file in the file manager ("Neuron Test File", from fixtures/neuron-test-file.txt)
  *   - one Express object, "Test Room", with four entries
  *   - a non-admin user, "neuron_editor" (can edit /neuron-test, cannot use the assistant: the "no access" fixture)
- *   - a non-admin user, "neuron_chat_editor" (P1.10: the same /neuron-test rights, plus VIEW ONLY on the settings page
- *     /dashboard/system/ai/neuron_ai, which is what the chat panel's access check asks for)
+ *   - a non-admin user, "neuron_chat_editor" (P1.10a: the same /neuron-test rights, plus the Concrete task permission
+ *     "Use Neuron AI assistant", through the group "Neuron Test Editors" that this script creates and puts the user in)
  *
  * Run it from httpdocs/ with Concrete's own runner. Options after "--" are passed to this script:
  *
@@ -22,12 +22,19 @@
  * With --reset it first deletes ONLY the content this script creates, then creates it again. --reset-only deletes it
  * and stops (used to check that a reset leaves nothing behind). It also removes the review
  * folder "Assistant – to delete" if a scenario created it, but only when nothing but fixture files is in it.
- * It never reads, changes or depends on any other person, user or Express object. The one page outside /neuron-test
- * that it touches is the settings page /dashboard/system/ai/neuron_ai: neuron_chat_editor is granted view on it, so the
- * page switches from inheriting its permissions from /dashboard to overriding them (copied from /dashboard, plus that
- * one user). The script refuses to run if the settings page already overrides its permissions in any other way, and
- * --reset puts it back to inheriting and removes the permission rows the grant created. Nothing under /dashboard
- * itself is changed.
+ * It never reads, changes or depends on any other person, user or Express object.
+ *
+ * The assistant's access is Concrete's task permissions (Dashboard > System & Settings > Permissions & Access > Tasks).
+ * The script adds the group "Neuron Test Editors" to the access list of "Use Neuron AI assistant" and nothing else:
+ * whoever already has the permission keeps it, and "Configure Neuron AI" is never touched. --reset removes only that
+ * group's entry and the group. The permission keys come from the package (install or upgrade): if they are missing, the
+ * script says so and grants nothing. neuron_editor is in no group (the "no access" fixture).
+ *
+ * Dev-only clean-up of the old P1.10 grant: that version overrode the permissions of the settings page
+ * /dashboard/system/ai/neuron_ai to give neuron_chat_editor view. If the page still carries exactly that override
+ * (its own rows differ from the page it copied only by that user's view entry), a normal run or --reset puts it back
+ * to inheriting from /dashboard and removes the rows the grant created. Any other override is left alone with a warning.
+ * Nothing under /dashboard itself is changed. This clean-up can be removed in a later release.
  *
  * DEV ONLY. The users have documented throwaway passwords. Never use them, or this script, on a server:
  * the script refuses to run unless the site's canonical URL is a .test, .localhost or localhost host.
@@ -48,11 +55,13 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\Permission\Access\Access;
+use Concrete\Core\Permission\Access\Entity\GroupEntity;
 use Concrete\Core\Permission\Access\Entity\UserEntity;
 use Concrete\Core\Permission\Key\Key as PermissionKey;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Support\Facade\Express;
 use Concrete\Core\Tree\Node\Node as TreeNode;
+use Concrete\Core\User\Group\Group;
 use Concrete\Core\User\RegistrationServiceInterface;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -67,7 +76,10 @@ return (function () use ($args, $output) {
     $chatUserName = 'neuron_chat_editor';
     $chatUserEmail = 'neuron_chat_editor@neuron-test.invalid';
     $chatUserPassword = 'NeuronChatEditorDev#1'; // dev-only throwaway; documented in SETUP.md
-    $settingsPagePath = '/dashboard/system/ai/neuron_ai';
+    $settingsPagePath = '/dashboard/system/ai/neuron_ai'; // only for the clean-up of the old P1.10 grant
+    $groupName = 'Neuron Test Editors';
+    $groupMarker = $pageMarker; // the group's description; reset only touches a group with this name AND description
+    $useKeyHandle = 'use_neuron_ai';
     // The /neuron-test rights both users get.
     $fixturePageKeys = [
         'view_page',
@@ -278,11 +290,60 @@ return (function () use ($args, $output) {
     };
     $settings = $inspectSettingsPage();
     if ($settings['state'] === 'foreign') {
-        $output->writeln('<error>The settings page ' . $settingsPagePath . ' already overrides its permissions, and not only with '
-            . $chatUserName . '\'s view grant from this script. It is not ours to change. Nothing was changed.</error>');
-
-        return 1;
+        $output->writeln('<comment>The settings page ' . $settingsPagePath . ' overrides its permissions, and not only with '
+            . $chatUserName . '\'s view grant from an older version of this script. It is not ours: left alone.</comment>');
     }
+
+    // Dev-only clean-up of the old P1.10 grant (see the header): puts the settings page back to inheriting from /dashboard
+    // and removes the access rows that listed the chat user. Does nothing unless the page is in the state 'ours'.
+    $removeLegacySettingsGrant = function () use ($db, $app, $output, $settingsPagePath, $inspectSettingsPage, $findChatUser, $entityIDOf, $accessUseCount) {
+        $found = $inspectSettingsPage();
+        if ($found['state'] !== 'ours') {
+            return;
+        }
+        $chatEntityID = $entityIDOf($findChatUser());
+        $accessIDs = array_map('intval', $db->fetchFirstColumn(
+            'SELECT DISTINCT ppa.paID FROM PagePermissionAssignments ppa'
+            . ' JOIN PermissionAccessList pal ON pal.paID = ppa.paID'
+            . ' WHERE ppa.cID = ? AND pal.peID = ?',
+            [$found['page']->getCollectionID(), $chatEntityID]
+        ));
+        // This also removes the page's own assignment rows.
+        $found['page']->inheritPermissionsFromParent();
+        $found['page']->refreshCache();
+        $app->make('cache/request')->flush();
+        foreach ($accessIDs as $paID) {
+            if ($accessUseCount($paID) === 0) {
+                $db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
+                $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
+            }
+        }
+        $output->writeln('  settings page ' . $settingsPagePath . ': old view grant removed, inherits its permissions again');
+    };
+
+    // ---- The group and the "Use Neuron AI assistant" task permission (P1.10a) ---------------------------------------
+
+    $findGroup = function () use ($groupName) {
+        $group = Group::getByName($groupName);
+
+        return $group instanceof Group ? $group : null;
+    };
+    // The access list of the use key, ready to change: one that other assignments share is duplicated first, so a shared
+    // access is never changed. Null when the key does not exist (the package has not been upgraded).
+    $writableUseAccess = function () use ($useKeyHandle, $accessUseCount) {
+        $key = PermissionKey::getByHandle($useKeyHandle);
+        if (!$key) {
+            return null;
+        }
+        $access = $key->getPermissionAccessObject();
+        if (!is_object($access)) {
+            $access = Access::create($key);
+        } elseif ($accessUseCount((int) $access->getPermissionAccessID()) > 1) {
+            $access = $access->duplicate();
+        }
+
+        return [$key, $access];
+    };
 
     // ---- Reset -------------------------------------------------------------------------------------------------
 
@@ -308,6 +369,12 @@ return (function () use ($args, $output) {
 
             return 1;
         }
+        $group = $findGroup();
+        if ($group && $group->getGroupDescription() !== $groupMarker) {
+            $output->writeln('<error>Group ' . $groupName . ' exists but was not created by this script. Nothing was deleted.</error>');
+
+            return 1;
+        }
         $entity = $findExpress();
         if ($entity && $entity->getName() !== $expressName) {
             $output->writeln('<error>Express object ' . $expressHandle . ' exists but was not created by this script. Nothing was deleted.</error>');
@@ -329,7 +396,6 @@ return (function () use ($args, $output) {
         $fixtureAccessIDs = [];
         $fixtureAreaAccessIDs = [];
         $fixtureAreaCID = 0;
-        $settingsAccessIDs = [];
         if ($fixtureEntityIDs !== []) {
             if ($page) {
                 $fixtureAccessIDs = array_map('intval', $db->fetchFirstColumn(
@@ -353,14 +419,27 @@ return (function () use ($args, $output) {
                 ));
             }
         }
-        // The settings page grant (state 'ours' was proved above): remember the accesses that list the chat user.
-        if ($settings['state'] === 'ours' && $chatEntityID) {
-            $settingsAccessIDs = array_map('intval', $db->fetchFirstColumn(
-                'SELECT DISTINCT ppa.paID FROM PagePermissionAssignments ppa'
-                . ' JOIN PermissionAccessList pal ON pal.paID = ppa.paID'
-                . ' WHERE ppa.cID = ? AND pal.peID = ?',
-                [$settings['page']->getCollectionID(), $chatEntityID]
-            ));
+        // The old P1.10 settings-page grant, if this site still has it (dev-only clean-up, see the header).
+        $removeLegacySettingsGrant();
+
+        // The group: take its entry out of the access list of "Use Neuron AI assistant" (anyone else in the list stays),
+        // then delete it. The entity row that the list entry used is removed once nothing lists it.
+        if ($group) {
+            $groupEntityID = (int) $db->fetchOne('SELECT peID FROM PermissionAccessEntityGroups WHERE gID = ?', [$group->getGroupID()]);
+            $writable = $groupEntityID > 0 ? $writableUseAccess() : null;
+            if ($writable) {
+                [$useKey, $useAccess] = $writable;
+                $useAccess->removeListItem(GroupEntity::getOrCreate($group));
+                $useKey->getPermissionAssignmentObject()->assignPermissionAccess($useAccess);
+                $output->writeln('  removed group ' . $groupName . ' from the "Use Neuron AI assistant" permission');
+            }
+            $group->delete();
+            $output->writeln('  deleted group ' . $groupName);
+            if ($groupEntityID > 0 && (int) $db->fetchOne('SELECT COUNT(*) FROM PermissionAccessList WHERE peID = ?', [$groupEntityID]) === 0) {
+                $db->executeStatement('DELETE FROM PermissionAccessEntityGroups WHERE peID = ?', [$groupEntityID]);
+                $db->executeStatement('DELETE FROM PermissionAccessEntities WHERE peID = ?', [$groupEntityID]);
+            }
+            $app->make('cache/request')->flush();
         }
 
         if ($page) {
@@ -421,20 +500,6 @@ return (function () use ($args, $output) {
             $chatUser->delete();
             $output->writeln('  deleted user ' . $chatUserName);
         }
-        // The settings page goes back to inheriting from /dashboard. This also removes its own assignment rows.
-        if ($settings['state'] === 'ours') {
-            $settings['page']->inheritPermissionsFromParent();
-            $settings['page']->refreshCache();
-            $app->make('cache/request')->flush();
-            $output->writeln('  settings page ' . $settingsPagePath . ' inherits its permissions again');
-        }
-        foreach ($settingsAccessIDs as $paID) {
-            if ($accessUseCount($paID) === 0) {
-                $db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
-                $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
-            }
-        }
-
         // Remove the permission rows remembered above, unless something else still uses them.
         foreach ($fixtureAccessIDs as $paID) {
             $inUse = (int) $db->fetchOne('SELECT COUNT(*) FROM PagePermissionAssignments WHERE paID = ?', [$paID])
@@ -497,19 +562,43 @@ return (function () use ($args, $output) {
         $output->writeln('user ' . $chatUserName . ': created (password in SETUP.md)');
     }
 
-    // View only on the settings page (so ChatAccess::canUse() is true), and nothing else there. The page switches from
-    // inheriting its permissions to overriding them; Page::setPermissionsToOverride() copies the source's rows first.
-    $settings = $inspectSettingsPage();
-    if ($settings['state'] === 'missing') {
-        $output->writeln('<comment>settings page ' . $settingsPagePath . ' not found (is katalysis_neuron_ai installed?): ' . $chatUserName . ' has no panel access.</comment>');
-    } elseif ($settings['state'] === 'ours') {
-        $output->writeln('settings page ' . $settingsPagePath . ': ' . $chatUserName . ' already has view, left alone');
+    // The old P1.10 settings-page grant, if this site still has it (dev-only clean-up, see the header).
+    $removeLegacySettingsGrant();
+
+    // Panel access, through Concrete's task permission "Use Neuron AI assistant": the group "Neuron Test Editors" holds
+    // the chat user and is added to the permission's access list (additive: nobody else's access changes).
+    $group = $findGroup();
+    if ($group && $group->getGroupDescription() !== $groupMarker) {
+        $output->writeln('<comment>group ' . $groupName . ': a group with this name exists without the marker, so ' . $chatUserName . ' has no panel access.</comment>');
+    } elseif (!PermissionKey::getByHandle($useKeyHandle)) {
+        $output->writeln('<comment>task permission "' . $useKeyHandle . '" not found (run c5:package:update katalysis_neuron_ai): ' . $chatUserName . ' has no panel access.</comment>');
     } else {
-        $settings['page']->setPermissionsToOverride();
-        $grantKey($settings['page'], 'view_page', UserEntity::getOrCreate($chatUser));
-        $settings['page']->refreshCache();
+        if ($group) {
+            $output->writeln('group ' . $groupName . ': already exists, left alone');
+        } else {
+            $group = Group::add($groupName, $groupMarker);
+            $output->writeln('group ' . $groupName . ': created');
+        }
+        if ((int) $db->fetchOne('SELECT COUNT(*) FROM UserGroups WHERE uID = ? AND gID = ?', [$chatUser->getUserID(), $group->getGroupID()]) > 0) {
+            $output->writeln('group ' . $groupName . ': ' . $chatUserName . ' is already a member');
+        } else {
+            $chatUser->getUserObject()->enterGroup($group);
+            $output->writeln('group ' . $groupName . ': ' . $chatUserName . ' added');
+        }
+        [$useKey, $useAccess] = $writableUseAccess();
+        $groupEntity = GroupEntity::getOrCreate($group);
+        $alreadyListed = (int) $db->fetchOne(
+            'SELECT COUNT(*) FROM PermissionAccessList WHERE paID = ? AND peID = ?',
+            [$useAccess->getPermissionAccessID(), $groupEntity->getAccessEntityID()]
+        ) > 0;
+        if ($alreadyListed) {
+            $output->writeln('permission "Use Neuron AI assistant": ' . $groupName . ' already listed, left alone');
+        } else {
+            $useAccess->addListItem($groupEntity, false, PermissionKey::ACCESS_TYPE_INCLUDE);
+            $useKey->getPermissionAssignmentObject()->assignPermissionAccess($useAccess);
+            $output->writeln('permission "Use Neuron AI assistant": ' . $groupName . ' added');
+        }
         $app->make('cache/request')->flush();
-        $output->writeln('settings page ' . $settingsPagePath . ': ' . $chatUserName . ' granted view only');
     }
 
     // ---- Test file ---------------------------------------------------------------------------------------------

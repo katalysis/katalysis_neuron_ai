@@ -18,7 +18,7 @@ class Controller extends Package
 {
     protected $pkgHandle = 'katalysis_neuron_ai';
     protected $appVersionRequired = '9.3';
-    protected $pkgVersion = '3.0.1'; // Updated for PoC
+    protected $pkgVersion = '3.1.0';
     protected $pkgAutoloaderRegistries = [
         'src' => '\Katalysis\NeuronAi'
     ];
@@ -73,7 +73,7 @@ class Controller extends Package
     {
         Events::addListener('on_before_render', function($event) {
             $view = $event->getArgument('view');
-            if (!$view || !$this->canShowChatPanel()) {
+            if (!\Katalysis\NeuronAi\Access\ChatAccess::canShowPanelOn($view)) {
                 return;
             }
 
@@ -97,15 +97,6 @@ class Controller extends Package
                 View::element('chat_panel', [], 'katalysis_neuron_ai')
             );
         });
-    }
-
-    /**
-     * Show panel for logged-in users who can access the Neuron AI dashboard page.
-     * The chat endpoints use the same check (ChatAccess).
-     */
-    private function canShowChatPanel(): bool
-    {
-        return \Katalysis\NeuronAi\Access\ChatAccess::canUse();
     }
 
     private function createDatabaseTables()
@@ -171,6 +162,7 @@ class Controller extends Package
         Config::save('katalysis.ai.max_links_per_response', '3');
 
         $this->installPages(pkg: $pkg);
+        $this->installPermissionKeys($pkg);
         
     }
 
@@ -183,8 +175,18 @@ class Controller extends Package
 
         $this->createDatabaseTables();
         $this->installPages($pkg);
+        $this->installPermissionKeys($pkg);
 
   }
+
+    /**
+     * Adds the two task permission keys if they are missing. Existing keys and what an admin has
+     * assigned to them are left alone.
+     */
+    protected function installPermissionKeys($pkg)
+    {
+        \Katalysis\NeuronAi\Access\NeuronPermissions::install($pkg);
+    }
 
     /**
      * @param Package $pkg

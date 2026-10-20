@@ -13,31 +13,34 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\UserInfoRepository;
 use Concrete\Package\KatalysisNeuronAi\Controller\SinglePage\Dashboard\System\Ai\NeuronAi;
 use Katalysis\NeuronAi\Access\ChatAccess;
+use Katalysis\NeuronAi\Access\NeuronPermissions;
 use Katalysis\NeuronAi\Settings\ApiKeySettings;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\InMemoryConfig;
 
 /**
- * P1.10: the browser test user `neuron_chat_editor` (seed_test_content.php).
+ * P1.10 / P1.10a: the browser test user `neuron_chat_editor` (seed_test_content.php).
  *
- * It has `neuron_editor`'s page rights on /neuron-test, plus VIEW ONLY on the settings page, so the chat
- * panel is available to it. `neuron_editor` stays the "no panel access" fixture. These tests check that:
+ * It has `neuron_editor`'s page rights on /neuron-test, plus the Concrete task permission "Use Neuron AI assistant"
+ * through the seeded group "Neuron Test Editors", so the chat panel is available to it. `neuron_editor` is in no group
+ * and stays the "no panel access" fixture. These tests check that:
  *
  *  - the panel access check passes for one and fails for the other;
  *  - the two have the same page permissions on /neuron-test/headings (and the same "no" for delete, move and
  *    permissions), so the browser user behaves like the scenario user;
- *  - the settings page shows this user no key and no last four, and they can't view an unrelated dashboard page;
- *  - they can't save the settings: the form is disabled, there is no Save button, and `save()` refuses and
- *    changes nothing.
+ *  - the user has no dashboard access (the settings page is back to inheriting from /dashboard, with no override of its
+ *    own), and the settings page, if it were rendered for them, shows only a message: no key, no last four, no form;
+ *  - they can't save the settings: they don't hold "Configure Neuron AI", so `save()` refuses and changes nothing.
  *
  * Nothing calls the AI provider. The settings use an in-memory config with dummy keys, so the dev site's real
- * keys are never read or changed. Needs the seeded dev site.
+ * keys are never read or changed. Needs the seeded, upgraded dev site.
  */
 final class ChatEditorAccessTest extends ConcreteTestCase
 {
     private const CHAT_USER = 'neuron_chat_editor';
     private const NO_ACCESS_USER = 'neuron_editor';
     private const HEADINGS_PATH = '/neuron-test/headings';
+    private const SETTINGS_PATH = '/dashboard/system/ai/neuron_ai';
 
     private const DUMMY_OPEN_AI = 'sk-dummy-OPENAI-0123456789-abcdefghij-ZQ9X';
     private const DUMMY_ANTHROPIC = 'sk-ant-dummy-ANTHROPIC-9876543210-mnbvcxzlkj-WQ7P';
@@ -114,7 +117,7 @@ final class ChatEditorAccessTest extends ConcreteTestCase
 
     private function settingsPage(): Page
     {
-        return $this->page(ChatAccess::SETTINGS_PAGE_PATH);
+        return $this->page(self::SETTINGS_PATH);
     }
 
     /**
@@ -262,34 +265,49 @@ final class ChatEditorAccessTest extends ConcreteTestCase
         }
     }
 
-    // ---- The settings page: view only --------------------------------------
+    // ---- The settings page: no dashboard access, no configure key ----------
 
-    public function testTheChatUserCanOpenTheSettingsPageButItShowsNoKeyAndNoLastFour(): void
+    public function testTheSettingsPageInheritsItsPermissionsFromTheDashboardAgain(): void
     {
-        $this->actAs(self::CHAT_USER);
-        $this->assertTrue((bool) (new Checker($this->settingsPage()))->canViewPage());
+        $page = $this->settingsPage();
+        $row = $this->app()->make(\Concrete\Core\Database\Connection\Connection::class)->fetchAssociative(
+            'SELECT cInheritPermissionsFrom FROM Pages WHERE cID = ?',
+            [$page->getCollectionID()]
+        );
 
-        $html = $this->renderSettingsPage();
-
-        $this->assertStringContainsString('Key set', $html, 'The page says a key is set.');
-        foreach ([self::DUMMY_OPEN_AI, self::DUMMY_ANTHROPIC, self::DUMMY_OLLAMA] as $key) {
-            $this->assertStringNotContainsString($key, $html, 'A stored key is rendered.');
-            $this->assertStringNotContainsString(substr($key, -4), $html, 'The last four characters of a stored key are rendered.');
-        }
+        $this->assertSame('PARENT', $row['cInheritPermissionsFrom'], 'The settings page must not override the dashboard permissions (P1.10a removed the seed grant).');
     }
 
-    public function testTheChatUserCannotViewAnUnrelatedDashboardPage(): void
+    public function testTheChatUserHasNoDashboardAccessAndNoConfigureKey(): void
     {
         $this->actAs(self::CHAT_USER);
 
-        foreach (['/dashboard', '/dashboard/system', '/dashboard/system/ai', '/dashboard/sitemap'] as $path) {
+        foreach (['/dashboard', '/dashboard/system', '/dashboard/system/ai', self::SETTINGS_PATH, '/dashboard/sitemap'] as $path) {
             $page = Page::getByPath($path);
             if ($page->isError()) {
                 continue;
             }
             $this->assertFalse((bool) (new Checker($page))->canViewPage(), "{$path} must not be viewable by " . self::CHAT_USER . '.');
         }
-        $this->assertTrue((bool) (new Checker($this->settingsPage()))->canViewPage(), 'Only the settings page itself is viewable.');
+        $this->assertFalse(NeuronPermissions::userHas(NeuronPermissions::CONFIGURE_HANDLE), 'The use key does not include configure.');
+    }
+
+    public function testTheSettingsPageShowsTheChatUserOnlyAMessage(): void
+    {
+        $this->actAs(self::CHAT_USER);
+
+        $html = $this->renderSettingsPage();
+
+        $this->assertStringContainsString("You don't have permission to change Neuron AI settings.", \html_entity_decode($html, ENT_QUOTES));
+        $this->assertStringNotContainsString('Key set', $html, 'No key status is shown.');
+        $this->assertStringNotContainsString('<form', $html, 'There is no form.');
+        $this->assertStringNotContainsString('type="submit"', $html);
+        $this->assertStringNotContainsString('ccm_token', $html, 'No settings token is issued.');
+        $this->assertStringNotContainsString('original-model', $html, 'No setting values are shown either.');
+        foreach ([self::DUMMY_OPEN_AI, self::DUMMY_ANTHROPIC, self::DUMMY_OLLAMA] as $key) {
+            $this->assertStringNotContainsString($key, $html, 'A stored key is rendered.');
+            $this->assertStringNotContainsString(substr($key, -4), $html, 'The last four characters of a stored key are rendered.');
+        }
     }
 
     // ---- The settings page: cannot save ------------------------------------
@@ -297,9 +315,6 @@ final class ChatEditorAccessTest extends ConcreteTestCase
     public function testTheChatUserCannotSaveTheSettings(): void
     {
         $this->actAs(self::CHAT_USER);
-        $checker = new Checker($this->settingsPage());
-        $this->assertTrue((bool) $checker->canViewPage(), 'It can view the page...');
-        $this->assertFalse((bool) $checker->canEditPageProperties(), '...but it does not have edit_page_properties on it.');
 
         // A valid token must not help: the refusal is about permission.
         Request::getInstance()->request->replace($this->changeEverything() + [
@@ -314,17 +329,5 @@ final class ChatEditorAccessTest extends ConcreteTestCase
         $this->assertStringContainsString('permission', $controller->errorText());
         $this->assertSame($before, (array) $this->config->get('katalysis.ai'), 'Nothing may change.');
         $this->assertSame([], $this->app()->make('session')->getFlashBag()->get('page_message'), 'No success banner.');
-    }
-
-    public function testTheSettingsFormIsDisabledWithNoSaveButtonForTheChatUser(): void
-    {
-        $this->actAs(self::CHAT_USER);
-
-        $html = $this->renderSettingsPage();
-
-        $this->assertMatchesRegularExpression('/<fieldset[^>]*\bdisabled\b/', $html, 'The form is disabled.');
-        $this->assertStringNotContainsString('type="submit"', $html, 'There is no Save button.');
-        $this->assertStringNotContainsString('ccm_token', $html, 'No settings token is issued to a user who cannot save.');
-        $this->assertStringContainsString('You can see these settings but not change them', $html);
     }
 }
