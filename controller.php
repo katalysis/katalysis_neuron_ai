@@ -18,7 +18,7 @@ class Controller extends Package
 {
     protected $pkgHandle = 'katalysis_neuron_ai';
     protected $appVersionRequired = '9.3';
-    protected $pkgVersion = '3.0.1'; // Updated for PoC
+    protected $pkgVersion = '3.1.0';
     protected $pkgAutoloaderRegistries = [
         'src' => '\Katalysis\NeuronAi'
     ];
@@ -100,7 +100,7 @@ class Controller extends Package
     }
 
     /**
-     * Show panel for logged-in users who can access the Neuron AI dashboard page.
+     * Show panel for logged-in users who have the "Use Neuron AI assistant" task permission.
      * The chat endpoints use the same check (ChatAccess).
      */
     private function canShowChatPanel(): bool
@@ -171,6 +171,7 @@ class Controller extends Package
         Config::save('katalysis.ai.max_links_per_response', '3');
 
         $this->installPages(pkg: $pkg);
+        $this->installPermissionKeys($pkg);
         
     }
 
@@ -183,8 +184,18 @@ class Controller extends Package
 
         $this->createDatabaseTables();
         $this->installPages($pkg);
+        $this->installPermissionKeys($pkg);
 
   }
+
+    /**
+     * Adds the two task permission keys if they are missing. Existing keys and what an admin has
+     * assigned to them are left alone.
+     */
+    protected function installPermissionKeys($pkg)
+    {
+        \Katalysis\NeuronAi\Access\NeuronPermissions::install($pkg);
+    }
 
     /**
      * @param Package $pkg
