@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Integration;
 
 use Katalysis\NeuronAi\ConcreteCmsAgent;
-use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ToolListChecks;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
@@ -31,14 +30,6 @@ final class ToolRegistryTest extends ConcreteTestCase
 {
     /** @var ToolInterface[]|null */
     private ?array $tools = null;
-
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-
-        // So that the real katalysis_pro toolkit class can be loaded (P1.13).
-        ConcreteBoot::boot()->setupPackageAutoloaders();
-    }
 
     /**
      * @return ToolInterface[]

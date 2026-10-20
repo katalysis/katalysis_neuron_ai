@@ -11,7 +11,6 @@ use Concrete\Core\Page\PageList;
 use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\User\UserInfoRepository;
-use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 
 /**
@@ -24,12 +23,6 @@ final class CreatePageUnpublishedTest extends ConcreteTestCase
 {
     /** @var int[] */
     private array $pages = [];
-
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-        ConcreteBoot::boot()->setupPackageAutoloaders();
-    }
 
     protected function tearDown(): void
     {

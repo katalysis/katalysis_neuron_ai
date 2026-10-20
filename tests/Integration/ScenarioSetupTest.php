@@ -8,7 +8,6 @@ use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Page\Page;
 use Katalysis\NeuronAi\Tests\Eval\ScenarioSetup;
 use Katalysis\NeuronAi\Tests\Eval\SnapshotBuilder;
-use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 
 /**
@@ -21,12 +20,6 @@ final class ScenarioSetupTest extends ConcreteTestCase
 
     /** @var list<int> */
     private array $created = [];
-
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-        ConcreteBoot::boot()->setupPackageAutoloaders();
-    }
 
     protected function tearDown(): void
     {

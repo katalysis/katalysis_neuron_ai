@@ -18,7 +18,6 @@ use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Tests\Support\AreaGrantFixture;
-use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\AttributesToolkit;
@@ -47,15 +46,6 @@ final class DraftIsolationTest extends ConcreteTestCase
 
     /** Area grants made by allowEditorToAddBlocksToMain(), removed in tearDown() (P1.12) */
     private ?AreaGrantFixture $grants = null;
-
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-
-        // Adding a page loads its theme's controller class, which the installed
-        // packages' autoloaders provide. The test boot doesn't register them.
-        ConcreteBoot::boot()->setupPackageAutoloaders();
-    }
 
     protected function tearDown(): void
     {
