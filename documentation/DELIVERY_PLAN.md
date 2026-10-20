@@ -236,12 +236,16 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - A separate chat permission, so chat access doesn't require viewing the settings dashboard page.
   - Settings changes need their own permission, separate from chat. P1.7b makes `save()` require edit permission on the settings page; this replaces that with a permission of its own.
   - Add `neuron_editor` to the Content group in the seed script.
+  - from P1.10: the browser test user `neuron_chat_editor` gets panel access from a view-only grant on the settings page, made by the seed (which refuses if that page already overrides its permissions). When the chat permission exists, put that user in the Content group and remove the grant and the safeguard from the seed. `ChatEditorAccessTest` and `SettingsSavePermissionTest` then need updating with it
 - P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/` and the root scripts. Describe each tool's input fields explicitly (e.g. the html block's field is `content`; scenario 07 failed with `htmlContent`). Also, from P1.8:
   - support for nested (container) blocks in batch updates, which P1.8a only refuses
   - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored"
   - remove the double update in `update_block_in_page_area` (`UpdatePageBlockCommand`, then `$blockToEdit->update()`), unless P1.8a fixes it
   - return the new block IDs in the tool output after a copy, so the model doesn't reuse an ID that the copy replaced (seen in a scenario 05 run)
   - from P1.8a: `AttributesToolkit` is not registered by the agent (it duplicates `PageAttributesToolkit`). P1.8a routed it through `PageDraft::of()` but did not delete it. Remove it, or register it on purpose, in this split
+  - from P1.10 (`get_page_content` now reads the blocks directly; these two are not fixed there):
+    - content-block links come back as `{CCM:CID_n}` placeholders, because the text comes from the raw `getSearchableContent()`. Translate them (for example `LinkAbstractor::translateFrom`) or resolve them to paths
+    - image alt text is lost, because image blocks return no text (`hasText: false` in the `blocks` list)
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform
