@@ -17,6 +17,8 @@ final class LeftoverCleanupTest extends ConcreteTestCase
 {
     private Connection $db;
 
+    private const TESTS_SINCE = '2026-10-19';
+
     /** @var int[] */
     private array $areaKeys = [];
 
@@ -39,6 +41,11 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         if ($this->db->isTransactionActive()) {
             $this->db->rollBack();
         }
+    }
+
+    private function cleanup(): LeftoverCleanup
+    {
+        return new LeftoverCleanup($this->db, self::TESTS_SINCE);
     }
 
     private function newAccess(?int $entityID = null): int
@@ -75,7 +82,7 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         $paID = $this->newAccess($entityID);
         $this->overrideRows($this->deadPageA, $paID);
 
-        $cleanup = new LeftoverCleanup($this->db);
+        $cleanup = $this->cleanup();
         $selection = $cleanup->select();
 
         $this->assertContains($this->deadPageA, $selection['selected']['pages']);
@@ -96,12 +103,37 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         $this->assertNotContains($entityID, $again['selected']['userEntities']);
     }
 
+    public function testAPageNotHigherThanTheNewestPreTestPageIsReportedNotSelected(): void
+    {
+        $liveMax = (int) $this->db->fetchOne(
+            "SELECT MAX(cID) FROM Collections WHERE cDateAdded < ?
+             AND cID NOT IN (SELECT cID FROM PagePaths WHERE cPath = '/neuron-test' OR cPath LIKE '/neuron-test/%')",
+            [self::TESTS_SINCE]
+        );
+        $gap = $this->db->fetchOne(
+            'SELECT MIN(c.cID + 1) FROM Collections c WHERE c.cID + 1 < ? AND c.cID + 1 NOT IN (SELECT cID FROM Collections)',
+            [$liveMax]
+        );
+        if ($gap === false || $gap === null) {
+            $this->markTestSkipped('No unused cID below the newest pre-test page in this database.');
+        }
+        $gap = (int) $gap;
+        $paID = $this->newAccess();
+        $this->overrideRows($gap, $paID);
+
+        $selection = $this->cleanup()->select();
+
+        $this->assertNotContains($gap, $selection['selected']['pages']);
+        $this->assertArrayHasKey($gap, $selection['evidence']['pagesNotSelected']);
+        $this->assertNotContains($paID, $selection['selected']['accesses']);
+    }
+
     public function testAPageWithoutTheFullSignatureIsReportedNotSelected(): void
     {
         $paID = $this->newAccess();
         $this->overrideRows($this->deadPageB, $paID, array_slice($this->areaKeys, 1));
 
-        $selection = (new LeftoverCleanup($this->db))->select();
+        $selection = $this->cleanup()->select();
 
         $this->assertNotContains($this->deadPageB, $selection['selected']['pages']);
         $this->assertArrayHasKey($this->deadPageB, $selection['evidence']['pagesNotSelected']);
@@ -114,7 +146,7 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         $paID = $this->newAccess();
         $this->overrideRows($livePage, $paID);
 
-        $selection = (new LeftoverCleanup($this->db))->select();
+        $selection = $this->cleanup()->select();
 
         $this->assertNotContains($livePage, $selection['selected']['pages']);
         $this->assertNotContains($paID, $selection['selected']['accesses']);
@@ -129,7 +161,7 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         // A live page permission that points at the same access.
         $this->db->insert('PagePermissionAssignments', ['cID' => 1, 'pkID' => $this->areaKeys[0], 'paID' => $paID]);
 
-        $selection = (new LeftoverCleanup($this->db))->select();
+        $selection = $this->cleanup()->select();
 
         $this->assertContains($this->deadPageA, $selection['selected']['pages'], 'The dead rows go');
         $this->assertNotContains($paID, $selection['selected']['accesses']);
@@ -144,7 +176,7 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         $this->overrideRows($this->deadPageA, $paID);
         $this->db->insert('AreaPermissionAssignments', ['cID' => 1, 'arHandle' => 'Header', 'pkID' => $this->areaKeys[0], 'paID' => $paID]);
 
-        $selection = (new LeftoverCleanup($this->db))->select();
+        $selection = $this->cleanup()->select();
 
         $this->assertNotContains($paID, $selection['selected']['accesses']);
         $this->assertArrayHasKey($paID, $selection['evidence']['accessesKept']);
@@ -155,7 +187,7 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         $entityID = (int) $this->db->fetchOne('SELECT peID FROM PermissionAccessEntityUsers LIMIT 1');
         $this->assertGreaterThan(0, $entityID);
 
-        $selection = (new LeftoverCleanup($this->db))->select();
+        $selection = $this->cleanup()->select();
 
         $this->assertNotContains($entityID, $selection['selected']['userEntities']);
     }
@@ -170,7 +202,7 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         $otherType = (int) $this->db->lastInsertId();
         $liveSignup = (int) $this->db->fetchOne('SELECT nID FROM UserSignupNotifications LIMIT 1');
 
-        $cleanup = new LeftoverCleanup($this->db);
+        $cleanup = $this->cleanup();
         $selection = $cleanup->select();
 
         $this->assertContains($dangling, $selection['selected']['notifications']);
@@ -191,7 +223,7 @@ final class LeftoverCleanupTest extends ConcreteTestCase
     {
         $paID = $this->newAccess();
         $this->overrideRows($this->deadPageA, $paID);
-        $cleanup = new LeftoverCleanup($this->db);
+        $cleanup = $this->cleanup();
         $selection = $cleanup->select();
 
         $summary = LeftoverCleanup::summary($selection);

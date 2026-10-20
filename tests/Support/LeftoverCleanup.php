@@ -15,7 +15,8 @@ use Doctrine\DBAL\Connection;
  *
  *  1. Dead-page permission rows. A cID in AreaPermissionAssignments that is not in Collections, whose rows are
  *     exactly what Area::overridePagePermissions() writes (area "Main" only, every area permission key once), and
- *     that is higher than every live page outside /neuron-test. Their accesses are removed only when no row in any
+ *     that is higher than every page that was already there when the tests began (the highest cID with a
+ *     cDateAdded before $testsSince, outside /neuron-test). Their accesses are removed only when no row in any
  *     table with a paID column (found from information_schema) refers to them outside the selected rows.
  *  2. User entities with no user: type user, no PermissionAccessEntityUsers row, and no row in any table with a
  *     peID column once the accesses of step 1 are gone.
@@ -35,7 +36,10 @@ final class LeftoverCleanup
     /** Subtype tables of Notifications are references; these two are the notification itself and its alerts. */
     private const NOTIFICATION_OWN_TABLES = ['Notifications', 'NotificationAlerts', 'UserSignupNotifications'];
 
-    public function __construct(private readonly Connection $db)
+    /**
+     * @param string $testsSince YYYY-MM-DD: when the Neuron tests began. Pages added before it are real content.
+     */
+    public function __construct(private readonly Connection $db, private readonly string $testsSince)
     {
     }
 
@@ -51,8 +55,9 @@ final class LeftoverCleanup
              WHERE c.pkCategoryHandle = 'area' ORDER BY pk.pkID"
         ));
         $liveMax = (int) $db->fetchOne(
-            "SELECT MAX(cID) FROM Collections
-             WHERE cID NOT IN (SELECT cID FROM PagePaths WHERE cPath = '/neuron-test' OR cPath LIKE '/neuron-test/%')"
+            "SELECT MAX(cID) FROM Collections WHERE cDateAdded < ?
+             AND cID NOT IN (SELECT cID FROM PagePaths WHERE cPath = '/neuron-test' OR cPath LIKE '/neuron-test/%')",
+            [$this->testsSince]
         );
 
         // ---- 1. Dead-page permission rows ----------------------------------------------------------------------
@@ -76,7 +81,7 @@ final class LeftoverCleanup
             } elseif ($keys !== $areaKeys) {
                 $rejectedPages[$cID] = 'not the override signature: ' . count($keys) . ' rows for ' . count($areaKeys) . ' area permission keys';
             } elseif ($cID <= $liveMax) {
-                $rejectedPages[$cID] = "not higher than the live page {$liveMax}, so it may predate the tests";
+                $rejectedPages[$cID] = "not higher than page {$liveMax}, the newest page from before {$this->testsSince}, so it may predate the tests";
             } else {
                 $pages[] = $cID;
                 $assignmentRows += count($pageRows);
@@ -196,6 +201,7 @@ final class LeftoverCleanup
                 'alertRows' => $alertRows,
             ],
             'evidence' => [
+                'testsSince' => $this->testsSince,
                 'liveMaxPageID' => $liveMax,
                 'areaPermissionKeys' => count($areaKeys),
                 'pagesNotSelected' => $rejectedPages,
@@ -270,6 +276,7 @@ final class LeftoverCleanup
         $s = $selection['selected'];
 
         return $s + [
+            'testsSince' => $selection['evidence']['testsSince'],
             'counts' => [
                 'pages' => count($s['pages']),
                 'accesses' => count($s['accesses']),

@@ -10,13 +10,16 @@
  * Rows are chosen by criteria (tests/Support/LeftoverCleanup.php), never by a list of IDs. It does NOT touch the orphan
  * blocks, Logs, the live fixture page, live notifications or any access that something else still uses.
  *
- * Run it from httpdocs/ with Concrete's own runner. Options after "--" are passed to this script:
+ * Run it from httpdocs/ with Concrete's own runner. Options after "--" are passed to this script. --tests-since is
+ * required every time: the date the Neuron tests began (YYYY-MM-DD). A dead page is only cleaned up when its cID is higher
+ * than the newest page that was added before that date, so a page that was real content is never touched.
  *
- *   php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fixtures/cleanup_test_leftovers.php
+ *   php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fixtures/cleanup_test_leftovers.php \
+ *       -- --tests-since=2026-10-19
  *       Dry run (the default). Changes nothing. Prints what it would delete and why, and writes the summary file.
  *
  *   php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fixtures/cleanup_test_leftovers.php \
- *       -- --apply --expect=<summary file of the dry run> --dump=<fresh mysqldump file>
+ *       -- --tests-since=2026-10-19 --apply --expect=<summary file of the dry run> --dump=<fresh mysqldump file>
  *       Deletes. Needs both options: the summary the dry run wrote, and a dump taken after it ("Dump completed" on its
  *       last line, newer than the summary). Inside ONE transaction it selects again and rolls back, deleting nothing,
  *       if the result differs from the summary. After the commit it selects once more and reports anything left.
@@ -43,14 +46,14 @@ $cleanupStatus = (function () use ($args, $output) {
     foreach ($args as $arg) {
         if ($arg === '--apply') {
             $options['apply'] = true;
-        } elseif (preg_match('/^--(expect|dump|summary)=(.+)$/', (string) $arg, $m) === 1) {
+        } elseif (preg_match('/^--(expect|dump|summary|tests-since)=(.+)$/', (string) $arg, $m) === 1) {
             $options[$m[1]] = $m[2];
         } else {
             $unknown[] = $arg;
         }
     }
     if ($unknown !== []) {
-        $output->writeln('<error>Unknown option(s): ' . implode(' ', $unknown) . '. Supported: --apply, --expect=, --dump=, --summary= (put them after "--").</error>');
+        $output->writeln('<error>Unknown option(s): ' . implode(' ', $unknown) . '. Supported: --tests-since=, --apply, --expect=, --dump=, --summary= (put them after "--").</error>');
 
         return 2;
     }
@@ -67,12 +70,18 @@ $cleanupStatus = (function () use ($args, $output) {
     }
 
     $summaryFile = $options['summary'] ?? (sys_get_temp_dir() . '/neuron_ai_cleanup_summary.json');
-    $cleanup = new LeftoverCleanup($db);
+    $testsSince = $options['tests-since'] ?? '';
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $testsSince) !== 1) {
+        $output->writeln('<error>--tests-since=YYYY-MM-DD is required: the date the Neuron tests began (the first test commit is dated 2026-10-19). Nothing was changed.</error>');
+
+        return 2;
+    }
+    $cleanup = new LeftoverCleanup($db, $testsSince);
 
     $report = function (array $selection) use ($output): void {
         $s = $selection['selected'];
         $e = $selection['evidence'];
-        $output->writeln('Live pages outside /neuron-test go up to cID ' . $e['liveMaxPageID'] . '; the area permission keys number ' . $e['areaPermissionKeys'] . '.');
+        $output->writeln('Pages added before ' . $e['testsSince'] . ' (outside /neuron-test) go up to cID ' . $e['liveMaxPageID'] . '; the area permission keys number ' . $e['areaPermissionKeys'] . '.');
         $output->writeln(sprintf('1. Dead-page permission rows: %d pages, %d AreaPermissionAssignments rows', count($s['pages']), $s['assignmentRows']));
         $output->writeln(sprintf(
             '   accesses only they use: %d (with %d PermissionAccessList and %d access-list child rows)',

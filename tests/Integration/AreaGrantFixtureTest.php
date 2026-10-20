@@ -33,9 +33,33 @@ final class AreaGrantFixtureTest extends ConcreteTestCase
         ConcreteBoot::boot()->setupPackageAutoloaders();
     }
 
+    /** @var int[] */
+    private array $pages = [];
+
+    /** @var AreaGrantFixture[] */
+    private array $fixtures = [];
+
     protected function tearDown(): void
     {
+        // Also when an assertion failed halfway: delete the page, then take back the grants (as DraftIsolationTest does).
+        Request::getInstance()->setCustomRequestUser($this->app()->make(UserInfoRepository::class)->getByID(USER_SUPER_ID));
+        $db = $this->app()->make(Connection::class);
+        foreach ($this->pages as $cID) {
+            if ((int) $db->fetchOne('SELECT COUNT(*) FROM Collections WHERE cID = ?', [$cID]) > 0) {
+                Page::getByID($cID)->delete();
+            }
+        }
+        foreach ($this->fixtures as $fixture) {
+            $fixture->restore();
+        }
+        $this->pages = [];
+        $this->fixtures = [];
         Request::getInstance()->setCustomRequestUser(-1);
+    }
+
+    private function newFixture(): AreaGrantFixture
+    {
+        return $this->fixtures[] = new AreaGrantFixture($this->app());
     }
 
     /**
@@ -65,6 +89,7 @@ final class AreaGrantFixtureTest extends ConcreteTestCase
             'pTemplateID' => $template->getPageTemplateID(),
         ], $template);
         $this->assertFalse($page->isError());
+        $this->pages[] = (int) $page->getCollectionID();
 
         return (int) $page->getCollectionID();
     }
@@ -72,7 +97,7 @@ final class AreaGrantFixtureTest extends ConcreteTestCase
     public function testGrantThenDeleteThePageThenRestoreLeavesNoRowsBehind(): void
     {
         $before = $this->counts();
-        $fixture = new AreaGrantFixture($this->app());
+        $fixture = $this->newFixture();
 
         $cID = $this->newThrowawayPage();
         $fixture->allowUserToAddBlocks($cID, 'neuron_editor');
@@ -86,7 +111,7 @@ final class AreaGrantFixtureTest extends ConcreteTestCase
 
     public function testRestoreWithoutDeletingThePageAlsoLeavesNoGrantRows(): void
     {
-        $fixture = new AreaGrantFixture($this->app());
+        $fixture = $this->newFixture();
         $cID = $this->newThrowawayPage();
         $afterPage = $this->counts();
 
@@ -107,7 +132,7 @@ final class AreaGrantFixtureTest extends ConcreteTestCase
         $sharedBefore = $db->fetchFirstColumn(
             'SELECT DISTINCT paID FROM PagePermissionAssignments UNION SELECT DISTINCT paID FROM PermissionAssignments ORDER BY paID'
         );
-        $fixture = new AreaGrantFixture($this->app());
+        $fixture = $this->newFixture();
 
         $cID = $this->newThrowawayPage();
         $fixture->allowUserToAddBlocks($cID, 'neuron_editor');
