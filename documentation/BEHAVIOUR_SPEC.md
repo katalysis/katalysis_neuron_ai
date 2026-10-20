@@ -294,6 +294,8 @@ Glyn, 19 October 2026, on review of draft v1:
 
 1. **Files** are never deleted by the assistant. It may move them to "Assistant – to delete", where a person reviews and deletes them (B-T1-11). Concrete 9.5 has no file trash.
 2. **Tier assignment** is by Concrete groups chosen in the Neuron settings, with superusers at Tier 3 (B-ACC-9, implemented in P3.2). Until then access stays as the settings-page check (B-ACC-1).
+
+   Superseded 20 Oct 2026 by P1.10a: access is the 'Use Neuron AI assistant' task permission.
 3. **Unassigned areas:** attribute definitions are Tier 2 (B-T2-6). User accounts, groups and permissions are read-only and never changed at any tier (B-ACC-7). File upload is Tier 1 (B-T1-12).
 4. **Tier 2 deletes:** refuse deleting or changing the type of Express objects or attributes that hold data. Empty ones may be deleted, with confirmation (B-T2-4).
 5. **Reply language:** the language the user writes in. Content written to the site follows the site's locale (B-LNG-2, B-LNG-3).
