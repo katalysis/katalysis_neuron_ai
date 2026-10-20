@@ -14,6 +14,8 @@ namespace Katalysis\NeuronAi\Tests\Eval;
  * - $after: the snapshot taken after the turn (or the last turn).
  * - $toolCalls: the tool calls of that turn (or of every turn, for the scenario-level `expect`).
  * - $reply and $prompt: the assistant's reply, and the user's message it answered (the last ones, for the scenario level).
+ * - $notice: the injection notice text the agent reported for that turn (ConcreteCmsAgent::getTurnNotice(), the call
+ *   controllers/chat.php makes), or null. For the scenario-level `expect` it is the first notice of any turn.
  */
 final class CheckContext
 {
@@ -27,6 +29,7 @@ final class CheckContext
         public readonly array $toolCalls,
         public readonly string $reply,
         public readonly string $prompt,
+        public readonly ?string $notice = null,
     ) {
     }
 }

@@ -13,7 +13,7 @@ use Symfony\Component\Yaml\Yaml;
  */
 final class ScenarioLoader
 {
-    private const TOP_KEYS = ['id', 'title', 'tier', 'user', 'current_page', 'rules', 'known_to_fail_today', 'rubric', 'turns', 'expect'];
+    private const TOP_KEYS = ['id', 'title', 'tier', 'user', 'current_page', 'rules', 'known_to_fail_today', 'rubric', 'setup', 'turns', 'expect'];
     private const TURN_KEYS = ['say', 'approval', 'current_page', 'expect'];
     private const EXPECT_KEYS = ['state', 'tools', 'reply'];
     private const STATE_KEYS = [
@@ -22,7 +22,7 @@ final class ScenarioLoader
         'people', 'person_field_empty', 'changed_pages',
     ];
     private const BLOCK_KEYS = ['page', 'area', 'count', 'headings', 'contains_html', 'lacks_html', 'unchanged', 'has_block', 'has_block_unchanged'];
-    private const TOOL_KEYS = ['no_write_tool_succeeded', 'not_succeeded', 'not_called', 'called_any'];
+    private const TOOL_KEYS = ['no_write_tool_succeeded', 'not_succeeded', 'not_called', 'called_any', 'notice_shown', 'notice_absent'];
     private const REPLY_KEYS = ['matches_all', 'matches_any', 'not_matches', 'shorter_than_prompt', 'lists_recorded_children'];
     private const USERS = ['neuron_editor', 'superuser'];
 
@@ -128,6 +128,10 @@ final class ScenarioLoader
         }
         if (!is_array($data['turns']) || $data['turns'] === [] || !array_is_list($data['turns'])) {
             return array_merge($errors, ['turns must be a non-empty list.']);
+        }
+
+        if (array_key_exists('setup', $data)) {
+            $errors = array_merge($errors, ScenarioSetup::validate($data['setup']));
         }
 
         foreach ($data['turns'] as $i => $turn) {

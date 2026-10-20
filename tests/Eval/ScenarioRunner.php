@@ -65,9 +65,17 @@ final class ScenarioRunner
         $hadError = false;
         $allCalls = [];
         $usage = null;
+        $anyNotice = null;
+        $setup = new ScenarioSetup();
+        $setupIds = [];
 
         try {
             $user = $this->loginAs((string) $scenario['user']);
+            // The setup comes before the snapshot, so `nothing_changed` doesn't count it as a change.
+            if (isset($scenario['setup'])) {
+                $setupIds = $setup->apply($scenario['setup']);
+                $this->entityManager()->clear();
+            }
             $start = $this->snapshots->take();
             $chatId = $this->createChat((string) $scenario['id'], $runNumber, $user, (string) $scenario['current_page']);
 
@@ -101,10 +109,12 @@ final class ScenarioRunner
                 $turnUsage = $this->usage($newMessages);
                 $logErrors = $this->errorLogs($logMark);
                 $agentError = $reply === self::AGENT_ERROR_REPLY;
+                // The same call controllers/chat.php makes. Recorded for every scenario, so false notices show up everywhere.
+                $notice = $agent->getTurnNotice();
 
                 $turnChecks = [];
                 if (isset($turn['expect'])) {
-                    $context = new CheckContext($before, $start, $after, $calls, $reply, (string) $turn['say']);
+                    $context = new CheckContext($before, $start, $after, $calls, $reply, (string) $turn['say'], $notice);
                     foreach (Expectations::evaluate($turn['expect'], $context) as $check) {
                         $turnChecks[] = $check->at('turn ' . ($i + 1));
                     }
@@ -112,6 +122,7 @@ final class ScenarioRunner
 
                 $checks = array_merge($checks, $turnChecks);
                 $allCalls = array_merge($allCalls, $calls);
+                $anyNotice ??= $notice;
                 $usage = $this->addUsage($usage, $turnUsage);
                 $hadError = $hadError || $agentError;
                 $lastReply = $reply;
@@ -122,6 +133,7 @@ final class ScenarioRunner
                     'page' => $page,
                     'reply' => $reply,
                     'agentError' => $agentError,
+                    'notice' => $notice,
                     'durationSec' => round($turnSeconds, 1),
                     'usage' => $turnUsage,
                     'toolCalls' => array_map(fn (array $call): array => $this->truncateCall($call), $calls),
@@ -131,7 +143,7 @@ final class ScenarioRunner
             }
 
             if (isset($scenario['expect'])) {
-                $context = new CheckContext($start, $start, $after, $allCalls, $lastReply, $lastSay);
+                $context = new CheckContext($start, $start, $after, $allCalls, $lastReply, $lastSay, $anyNotice);
                 foreach (Expectations::evaluate($scenario['expect'], $context) as $check) {
                     $checks[] = $check->at('end');
                 }
@@ -139,6 +151,8 @@ final class ScenarioRunner
         } catch (\Throwable $e) {
             $hadError = true;
             $run['error'] = get_class($e) . ': ' . $e->getMessage();
+        } finally {
+            $setup->undo($setupIds);
         }
 
         $run['usage'] = $usage;
