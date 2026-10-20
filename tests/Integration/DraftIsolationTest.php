@@ -15,10 +15,9 @@ use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
-use Concrete\Core\Permission\Access\Entity\UserEntity;
-use Concrete\Core\Permission\Key\Key as PermissionKey;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
+use Katalysis\NeuronAi\Tests\Support\AreaGrantFixture;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
@@ -46,6 +45,9 @@ final class DraftIsolationTest extends ConcreteTestCase
     /** @var int[] IDs of the throwaway pages, deleted in tearDown() */
     private array $copies = [];
 
+    /** Area grants made by allowEditorToAddBlocksToMain(), removed in tearDown() (P1.12) */
+    private ?AreaGrantFixture $grants = null;
+
     public static function setUpBeforeClass(): void
     {
         parent::setUpBeforeClass();
@@ -65,6 +67,9 @@ final class DraftIsolationTest extends ConcreteTestCase
             }
         }
         $this->copies = [];
+        // Page::delete() leaves the pages' area permission rows: the fixture removes them, and the access it made.
+        $this->grants?->restore();
+        $this->grants = null;
         Request::getInstance()->setCustomRequestUser(-1);
     }
 
@@ -483,15 +488,8 @@ final class DraftIsolationTest extends ConcreteTestCase
      */
     private function allowEditorToAddBlocksToMain(int $cID): void
     {
-        $this->actAs('superuser');
-        $editor = $this->app()->make(UserInfoRepository::class)->getByUserName('neuron_editor');
-        $main = Area::getOrCreate(Page::getByID($cID), 'Main');
-        $main->overridePagePermissions();
-        $key = PermissionKey::getByHandle('add_block_to_area');
-        $key->setPermissionObject($main);
-        $access = $key->getPermissionAccessObject()->duplicate();
-        $access->addListItem(UserEntity::getOrCreate($editor));
-        $key->getPermissionAssignmentObject()->assignPermissionAccess($access);
+        $this->grants ??= new AreaGrantFixture($this->app());
+        $this->grants->allowUserToAddBlocks($cID, 'neuron_editor');
         $this->actAs('neuron_editor');
     }
 

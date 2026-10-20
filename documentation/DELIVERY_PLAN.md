@@ -253,6 +253,7 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - remove the double update in `update_block_in_page_area` (`UpdatePageBlockCommand`, then `$blockToEdit->update()`), unless P1.8a fixes it
   - return the new block IDs in the tool output after a copy, so the model doesn't reuse an ID that the copy replaced (seen in a scenario 05 run)
   - from P1.8a: `AttributesToolkit` is not registered by the agent (it duplicates `PageAttributesToolkit`). P1.8a routed it through `PageDraft::of()` but did not delete it. Remove it, or register it on purpose, in this split
+  - from P1.12: the `batch_update_content_headings` bug at `PagesToolkit.php:1068` (no `headingTexts` with `matchMode=bold_paragraph`; see P3.9), fixed in the split
   - from P1.10 (`get_page_content` now reads the blocks directly; these two are not fixed there):
     - content-block links come back as `{CCM:CID_n}` placeholders, because the text comes from the raw `getSearchableContent()`. Translate them (for example `LinkAbstractor::translateFrom`) or resolve them to paths
     - image alt text is lost, because image blocks return no text (`hasText: false` in the `blocks` list)
@@ -280,6 +281,9 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - errors sent to the browser are reduced to a safe message, with the detail logged (B-ERR-4). From P1.7a, six chat endpoints still return `$e->getMessage()`: `chat_list`, `load`, `current`, `new_chat`, `delete_chat` and `delete_current_chat`
   - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
   - chat history load failures should show a clear message to the user (found in P1.11: currently `catch (\Exception)` in `loadExistingMessages()`)
+  - from P1.12 (two of the five PHP warnings that every `DraftIsolationTest` run writes to the exceptions log; found, not fixed there):
+    - **our bug:** `src/Tools/PagesToolkit.php:1068`, in `batch_update_content_headings`: `foreach ($headingTexts ...)` runs when `matchMode` is `bold_paragraph` and the model gives no `headingTexts`, which logs `foreach() argument must be of type array|object, null given`. The tool should refuse with a clear message instead (do it in the P3.3 split)
+    - **test input:** `tests/Integration/DraftIsolationTest.php:791` (`newLayoutPage`) builds the layout with `'width' => []`, and core `concrete/blocks/core_area_layout/controller.php:370` reads `$post['width'][$i]`, giving four `Undefined array key 0/1` warnings per run (three tests). Give the columns widths in the test. Not our code in core, so no core change
 - P3.10 **Extension model (see `EXTENSIONS.md`):**
   1. the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface
   2. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
