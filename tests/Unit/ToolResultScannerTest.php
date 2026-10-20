@@ -185,10 +185,49 @@ final class ToolResultScannerTest extends TestCase
         $scanner = $this->scanner();
         $this->call($scanner->wrapTool($this->tool('get_page', static fn (): array => ['text' => self::NOTE])));
         $this->assertNotNull($scanner->turnNoticeKind());
+        $this->assertSame(InjectionNotice::SOURCE_PAGE, $scanner->turnNoticeSource());
 
         $scanner->reset();
 
         $this->assertNull($scanner->turnNoticeKind());
+        $this->assertNull($scanner->turnNoticeSource());
+    }
+
+    public function testTheSourceComesFromTheToolThatReturnedTheText(): void
+    {
+        $scanner = $this->scanner();
+        $this->call($scanner->wrapTool($this->tool('list_people', static fn (): array => ['text' => self::NOTE])));
+
+        $this->assertSame(InjectionNotice::SOURCE_PERSON, $scanner->turnNoticeSource());
+    }
+
+    public function testOnlyTheToolsThatWereFlaggedCountTowardsTheSource(): void
+    {
+        $scanner = $this->scanner();
+        $this->call($scanner->wrapTool($this->tool('list_people', static fn (): array => ['text' => 'A fictional person.'])));
+        $this->assertNull($scanner->turnNoticeSource(), 'nothing flagged, no source');
+
+        $this->call($scanner->wrapTool($this->tool('get_block_data', static fn (): array => ['text' => self::NOTE])));
+
+        $this->assertSame(InjectionNotice::SOURCE_BLOCK, $scanner->turnNoticeSource());
+    }
+
+    public function testFlaggedTextFromTwoKindsOfPlaceGivesTheGenericSource(): void
+    {
+        $scanner = $this->scanner();
+        $this->call($scanner->wrapTool($this->tool('get_page_content', static fn (): array => ['text' => self::NOTE])));
+        $this->call($scanner->wrapTool($this->tool('list_people', static fn (): array => ['text' => self::NOTE])));
+
+        $this->assertSame(InjectionNotice::SOURCE_OTHER, $scanner->turnNoticeSource());
+    }
+
+    public function testTwoFlaggedToolsOfTheSameKindKeepTheirSource(): void
+    {
+        $scanner = $this->scanner();
+        $this->call($scanner->wrapTool($this->tool('get_page_content', static fn (): array => ['text' => self::NOTE])));
+        $this->call($scanner->wrapTool($this->tool('get_page', static fn (): array => ['text' => self::NOTE])));
+
+        $this->assertSame(InjectionNotice::SOURCE_PAGE, $scanner->turnNoticeSource());
     }
 
     public function testAWriteThatSucceededAfterTheFlagSelectsTheSecondKind(): void

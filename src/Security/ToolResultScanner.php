@@ -29,6 +29,8 @@ final class ToolResultScanner
     private bool $flagged = false;
     private bool $writeAfterFlag = false;
 
+    /** @var array<string, true> the InjectionNotice SOURCE_ values of the tools whose results were flagged this turn */
+    private array $sources = [];
     /** @var \WeakMap<ToolInterface, true> */
     private \WeakMap $wrapped;
 
@@ -49,6 +51,7 @@ final class ToolResultScanner
     {
         $this->flagged = false;
         $this->writeAfterFlag = false;
+        $this->sources = [];
     }
 
     /**
@@ -61,6 +64,19 @@ final class ToolResultScanner
         }
 
         return $this->writeAfterFlag ? InjectionNotice::SUSPECTED_THEN_WRITES : InjectionNotice::SUSPECTED;
+    }
+
+    /**
+     * Where the flagged text was read: the one InjectionNotice SOURCE_ value when every flagged result came from the
+     * same kind of tool, SOURCE_OTHER when they came from more than one kind, and null when nothing was flagged.
+     */
+    public function turnNoticeSource(): ?string
+    {
+        if (!$this->flagged) {
+            return null;
+        }
+
+        return count($this->sources) === 1 ? (string) array_key_first($this->sources) : InjectionNotice::SOURCE_OTHER;
     }
 
     public function isWrapped(ToolInterface $tool): bool
@@ -171,6 +187,7 @@ final class ToolResultScanner
 
         if ($hits !== []) {
             $this->flagged = true;
+            $this->sources[InjectionNotice::sourceForTool($toolName)] = true;
             $this->logHits($toolName, $hits);
         }
 

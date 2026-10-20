@@ -140,9 +140,11 @@ class DatabaseChatHistory extends AbstractChatHistory
      * Metadata is written into the stored message JSON (Message::jsonSerialize) and read back by
      * AbstractChatHistory::deserializeMeta, so it survives a reload. Neuron does not send it to the provider.
      *
+     * @param array<string, string> $more further metadata values to put on the same message
+     *
      * @return bool whether a message was flagged
      */
-    public function flagLastAssistantMessage(string $key, string $value): bool
+    public function flagLastAssistantMessage(string $key, string $value, array $more = []): bool
     {
         $last = end($this->history);
         if (!$last instanceof Message || $last instanceof ToolCallMessage || $last->getRole() !== 'assistant') {
@@ -150,6 +152,9 @@ class DatabaseChatHistory extends AbstractChatHistory
         }
 
         $last->addMetadata($key, $value);
+        foreach ($more as $k => $v) {
+            $last->addMetadata((string) $k, $v);
+        }
         $this->persistHistory();
 
         return true;

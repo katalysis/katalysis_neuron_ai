@@ -137,7 +137,11 @@ final class ToolResultScanningTest extends ConcreteTestCase
         $this->assertContains('ignore_previous', $kinds);
         $this->assertContains('addressed_to_ai', $kinds);
         $this->assertStringContainsString('Opening hours', $result['text'], 'the content itself is unchanged');
-        $this->assertSame(InjectionNotice::TEXT, $agent->getTurnNotice());
+        $this->assertSame(InjectionNotice::SOURCE_PAGE, $agent->getTurnNoticeSource());
+        $this->assertSame(
+            'Some content the assistant read (this page) contains text addressed to the AI assistant. It was not acted on.',
+            $agent->getTurnNotice()
+        );
     }
 
     public function testGetPageContentHasNoKeyForCleanContent(): void
@@ -161,8 +165,11 @@ final class ToolResultScanningTest extends ConcreteTestCase
         $result = $this->callTool($agent, 'list_people', ['search' => 'Test Person Scanner']);
 
         $this->assertNotEmpty($result['suspectedInstructions'] ?? null, 'list_people must flag a biography with the note: ' . json_encode($result));
-        $this->assertSame(InjectionNotice::TEXT, $agent->getTurnNotice());
-        $this->assertGreaterThan(0, $sID);
+        $this->assertSame(InjectionNotice::SOURCE_PERSON, $agent->getTurnNoticeSource());
+        $this->assertSame(
+            "Some content the assistant read (a person's profile) contains text addressed to the AI assistant. It was not acted on.",
+            $agent->getTurnNotice()
+        );
     }
 
     public function testListPeopleHasNoKeyForOrdinaryBiographies(): void
@@ -188,6 +195,7 @@ final class ToolResultScanningTest extends ConcreteTestCase
 
         $this->assertNull($agent->getTurnNotice());
         $this->assertNull($agent->getTurnNoticeKind());
+        $this->assertNull($agent->getTurnNoticeSource());
     }
 
     public function testThePromptCarriesTheTrustBoundaryRuleOnce(): void
@@ -205,7 +213,7 @@ final class ToolResultScanningTest extends ConcreteTestCase
 
         // Nothing in the agent reads a reply: with no flagged tool result there is no notice, whatever was said.
         $this->assertNull($agent->getTurnNotice());
-        $this->assertNull(InjectionNotice::text(InjectionNotice::TEXT));
+        $this->assertNull(InjectionNotice::text((string) InjectionNotice::text(InjectionNotice::SUSPECTED)));
     }
 
     // ---- helpers -------------------------------------------------------------------------------

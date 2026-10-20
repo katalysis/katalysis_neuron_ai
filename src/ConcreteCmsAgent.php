@@ -85,6 +85,8 @@ class ConcreteCmsAgent extends Agent
 
     /**
      * The scanner that wraps every tool this agent offers (P1.11). Public so tests can check that every tool is covered.
+     *
+     * @internal Not part of the extension API. For this package's tests and for the agent itself.
      */
     public function toolResultScanner(): ToolResultScanner
     {
@@ -115,11 +117,20 @@ class ConcreteCmsAgent extends Agent
     }
 
     /**
+     * The kind of place the flagged text was read from (an InjectionNotice SOURCE_ constant), or null. Taken from the
+     * names of the tools that returned it.
+     */
+    public function getTurnNoticeSource(): ?string
+    {
+        return $this->toolResultScanner()->turnNoticeSource();
+    }
+
+    /**
      * The fixed notice text for the last turn, or null. The chat endpoint and the scenario runner both call this.
      */
     public function getTurnNotice(): ?string
     {
-        return InjectionNotice::text($this->getTurnNoticeKind());
+        return InjectionNotice::text($this->getTurnNoticeKind(), $this->getTurnNoticeSource());
     }
     
     /**
@@ -537,6 +548,8 @@ INST;
 
     /**
      * Starts a turn: hits from an earlier turn don't carry over. handle() calls this first.
+     *
+     * @internal Not part of the extension API. For this package's tests and for handle() itself.
      */
     public function startTurn(): void
     {
@@ -601,7 +614,9 @@ INST;
         try {
             $history = $this->resolveState()->getChatHistory();
             if ($history instanceof DatabaseChatHistory) {
-                $history->flagLastAssistantMessage(InjectionNotice::META_KEY, $kind);
+                $history->flagLastAssistantMessage(InjectionNotice::META_KEY, $kind, [
+                    InjectionNotice::META_SOURCE_KEY => $this->getTurnNoticeSource() ?? InjectionNotice::SOURCE_OTHER,
+                ]);
             }
         } catch (\Throwable $e) {
             \Concrete\Core\Support\Facade\Log::warning(
