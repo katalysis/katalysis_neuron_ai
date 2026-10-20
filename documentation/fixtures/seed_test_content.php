@@ -20,7 +20,8 @@
  *
  * Without options, it creates whatever is missing and leaves everything that exists alone.
  * With --reset it first deletes ONLY the content this script creates, then creates it again. --reset-only deletes it
- * and stops (used to check that a reset leaves nothing behind). It also removes the review
+ * and stops (used to check that a reset leaves nothing behind). Every successful run ends by clearing Concrete's cache,
+ * as Dashboard > Optimization > Clear Cache does, because the permissions it changed are cached. It also removes the review
  * folder "Assistant – to delete" if a scenario created it, but only when nothing but fixture files is in it.
  * It never reads, changes or depends on any other person, user or Express object.
  *
@@ -66,7 +67,7 @@ use Concrete\Core\User\RegistrationServiceInterface;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 
-return (function () use ($args, $output) {
+$seedStatus = (function () use ($args, $output) {
     // What this script owns. Reset only ever touches things that match these markers.
     $pagePath = '/neuron-test';
     $pageMarker = 'Neuron AI test fixture (created by seed_test_content.php). Safe to delete.';
@@ -843,3 +844,18 @@ return (function () use ($args, $output) {
 
     return 0;
 })();
+
+// The seed changes permissions straight in the database, and the website keeps serving the cached ones until the
+// cache is cleared. So after every successful run (including --reset and --reset-only) clear Concrete's cache, the
+// same command as Dashboard > System & Settings > Optimization > Clear Cache. A refused or failed run changes
+// nothing here (the dev-host guard exits before this point with a non-zero status).
+if ($seedStatus === 0) {
+    $seedApp = Application::getFacadeApplication();
+    $clearCache = new \Concrete\Core\Cache\Command\ClearCacheCommand();
+    $clearCache->setLogCacheClear(true);
+    $seedApp->executeCommand($clearCache);
+    $seedApp->make('config')->save('concrete.cache.last_cleared', time());
+    $output->writeln('Concrete cache cleared.');
+}
+
+return $seedStatus;
