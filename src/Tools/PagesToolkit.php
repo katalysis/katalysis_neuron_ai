@@ -25,6 +25,7 @@ use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
@@ -356,36 +357,13 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot read page {$pageID}. You need view permissions for this page" . ($versionHandle === 'RECENT' ? ' version.' : '.'));
             }
 
-            // Get rendered page content
-            $content = '';
-            $rawContent = '';
-            $renderMethod = 'fallback';
-            $renderErrors = [];
-            
-            try {
-                // Render the page to get HTML content
-                $renderer = Application::getFacadeApplication()->make('Concrete\Core\Page\View\PageView');
-                $renderer->setPageObject($page);
-                
-                // Try to get content - this may not work in all contexts
-                ob_start();
-                try {
-                    $renderer->render();
-                    $rawContent = ob_get_clean();
-                    $content = $rawContent;
-                    $renderMethod = 'rendered';
-                } catch (\Exception $e) {
-                    ob_end_clean();
-                    $renderErrors[] = "Page render failed: " . $e->getMessage();
-                    // Fall back to getting content from blocks directly
-                    $content = $this->extractContentFromBlocks($page);
-                    $rawContent = $content;
-                }
-            } catch (\Exception $e) {
-                $renderErrors[] = "Page view setup failed: " . $e->getMessage();
-                $content = $this->extractContentFromBlocks($page);
-                $rawContent = $content;
-            }
+            // Read the blocks directly. Rendering the page needs a current page and a web
+            // request, so it fails under the CLI and in the chat panel's own context.
+            $read = $this->readPageBlocks($page);
+            $content = $read['html'];
+            $rawContent = $content;
+            $renderMethod = 'blocks';
+            $renderErrors = $read['errors'];
 
             $plainText = HtmlToText::convert($content);
 
@@ -403,6 +381,8 @@ class PagesToolkit extends AbstractToolkit
                 'html_raw' => $rawContent,
                 'text' => $plainText,
                 'renderMethod' => $renderMethod,
+                'blocks' => $read['blocks'],
+                'hiddenBlocks' => $read['hiddenBlocks'],
             ];
             
             if (!empty($renderErrors)) {
@@ -3026,33 +3006,100 @@ class PagesToolkit extends AbstractToolkit
         return $areas;
     }
 
-    protected function extractContentFromBlocks(Page $page): string
+    /**
+     * Reads the text of every block the current user may view, in the version the page
+     * object holds. Container sub-areas are included (Area::getListOnPage lists them).
+     *
+     * A block that cannot be read is reported in 'errors' and the rest are still returned.
+     * Blocks and areas the user cannot view are counted in 'hiddenBlocks' and never read.
+     *
+     * Blocks are loaded with Page::getBlocks(), which reads the version the page object holds,
+     * rather than from the Area objects, which Concrete caches per page ID for the request.
+     *
+     * @return array{html: string, blocks: array<int, array<string, mixed>>, hiddenBlocks: int, errors: array<int, string>}
+     */
+    protected function readPageBlocks(Page $page): array
     {
-        $chunks = [];
+        $sections = [];
+        $blocks = [];
+        $errors = [];
+        $hidden = 0;
 
-        foreach (Area::getHandleList() as $handle) {
+        // Area::getListOnPage() is typed against the global `Page` alias. PHP does not
+        // autoload an alias for a type check, so load it first.
+        class_exists('Page');
+
+        try {
+            $areas = Area::getListOnPage($page);
+        } catch (\Throwable $e) {
+            $areas = [];
+            $errors[] = 'Could not list the page areas: ' . $this->safeMessage($e);
+        }
+
+        foreach ($areas as $area) {
+            $handle = (string) $area->getAreaHandle();
+
             try {
-                $area = Area::get($page, $handle);
-                if (!$area) {
+                $areaBlocks = $page->getBlocks($handle);
+                if (!(new Checker($area))->canViewArea()) {
+                    $hidden += count($areaBlocks);
                     continue;
-                }
-
-                $blocks = $area->getAreaBlocksArray($page);
-                if (!is_array($blocks)) {
-                    continue;
-                }
-
-                foreach ($blocks as $block) {
-                    $preview = $this->extractBlockPreview($block);
-                    if ($preview !== null && $preview !== '') {
-                        $chunks[] = sprintf('<section data-area="%s"><h2>%s</h2><div>%s</div></section>', htmlspecialchars($handle, ENT_QUOTES), htmlspecialchars($handle, ENT_QUOTES), $preview);
-                    }
                 }
             } catch (\Throwable $e) {
+                $errors[] = "Area {$handle}: " . $this->safeMessage($e);
+                continue;
+            }
+
+            foreach ($areaBlocks as $block) {
+                $blockID = (int) $block->getBlockID();
+                $type = (string) $block->getBlockTypeHandle();
+
+                try {
+                    if (!(new Checker($block))->canViewBlock()) {
+                        $hidden++;
+                        continue;
+                    }
+
+                    $text = $this->extractBlockText($block);
+                } catch (\Throwable $e) {
+                    $errors[] = "Block {$blockID} ({$type}) in area {$handle}: " . $this->safeMessage($e);
+                    $text = null;
+                }
+
+                $hasText = $text !== null && trim($text) !== '';
+                $blocks[] = [
+                    'blockID' => $blockID,
+                    'blockType' => $type,
+                    'area' => $handle,
+                    'hasText' => $hasText,
+                ];
+
+                if ($hasText) {
+                    // The block text is HTML (content blocks) or plain text. It is not escaped:
+                    // HtmlToText strips the tags to give 'text', and 'html' keeps the markup.
+                    $sections[] = sprintf(
+                        '<section data-area="%s" data-block-type="%s" data-block-id="%d"><div>%s</div></section>',
+                        htmlspecialchars($handle, ENT_QUOTES),
+                        htmlspecialchars($type, ENT_QUOTES),
+                        $blockID,
+                        $text
+                    );
+                }
             }
         }
 
-        return implode("\n", $chunks);
+        return [
+            'html' => implode("\n", $sections),
+            'blocks' => $blocks,
+            'hiddenBlocks' => $hidden,
+            'errors' => $errors,
+        ];
+    }
+
+    /** One line, keys removed, no stack trace. */
+    private function safeMessage(\Throwable $e): string
+    {
+        return mb_substr(SecretRedactor::redact($e->getMessage()), 0, 300);
     }
 
     protected function serializeBlock(?Block $block, bool $includeDetails = false): array
@@ -3090,32 +3137,42 @@ class PagesToolkit extends AbstractToolkit
     private function extractBlockPreview(Block $block): ?string
     {
         try {
-            $controller = $block->getController();
-            if (!$controller) {
-                return null;
-            }
-
-            if (method_exists($controller, 'getSearchableContent')) {
-                $content = (string) $controller->getSearchableContent();
-                if (trim($content) !== '') {
-                    return $content;
-                }
-            }
-
-            if (method_exists($controller, 'getContent')) {
-                $content = (string) $controller->getContent();
-                if (trim($content) !== '') {
-                    return $content;
-                }
-            }
-
-            if (method_exists($controller, 'getContentEditMode')) {
-                $content = (string) $controller->getContentEditMode();
-                if (trim($content) !== '') {
-                    return $content;
-                }
-            }
+            return $this->extractBlockText($block);
         } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * The text of a block, or null. Unlike extractBlockPreview() this lets a failing
+     * block controller throw, so get_page_content can report it.
+     */
+    protected function extractBlockText(Block $block): ?string
+    {
+        $controller = $block->getController();
+        if (!$controller) {
+            return null;
+        }
+
+        if (method_exists($controller, 'getSearchableContent')) {
+            $content = (string) $controller->getSearchableContent();
+            if (trim($content) !== '') {
+                return $content;
+            }
+        }
+
+        if (method_exists($controller, 'getContent')) {
+            $content = (string) $controller->getContent();
+            if (trim($content) !== '') {
+                return $content;
+            }
+        }
+
+        if (method_exists($controller, 'getContentEditMode')) {
+            $content = (string) $controller->getContentEditMode();
+            if (trim($content) !== '') {
+                return $content;
+            }
         }
 
         return null;

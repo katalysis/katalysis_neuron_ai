@@ -9,7 +9,9 @@
  *   - three fake people ("Test Person Alpha/Beta/Gamma")
  *   - one small text file in the file manager ("Neuron Test File", from fixtures/neuron-test-file.txt)
  *   - one Express object, "Test Room", with four entries
- *   - a non-admin user, "neuron_editor"
+ *   - a non-admin user, "neuron_editor" (can edit /neuron-test, cannot use the assistant: the "no access" fixture)
+ *   - a non-admin user, "neuron_chat_editor" (P1.10: the same /neuron-test rights, plus VIEW ONLY on the settings page
+ *     /dashboard/system/ai/neuron_ai, which is what the chat panel's access check asks for)
  *
  * Run it from httpdocs/ with Concrete's own runner. Options after "--" are passed to this script:
  *
@@ -17,11 +19,17 @@
  *   php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fixtures/seed_test_content.php -- --reset
  *
  * Without options, it creates whatever is missing and leaves everything that exists alone.
- * With --reset it first deletes ONLY the content this script creates, then creates it again. It also removes the review
+ * With --reset it first deletes ONLY the content this script creates, then creates it again. --reset-only deletes it
+ * and stops (used to check that a reset leaves nothing behind). It also removes the review
  * folder "Assistant – to delete" if a scenario created it, but only when nothing but fixture files is in it.
- * It never reads, changes or depends on any other page, person, user or Express object.
+ * It never reads, changes or depends on any other person, user or Express object. The one page outside /neuron-test
+ * that it touches is the settings page /dashboard/system/ai/neuron_ai: neuron_chat_editor is granted view on it, so the
+ * page switches from inheriting its permissions from /dashboard to overriding them (copied from /dashboard, plus that
+ * one user). The script refuses to run if the settings page already overrides its permissions in any other way, and
+ * --reset puts it back to inheriting and removes the permission rows the grant created. Nothing under /dashboard
+ * itself is changed.
  *
- * DEV ONLY. neuron_editor has a documented throwaway password. Never use it, or this script, on a server:
+ * DEV ONLY. The users have documented throwaway passwords. Never use them, or this script, on a server:
  * the script refuses to run unless the site's canonical URL is a .test, .localhost or localhost host.
  */
 
@@ -39,6 +47,7 @@ use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
+use Concrete\Core\Permission\Access\Access;
 use Concrete\Core\Permission\Access\Entity\UserEntity;
 use Concrete\Core\Permission\Key\Key as PermissionKey;
 use Concrete\Core\Support\Facade\Application;
@@ -55,6 +64,21 @@ return (function () use ($args, $output) {
     $userName = 'neuron_editor';
     $userEmail = 'neuron_editor@neuron-test.invalid';
     $userPassword = 'NeuronEditorDev#1'; // dev-only throwaway; documented in SETUP.md
+    $chatUserName = 'neuron_chat_editor';
+    $chatUserEmail = 'neuron_chat_editor@neuron-test.invalid';
+    $chatUserPassword = 'NeuronChatEditorDev#1'; // dev-only throwaway; documented in SETUP.md
+    $settingsPagePath = '/dashboard/system/ai/neuron_ai';
+    // The /neuron-test rights both users get.
+    $fixturePageKeys = [
+        'view_page',
+        'view_page_in_sitemap',
+        'preview_page_as_user',
+        'view_page_versions',
+        'edit_page_contents',
+        'edit_page_properties',
+        'add_subpage',
+        'approve_page_versions',
+    ];
     $personNamePrefix = 'Test Person ';
     $personEmailDomain = '@neuron-test.invalid';
     $expressHandle = 'neuron_test_room';
@@ -71,13 +95,14 @@ return (function () use ($args, $output) {
     $em = $app->make(EntityManagerInterface::class);
     $db = $app->make('database')->connection();
 
-    $unknown = array_diff($args, ['--reset']);
+    $unknown = array_diff($args, ['--reset', '--reset-only']);
     if ($unknown !== []) {
-        $output->writeln('<error>Unknown option(s): ' . implode(' ', $unknown) . '. Only --reset is supported (put it after "--").</error>');
+        $output->writeln('<error>Unknown option(s): ' . implode(' ', $unknown) . '. Only --reset and --reset-only are supported (put them after "--").</error>');
 
         return 2;
     }
-    $reset = in_array('--reset', $args, true);
+    $resetOnly = in_array('--reset-only', $args, true);
+    $reset = $resetOnly || in_array('--reset', $args, true);
 
     // Dev-only guard.
     $site = $app->make('site')->getSite();
@@ -127,6 +152,137 @@ return (function () use ($args, $output) {
             [$fileTitle, $fileMarker]
         );
     };
+    $findChatUser = function () use ($app, $chatUserName) {
+        return $app->make(UserInfoRepository::class)->getByUserName($chatUserName);
+    };
+    $entityIDOf = function ($info) use ($db) {
+        return $info ? (int) $db->fetchOne('SELECT peID FROM PermissionAccessEntityUsers WHERE uID = ?', [$info->getUserID()]) : 0;
+    };
+
+    // ---- Permission helpers (P1.10) ----------------------------------------------------------------------------
+
+    // Every table that assigns a permission access (paID) to an object.
+    $assignmentTables = function () use ($db) {
+        return array_map('strval', $db->fetchFirstColumn(
+            'SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS'
+            . " WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'paID' AND TABLE_NAME LIKE '%PermissionAssignments'"
+            . ' ORDER BY TABLE_NAME'
+        ));
+    };
+    $accessUseCount = function (int $paID) use ($db, $assignmentTables) {
+        $count = 0;
+        foreach ($assignmentTables() as $table) {
+            $count += (int) $db->fetchOne("SELECT COUNT(*) FROM `{$table}` WHERE paID = ?", [$paID]);
+        }
+
+        return $count;
+    };
+    // Adds $entity to the access that $object (a Page or an Area) has for permission key $handle. An access that this
+    // object has its own assignment row for, and that nothing else uses, is changed in place (so a second user adds no
+    // orphan rows). Any other access (shared with the parent page the object has just copied its permissions from, or
+    // the global one an area falls back to) is duplicated first, so a shared access is never changed.
+    $grantKey = function ($object, string $handle, $entity) use ($db, $accessUseCount) {
+        $key = PermissionKey::getByHandle($handle);
+        $key->setPermissionObject($object);
+        $access = $key->getPermissionAccessObject();
+        if (!is_object($access)) {
+            $access = Access::create($key);
+        } else {
+            $paID = (int) $access->getPermissionAccessID();
+            if ($object instanceof Area) {
+                $owns = (int) $db->fetchOne(
+                    'SELECT COUNT(*) FROM AreaPermissionAssignments WHERE cID = ? AND arHandle = ? AND pkID = ? AND paID = ?',
+                    [$object->getCollectionID(), $object->getAreaHandle(), $key->getPermissionKeyID(), $paID]
+                ) > 0;
+            } else {
+                $owns = (int) $db->fetchOne(
+                    'SELECT COUNT(*) FROM PagePermissionAssignments WHERE cID = ? AND pkID = ? AND paID = ?',
+                    [$object->getCollectionID(), $key->getPermissionKeyID(), $paID]
+                ) > 0;
+            }
+            if (!$owns || $accessUseCount($paID) > 1) {
+                $access = $access->duplicate();
+            }
+        }
+        $access->addListItem($entity, false, PermissionKey::ACCESS_TYPE_INCLUDE);
+        $key->getPermissionAssignmentObject()->assignPermissionAccess($access);
+    };
+    $hasPageGrant = function (Page $page, $info) use ($db) {
+        return (int) $db->fetchOne(
+            'SELECT COUNT(*) FROM PagePermissionAssignments ppa'
+            . ' JOIN PermissionAccessList pal ON pal.paID = ppa.paID'
+            . ' JOIN PermissionAccessEntityUsers eu ON eu.peID = pal.peID'
+            . ' WHERE ppa.cID = ? AND eu.uID = ?',
+            [$page->getCollectionID(), $info->getUserID()]
+        ) > 0;
+    };
+    // For a site whose /neuron-test already exists: the same grants a fresh seed gives the user.
+    $grantFixtureUser = function (Page $root, ?Page $headings, $info) use ($grantKey, $fixturePageKeys, $app) {
+        $entity = UserEntity::getOrCreate($info);
+        $root->setPermissionsToOverride();
+        foreach ($fixturePageKeys as $pkHandle) {
+            $grantKey($root, $pkHandle, $entity);
+        }
+        if ($headings) {
+            $main = Area::getOrCreate($headings, 'Main');
+            if (!$main->overrideCollectionPermissions()) {
+                $main->overridePagePermissions();
+            }
+            $grantKey($main, 'add_block_to_area', $entity);
+        }
+        $root->refreshCache();
+        $app->make('cache/request')->flush();
+    };
+
+    // The settings page. State: 'missing' (package not installed), 'inherit' (the normal state), 'ours' (it overrides its
+    // permissions, and the only difference from the source it copied is neuron_chat_editor's view_page entry) or
+    // 'foreign' (it overrides its permissions in any other way: not ours, never touched).
+    $inspectSettingsPage = function () use ($db, $settingsPagePath, $findChatUser, $entityIDOf) {
+        $page = Page::getByPath($settingsPagePath);
+        if (!$page || $page->isError()) {
+            return ['page' => null, 'state' => 'missing'];
+        }
+        $cID = (int) $page->getCollectionID();
+        $from = (string) $db->fetchOne('SELECT cInheritPermissionsFrom FROM Pages WHERE cID = ?', [$cID]);
+        if ($from !== 'OVERRIDE') {
+            return ['page' => $page, 'state' => 'inherit'];
+        }
+
+        $signature = function (int $pageID) use ($db) {
+            $out = [];
+            foreach ($db->fetchAllAssociative(
+                'SELECT ppa.pkID, pal.peID, pal.accessType FROM PagePermissionAssignments ppa'
+                . ' LEFT JOIN PermissionAccessList pal ON pal.paID = ppa.paID WHERE ppa.cID = ?',
+                [$pageID]
+            ) as $row) {
+                $out[] = $row['pkID'] . ':' . ($row['peID'] ?? 0) . ':' . ($row['accessType'] ?? 0);
+            }
+
+            return array_values(array_unique($out));
+        };
+        $chatEntityID = $entityIDOf($findChatUser());
+        $viewKeyID = (int) $db->fetchOne('SELECT pkID FROM PermissionKeys WHERE pkHandle = ?', ['view_page']);
+        $source = (int) $page->getParentPermissionsCollectionID();
+        $mine = $signature($cID);
+        $theirs = $signature($source);
+        $extra = array_diff($mine, $theirs);
+        $missing = array_diff($theirs, $mine);
+        $ours = $chatEntityID > 0 && $extra !== [] && $missing === [];
+        foreach ($extra as $row) {
+            if (strpos($row, $viewKeyID . ':' . $chatEntityID . ':') !== 0) {
+                $ours = false;
+            }
+        }
+
+        return ['page' => $page, 'state' => $ours ? 'ours' : 'foreign'];
+    };
+    $settings = $inspectSettingsPage();
+    if ($settings['state'] === 'foreign') {
+        $output->writeln('<error>The settings page ' . $settingsPagePath . ' already overrides its permissions, and not only with '
+            . $chatUserName . '\'s view grant from this script. It is not ours to change. Nothing was changed.</error>');
+
+        return 1;
+    }
 
     // ---- Reset -------------------------------------------------------------------------------------------------
 
@@ -146,6 +302,12 @@ return (function () use ($args, $output) {
 
             return 1;
         }
+        $chatUser = $findChatUser();
+        if ($chatUser && $chatUser->getUserEmail() !== $chatUserEmail) {
+            $output->writeln('<error>User ' . $chatUserName . ' exists but was not created by this script. Nothing was deleted.</error>');
+
+            return 1;
+        }
         $entity = $findExpress();
         if ($entity && $entity->getName() !== $expressName) {
             $output->writeln('<error>Express object ' . $expressHandle . ' exists but was not created by this script. Nothing was deleted.</error>');
@@ -160,33 +322,45 @@ return (function () use ($args, $output) {
 
         // Concrete has no API to remove the permission rows that the editor's page grant created, and deleting
         // the page and the user leaves them behind. Remember the ones that belong only to this fixture.
-        $editorEntityID = 0;
+        $editorEntityID = $entityIDOf($user);
+        $chatEntityID = $entityIDOf($chatUser);
+        $fixtureEntityIDs = array_values(array_filter([$editorEntityID, $chatEntityID]));
+        $entityMarks = implode(',', array_fill(0, max(1, count($fixtureEntityIDs)), '?'));
         $fixtureAccessIDs = [];
         $fixtureAreaAccessIDs = [];
         $fixtureAreaCID = 0;
-        if ($user) {
-            $editorEntityID = (int) $db->fetchOne('SELECT peID FROM PermissionAccessEntityUsers WHERE uID = ?', [$user->getUserID()]);
-            if ($editorEntityID && $page) {
+        $settingsAccessIDs = [];
+        if ($fixtureEntityIDs !== []) {
+            if ($page) {
                 $fixtureAccessIDs = array_map('intval', $db->fetchFirstColumn(
                     'SELECT DISTINCT ppa.paID FROM PagePermissionAssignments ppa'
                     . ' JOIN PermissionAccessList pal ON pal.paID = ppa.paID'
-                    . ' WHERE ppa.cID = ? AND pal.peID = ?',
-                    [$page->getCollectionID(), $editorEntityID]
+                    . ' WHERE ppa.cID = ? AND pal.peID IN (' . $entityMarks . ')',
+                    array_merge([$page->getCollectionID()], $fixtureEntityIDs)
                 ));
             }
-            // The Main-area add-block grant on /headings (P1.5a). Only an access that lists the editor is ours: the
-            // copies of the global add_block access that Concrete makes for an overridden area never list the editor.
+            // The Main-area add-block grant on /headings (P1.5a). Only an access that lists one of the fixture users is
+            // ours: the copies of the global add_block access that Concrete makes for an overridden area never list them.
             $headingsPage = Page::getByPath($pagePath . '/headings');
-            if ($editorEntityID && $headingsPage && !$headingsPage->isError()) {
+            if ($headingsPage && !$headingsPage->isError()) {
                 $fixtureAreaCID = (int) $headingsPage->getCollectionID();
                 $fixtureAreaAccessIDs = array_map('intval', $db->fetchFirstColumn(
                     'SELECT DISTINCT apa.paID FROM AreaPermissionAssignments apa'
                     . ' JOIN PermissionKeys pk ON pk.pkID = apa.pkID AND pk.pkHandle = ?'
                     . ' JOIN PermissionAccessList pal ON pal.paID = apa.paID'
-                    . ' WHERE apa.cID = ? AND pal.peID = ?',
-                    ['add_block_to_area', $headingsPage->getCollectionID(), $editorEntityID]
+                    . ' WHERE apa.cID = ? AND pal.peID IN (' . $entityMarks . ')',
+                    array_merge(['add_block_to_area', $headingsPage->getCollectionID()], $fixtureEntityIDs)
                 ));
             }
+        }
+        // The settings page grant (state 'ours' was proved above): remember the accesses that list the chat user.
+        if ($settings['state'] === 'ours' && $chatEntityID) {
+            $settingsAccessIDs = array_map('intval', $db->fetchFirstColumn(
+                'SELECT DISTINCT ppa.paID FROM PagePermissionAssignments ppa'
+                . ' JOIN PermissionAccessList pal ON pal.paID = ppa.paID'
+                . ' WHERE ppa.cID = ? AND pal.peID = ?',
+                [$settings['page']->getCollectionID(), $chatEntityID]
+            ));
         }
 
         if ($page) {
@@ -243,6 +417,23 @@ return (function () use ($args, $output) {
             $user->delete();
             $output->writeln('  deleted user ' . $userName);
         }
+        if ($chatUser) {
+            $chatUser->delete();
+            $output->writeln('  deleted user ' . $chatUserName);
+        }
+        // The settings page goes back to inheriting from /dashboard. This also removes its own assignment rows.
+        if ($settings['state'] === 'ours') {
+            $settings['page']->inheritPermissionsFromParent();
+            $settings['page']->refreshCache();
+            $app->make('cache/request')->flush();
+            $output->writeln('  settings page ' . $settingsPagePath . ' inherits its permissions again');
+        }
+        foreach ($settingsAccessIDs as $paID) {
+            if ($accessUseCount($paID) === 0) {
+                $db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
+                $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
+            }
+        }
 
         // Remove the permission rows remembered above, unless something else still uses them.
         foreach ($fixtureAccessIDs as $paID) {
@@ -264,9 +455,18 @@ return (function () use ($args, $output) {
                 $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
             }
         }
-        if ($editorEntityID && (int) $db->fetchOne('SELECT COUNT(*) FROM PermissionAccessList WHERE peID = ?', [$editorEntityID]) === 0) {
-            $db->executeStatement('DELETE FROM PermissionAccessEntities WHERE peID = ?', [$editorEntityID]);
+        foreach ($fixtureEntityIDs as $peID) {
+            if ((int) $db->fetchOne('SELECT COUNT(*) FROM PermissionAccessList WHERE peID = ?', [$peID]) === 0) {
+                $db->executeStatement('DELETE FROM PermissionAccessEntityUsers WHERE peID = ?', [$peID]);
+                $db->executeStatement('DELETE FROM PermissionAccessEntities WHERE peID = ?', [$peID]);
+            }
         }
+    }
+
+    if ($resetOnly) {
+        $output->writeln('Reset only: nothing was created again.');
+
+        return 0;
     }
 
     // ---- User --------------------------------------------------------------------------------------------------
@@ -282,6 +482,34 @@ return (function () use ($args, $output) {
             'uIsValidated' => 1,
         ]);
         $output->writeln('user ' . $userName . ': created (password in SETUP.md)');
+    }
+
+    $chatUser = $findChatUser();
+    if ($chatUser) {
+        $output->writeln('user ' . $chatUserName . ': already exists, left alone');
+    } else {
+        $chatUser = $app->make(RegistrationServiceInterface::class)->create([
+            'uName' => $chatUserName,
+            'uEmail' => $chatUserEmail,
+            'uPassword' => $chatUserPassword,
+            'uIsValidated' => 1,
+        ]);
+        $output->writeln('user ' . $chatUserName . ': created (password in SETUP.md)');
+    }
+
+    // View only on the settings page (so ChatAccess::canUse() is true), and nothing else there. The page switches from
+    // inheriting its permissions to overriding them; Page::setPermissionsToOverride() copies the source's rows first.
+    $settings = $inspectSettingsPage();
+    if ($settings['state'] === 'missing') {
+        $output->writeln('<comment>settings page ' . $settingsPagePath . ' not found (is katalysis_neuron_ai installed?): ' . $chatUserName . ' has no panel access.</comment>');
+    } elseif ($settings['state'] === 'ours') {
+        $output->writeln('settings page ' . $settingsPagePath . ': ' . $chatUserName . ' already has view, left alone');
+    } else {
+        $settings['page']->setPermissionsToOverride();
+        $grantKey($settings['page'], 'view_page', UserEntity::getOrCreate($chatUser));
+        $settings['page']->refreshCache();
+        $app->make('cache/request')->flush();
+        $output->writeln('settings page ' . $settingsPagePath . ': ' . $chatUserName . ' granted view only');
     }
 
     // ---- Test file ---------------------------------------------------------------------------------------------
@@ -429,22 +657,24 @@ return (function () use ($args, $output) {
     if ($existingRoot) {
         $output->writeln('pages ' . $pagePath . ': already exist, left alone');
         $ensureScenarioPages($existingRoot);
+        // A site seeded before neuron_chat_editor existed: give that user the same rights, once.
+        if (!$hasPageGrant($existingRoot, $chatUser)) {
+            $existingHeadings = Page::getByPath($pagePath . '/headings');
+            $grantFixtureUser($existingRoot, ($existingHeadings && !$existingHeadings->isError()) ? $existingHeadings : null, $chatUser);
+            $output->writeln('pages ' . $pagePath . ': ' . $chatUserName . ' granted the same rights as ' . $userName);
+        }
 
         return 0;
     }
 
-    // The parent page goes first, and gets the editor's rights, so the child pages inherit them.
+    // The parent page goes first, and gets the users' rights, so the child pages inherit them.
     $root = $addPage($home, 'Neuron Test', 'neuron-test', $pageMarker);
-    $root->assignPermissions($user, [
-        'view_page',
-        'view_page_in_sitemap',
-        'preview_page_as_user',
-        'view_page_versions',
-        'edit_page_contents',
-        'edit_page_properties',
-        'add_subpage',
-        'approve_page_versions',
-    ]);
+    $root->setPermissionsToOverride();
+    foreach ([$user, $chatUser] as $fixtureUser) {
+        foreach ($fixturePageKeys as $pkHandle) {
+            $grantKey($root, $pkHandle, UserEntity::getOrCreate($fixtureUser));
+        }
+    }
 
     // 1. Content blocks with h2/h3 headings and bold-paragraph headings.
     $headings = $addPage($root, 'Headings', 'headings');
@@ -468,14 +698,12 @@ return (function () use ($args, $output) {
 
     // Scenario 07 adds a block to this page's Main area. Adding a block is governed by the global block-type key, which
     // the page grant above doesn't cover, so the Main area on this one page gets its own copy of the page's permissions
-    // plus an add-block entry for the editor (all block types). No other page or area is changed.
+    // plus an add-block entry for each fixture user (all block types). No other page or area is changed.
     $headingsMain = Area::getOrCreate($headings, 'Main');
     $headingsMain->overridePagePermissions();
-    $addBlockKey = PermissionKey::getByHandle('add_block_to_area');
-    $addBlockKey->setPermissionObject($headingsMain);
-    $addBlockAccess = $addBlockKey->getPermissionAccessObject()->duplicate();
-    $addBlockAccess->addListItem(UserEntity::getOrCreate($user));
-    $addBlockKey->getPermissionAssignmentObject()->assignPermissionAccess($addBlockAccess);
+    foreach ([$user, $chatUser] as $fixtureUser) {
+        $grantKey($headingsMain, 'add_block_to_area', UserEntity::getOrCreate($fixtureUser));
+    }
 
     // 2. A container block with nested blocks: bold-paragraph headings in column 1, h2/h3 headings in column 2.
     $columns = $addPage($root, 'Columns', 'columns');

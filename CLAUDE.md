@@ -55,6 +55,7 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
 ## Testing
 - PHPUnit tests: `php tools/phpunit/vendor/bin/phpunit`, run from the package folder with Herd's PHP (install and options in `documentation/SETUP.md`). Suites: `unit` (no Concrete, no dev site) and `integration` (boots Concrete against the dev site database; the dev-host guard is inside the boot function, so it can't be skipped).
 - **No test may call the AI provider or use an API key.** Only the scenario runner does that.
+- Tests that change shared fixtures restore the state they found. They never assume or force a fixed starting state.
 - Behaviour scenarios: `php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php -- [--scenario=] [--repeat=N]`, run from `httpdocs/` against the dev site (Phase 1). It costs money; see `documentation/SETUP.md`.
 - **The merge rule tightens as the project goes:**
   - **Before the P1.5 baseline exists:** no regressions in the manual checks listed in the task plan.

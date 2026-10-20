@@ -29,10 +29,13 @@ use PHPUnit\Framework\Attributes\DataProvider;
  * edit permission on it. No page permission is changed, so there is nothing to
  * restore. The user is deleted after each test.
  *
- * One test grants that throwaway user "Edit Page Properties" on the settings page,
- * which makes the page override its permissions. Its cleanup returns the page to
- * inheriting from /dashboard and removes the rows the grant created; the test proves
- * it with before and after snapshots.
+ * One test grants that throwaway user "Edit Page Properties" on the settings page.
+ * The page may start in either state: inheriting from /dashboard (a plain site), or
+ * already overriding (the seed gives neuron_chat_editor view on it, P1.10). The test
+ * records the state it finds and its cleanup restores exactly that: if the page
+ * inherited, it inherits again; if it overrode, only the throwaway user's assignment
+ * and rows are removed and the page keeps overriding. The test proves it with before
+ * and after snapshots. It never assumes or forces a starting state.
  *
  * Settings live in an in-memory config with dummy keys, so the dev site's real keys
  * are never read or changed, and nothing calls a provider.
@@ -50,6 +53,14 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
 
     /** Set when a test grants a permission on the settings page, so tearDown() can undo it. */
     private bool $grantedOnSettingsPage = false;
+
+    /**
+     * The settings page's permission state before the test changed anything: its Pages row and its own
+     * assignment rows. Recorded by recordSettingsPageState(), used by removeGrantFromSettingsPage().
+     *
+     * @var array{row: array<string, mixed>, assignments: list<array<string, mixed>>}|null
+     */
+    private ?array $settingsStart = null;
 
     public static function setUpBeforeClass(): void
     {
@@ -81,6 +92,7 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
             $info->delete();
         }
         $this->createdUsers = [];
+        $this->settingsStart = null;
         InMemoryConfig::reset();
     }
 
@@ -146,17 +158,43 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
     private function grantEditToViewOnlyUser(): void
     {
         $info = $this->viewOnlyUser();
+        $this->recordSettingsPageState();
         $this->grantedOnSettingsPage = true;
         $this->settingsPage()->assignPermissions($info, ['edit_page_properties']);
         $this->forgetCachedPermissions();
     }
 
     /**
-     * Puts the settings page back to inheriting its permissions from its parent, and removes the
+     * Records, once, the state the settings page is in before this test grants anything.
+     *
+     * @return array{row: array<string, mixed>, assignments: list<array<string, mixed>>}
+     */
+    private function recordSettingsPageState(): array
+    {
+        if ($this->settingsStart === null) {
+            $cID = (int) $this->settingsPage()->getCollectionID();
+            $this->settingsStart = [
+                'row' => $this->db()->fetchAssociative(
+                    'SELECT cInheritPermissionsFrom, cInheritPermissionsFromCID FROM Pages WHERE cID = ?',
+                    [$cID]
+                ),
+                'assignments' => $this->db()->fetchAllAssociative(
+                    'SELECT cID, pkID, paID FROM PagePermissionAssignments WHERE cID = ? ORDER BY pkID, paID',
+                    [$cID]
+                ),
+            ];
+        }
+
+        return $this->settingsStart;
+    }
+
+    /**
+     * Puts the settings page's permissions back to the state recorded before the grant, and removes the
      * permission rows that the throwaway user's grant created. Safe to call when nothing was granted.
      *
-     * Only rows that list the throwaway user's access entity are touched, and an access is removed
-     * only when nothing is assigned to it any more.
+     * If the page was inheriting from its parent, it inherits again. If it was already overriding, it keeps
+     * overriding, and only the assignment rows that were not there at the start are deleted. Only accesses
+     * that list the throwaway user's access entity are removed, and only when nothing is assigned to them.
      */
     private function removeGrantFromSettingsPage(): void
     {
@@ -177,8 +215,26 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
             }
         }
 
-        // Page::inheritPermissionsFromParent() also removes the page's own assignments and rescans its areas.
-        $this->settingsPage()->inheritPermissionsFromParent();
+        $start = $this->recordSettingsPageState();
+        if ($start['row']['cInheritPermissionsFrom'] === 'PARENT') {
+            // Page::inheritPermissionsFromParent() also removes the page's own assignments and rescans its areas.
+            $this->settingsPage()->inheritPermissionsFromParent();
+        } else {
+            // The page was overriding before the test: keep it that way and remove only the added assignments.
+            $cID = (int) $this->settingsPage()->getCollectionID();
+            $kept = [];
+            foreach ($start['assignments'] as $row) {
+                $kept[(int) $row['pkID'] . ':' . (int) $row['paID']] = true;
+            }
+            foreach ($db->fetchAllAssociative('SELECT pkID, paID FROM PagePermissionAssignments WHERE cID = ?', [$cID]) as $row) {
+                if (!isset($kept[(int) $row['pkID'] . ':' . (int) $row['paID']])) {
+                    $db->executeStatement(
+                        'DELETE FROM PagePermissionAssignments WHERE cID = ? AND pkID = ? AND paID = ?',
+                        [$cID, $row['pkID'], $row['paID']]
+                    );
+                }
+            }
+        }
 
         foreach (array_unique($paIDs) as $paID) {
             $inUse = 0;
@@ -393,16 +449,10 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
     public function testANonSuperUserGrantedEditPagePropertiesCanSaveAndTheGrantIsFullyRemovedAfterwards(): void
     {
         $before = $this->permissionSnapshot();
-        $beforeRow = $this->db()->fetchAssociative(
-            'SELECT cInheritPermissionsFrom, cInheritPermissionsFromCID FROM Pages WHERE cID = ?',
-            [$before['settingsPageID']]
-        );
-        $this->assertSame('PARENT', $beforeRow['cInheritPermissionsFrom'], 'The settings page should inherit its permissions before the test.');
-        $this->assertSame(
-            0,
-            (int) $this->db()->fetchOne('SELECT COUNT(*) FROM PagePermissionAssignments WHERE cID = ?', [$before['settingsPageID']]),
-            'The settings page should have no assignments of its own before the test.'
-        );
+        // Whatever state the page is in (inheriting, or already overriding after the seed), the test records it and
+        // must leave exactly that behind.
+        $start = $this->recordSettingsPageState();
+        $this->assertContains($start['row']['cInheritPermissionsFrom'], ['PARENT', 'OVERRIDE']);
         // Without the grant the user can view but not save.
         $this->actAs('viewonly');
         $info = $this->viewOnlyUser();
@@ -414,7 +464,8 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
         // With "Edit Page Properties" on the settings page, the same user can save.
         $this->grantEditToViewOnlyUser();
         $granted = $this->permissionSnapshot();
-        $this->assertNotSame($before['pages'], $granted['pages'], 'The grant should make the page override its permissions.');
+        $this->assertNotSame($before['pageAssignments'], $granted['pageAssignments'], 'The grant should add an assignment on the settings page.');
+        $this->assertNotSame($before['accessListOfAssignedAccesses'], $granted['accessListOfAssignedAccesses']);
         $this->actAs('viewonly');
         $checker = new Checker($this->settingsPage());
         $this->assertTrue((bool) $checker->canViewPage(), 'The grant must not remove view.');
@@ -453,16 +504,19 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
         $this->assertSame(0, $after['orphan accesses'] - $before['orphan accesses']);
         $this->assertSame(0, $after['unused user entities'] - $before['unused user entities']);
 
-        // The page inherits from /dashboard again: its own assignment rows are gone, and it points at the same source.
+        // The page is in the state it was in before: the same inheritance, the same source, the same own assignments.
         $row = $this->db()->fetchAssociative(
             'SELECT cInheritPermissionsFrom, cInheritPermissionsFromCID FROM Pages WHERE cID = ?',
             [$after['settingsPageID']]
         );
-        $this->assertSame('PARENT', $row['cInheritPermissionsFrom']);
-        $this->assertSame((int) $beforeRow['cInheritPermissionsFromCID'], (int) $row['cInheritPermissionsFromCID'], 'The page should use the same permissions source as before.');
+        $this->assertSame($start['row'], $row, 'The page must inherit or override exactly as it did before the test.');
         $this->assertSame(
-            0,
-            (int) $this->db()->fetchOne('SELECT COUNT(*) FROM PagePermissionAssignments WHERE cID = ?', [$after['settingsPageID']])
+            $start['assignments'],
+            $this->db()->fetchAllAssociative(
+                'SELECT cID, pkID, paID FROM PagePermissionAssignments WHERE cID = ? ORDER BY pkID, paID',
+                [$after['settingsPageID']]
+            ),
+            'The page must have the same own assignment rows as before the test.'
         );
     }
 
