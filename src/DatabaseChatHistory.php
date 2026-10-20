@@ -296,9 +296,8 @@ class DatabaseChatHistory extends AbstractChatHistory
                     'content' => $expectedRole === 'assistant'
                         ? '[Recovered: Assistant response was interrupted]'
                         : '[Recovered: User message was lost]',
-                    'usage' => null,
-                    '_recovered' => true,
                 ];
+                $expectingUser = !$expectingUser;
                 $wasRepaired = true;
             }
 

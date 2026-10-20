@@ -186,6 +186,27 @@ final class InjectionNoticeStorageTest extends ConcreteTestCase
         $this->assertSame($agent->getTurnNotice(), $loaded[1]['notice'], 'the stored notice is the one the live reply showed');
     }
 
+    public function testAChatWithABrokenSequenceIsRepairedOnLoadWithoutAnError(): void
+    {
+        // Found in P1.11: the repair step wrote 'usage' => null into the placeholder, and Neuron then built
+        // new Usage(null, null) while reading it: a TypeError (not an Exception, so loadExistingMessages() did not catch it).
+        $chatId = $this->newChat();
+        $broken = json_encode([
+            ['role' => 'user', 'content' => 'First question.', '__id' => 'msg_a'],
+            ['role' => 'user', 'content' => 'Second question, after the first failed.', '__id' => 'msg_b'],
+            ['role' => 'assistant', 'content' => 'An answer.', '__id' => 'msg_c'],
+        ]);
+        $this->db()->executeStatement('UPDATE KatalysisNeuronAiChats SET chatHistory = ? WHERE id = ?', [$broken, $chatId]);
+
+        $messages = $this->history($chatId)->getMessages();
+
+        $this->assertSame(['user', 'assistant', 'user', 'assistant'], array_map(static fn ($m): string => $m->getRole(), $messages));
+        $this->assertStringContainsString('Recovered', $messages[1]->getContent());
+        $this->assertSame('An answer.', $messages[3]->getContent());
+        $this->assertNull($messages[1]->getUsage());
+        $this->assertStringContainsString('Recovered', $this->storedJson($chatId), 'the repaired history is stored');
+    }
+
     public function testTheFlagIsNotSentToTheProvider(): void
     {
         $chatId = $this->newChat();
