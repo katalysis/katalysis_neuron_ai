@@ -20,6 +20,7 @@ use Katalysis\NeuronAi\Tools\TopicsToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
+use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\DisabledTools;
 use Katalysis\NeuronAi\Tools\ToolNameResolver;
 use Concrete\Core\Support\Facade\Config;
@@ -45,11 +46,12 @@ class ConcreteCmsAgent extends Agent
         
         // Set error handler for better error messages to the LLM
         $this->toolErrorHandler(function(\Throwable $e, $tool) {
-            $errorMsg = "Tool '{$tool->getName()}' failed: " . $e->getMessage();
+            $safeMessage = SecretRedactor::redact($e->getMessage());
+            $errorMsg = "Tool '{$tool->getName()}' failed: " . $safeMessage;
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Tool Error: ' . $errorMsg);
             
             // Return a clear error message that the LLM can understand
-            return "Error executing tool: " . $e->getMessage() . ". Please try a different approach or ask for clarification.";
+            return "Error executing tool: " . $safeMessage . ". Please try a different approach or ask for clarification.";
         });
     }
 
@@ -495,7 +497,8 @@ INST;
             
             return $response->getContent();
         } catch (\Exception $e) {
-            \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . $e->getMessage());
+            // A provider error body can quote part of the API key (B-SEC-1), so redact before logging.
+            \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
 
             // Keep message alternation valid when the provider fails after a user message is added.
             // Without this, subsequent requests can fail with "Invalid message sequence".
