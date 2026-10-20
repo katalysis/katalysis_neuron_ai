@@ -30,6 +30,7 @@ use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
+use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -49,7 +50,7 @@ class PagesToolkit extends AbstractToolkit
 
     public function guidelines(): ?string
     {
-        return "Use these tools to manage pages in Concrete CMS. You can list, create, read, update, move, and delete pages. Always check permissions before modifying content. When creating or moving pages, ensure you have the parent page information before executing the tool.";
+        return "Use these tools to manage pages in Concrete CMS. You can list, create, read and update pages. A page made with create_page is unpublished: a person publishes it from Page Versions. Moving and deleting pages are not available yet (they return with approvals), so say so instead of trying another tool. Always check permissions before modifying content.";
     }
 
     public function provide(): array
@@ -1927,12 +1928,32 @@ class PagesToolkit extends AbstractToolkit
         return $html;
     }
 
+    /**
+     * P1.13: with move_page disabled the model tried to move a page through update_page, with a parent or path key
+     * the tool silently dropped, and then said the page had moved. These are refused with a message that says so.
+     */
+    public const MOVE_UNAVAILABLE_MESSAGE = "Moving pages isn't available yet. It will return with approvals.";
+
+    private static function looksLikeAMoveKey(string $key): bool
+    {
+        return (bool) preg_match('/parent|path|destination|move|location/i', $key);
+    }
+
     protected function makeUpdatePageTool(): Tool
     {
-        $tool = new Tool(
+        $tool = (new StrictInputTool(
             'update_page',
-            'Update an existing page\'s properties'
-        );
+            'Update an existing page\'s name, description or template, or set page attributes by handle. It cannot move a page: '
+            . 'moving pages is not available yet. Only the listed parameters are accepted; anything else is refused and nothing is changed.'
+        ))->refuseUnknownInputsWith(function (array $unknown): ?string {
+            foreach ($unknown as $key) {
+                if (self::looksLikeAMoveKey($key)) {
+                    return self::MOVE_UNAVAILABLE_MESSAGE;
+                }
+            }
+
+            return null;
+        });
 
         $tool->addProperty(new ToolProperty(
             'pageID',
@@ -1973,7 +1994,7 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'attributes',
             PropertyType::OBJECT,
-            'Optional page attributes map keyed by attribute handle',
+            'Optional page attributes map keyed by an existing page attribute handle. An unknown handle is refused and nothing is changed. Not a way to move a page.',
             false
         ));
 
@@ -2015,6 +2036,19 @@ class PagesToolkit extends AbstractToolkit
                 if (!$targetTemplate) {
                     throw new \RuntimeException("Page template '{$template}' not found");
                 }
+            }
+
+            // Refuse a handle that is not a page attribute before a draft is made: the factory below would drop it
+            // without a word, and the reply would then claim a change that never happened.
+            foreach (array_keys($attributes ?? []) as $handle) {
+                if (CollectionKey::getByHandle((string) $handle)) {
+                    continue;
+                }
+                throw new \RuntimeException(
+                    self::looksLikeAMoveKey((string) $handle)
+                        ? self::MOVE_UNAVAILABLE_MESSAGE
+                        : "'{$handle}' is not a page attribute handle, so nothing was changed. Use list_page_attributes to see the handles."
+                );
             }
 
             $pageToModify = $this->getDraftOf($page);

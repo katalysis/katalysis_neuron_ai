@@ -6,6 +6,7 @@ namespace Katalysis\NeuronAi\Tests\Integration;
 
 use Concrete\Core\Area\Area;
 use Concrete\Core\Area\ContainerArea;
+use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Block\Block;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Database\Connection\Connection;
@@ -901,6 +902,78 @@ final class DraftIsolationTest extends ConcreteTestCase
 
         $this->assertEquals($typeBefore, $this->db()->fetchOne('SELECT ptID FROM Pages WHERE cID = ?', [$cID]), 'The live page type is unchanged');
         $this->assertSame($versionsBefore, $this->versions($cID), 'A refused change makes no draft');
+    }
+
+    /**
+     * Runs update_page with inputs that must be refused, and checks that nothing was written: the same versions, the
+     * same live name, and no draft.
+     */
+    private function assertUpdatePageRefuses(int $cID, array $inputs, string $expectedMessage, bool $exact): void
+    {
+        $versionsBefore = $this->versions($cID);
+        $liveNameBefore = (string) $this->db()->fetchOne('SELECT cvName FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1', [$cID]);
+
+        try {
+            $this->callPagesTool('update_page', ['pageID' => $cID] + $inputs);
+            $this->fail('update_page should have refused ' . json_encode($inputs));
+        } catch (\RuntimeException $e) {
+            if ($exact) {
+                $this->assertSame($expectedMessage, $e->getMessage(), json_encode($inputs));
+            } else {
+                $this->assertStringContainsString($expectedMessage, $e->getMessage(), json_encode($inputs));
+            }
+        }
+
+        $this->assertSame($versionsBefore, $this->versions($cID), 'A refused call makes no draft: ' . json_encode($inputs));
+        $this->assertSame($liveNameBefore, (string) $this->db()->fetchOne('SELECT cvName FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1', [$cID]));
+    }
+
+    public function testUpdatePageRefusesAnUnknownParameterAndWritesNothing(): void
+    {
+        $cID = $this->newHeadingsPage();
+
+        // A valid name next to an invented key: the whole call is refused, so the rename is not made either.
+        $this->assertUpdatePageRefuses($cID, ['name' => 'Should not be written', 'colour' => 'red'], 'does not accept: colour', false);
+        $this->assertUpdatePageRefuses($cID, ['name' => 'Should not be written', 'colour' => 'red'], 'Nothing was changed', false);
+    }
+
+    public function testUpdatePageGivesTheMovingMessageForAParentOrPathParameter(): void
+    {
+        $cID = $this->newHeadingsPage();
+
+        foreach (['parentPath' => '/neuron-test/move-target', 'parentID' => 1, 'newParentID' => 1, 'cParentID' => 1, 'parent' => 1, 'path' => '/x', 'newPath' => '/x', 'destination' => '/x'] as $key => $value) {
+            $this->assertUpdatePageRefuses($cID, [$key => $value], PagesToolkit::MOVE_UNAVAILABLE_MESSAGE, true);
+        }
+        $this->assertSame("Moving pages isn't available yet. It will return with approvals.", PagesToolkit::MOVE_UNAVAILABLE_MESSAGE);
+    }
+
+    public function testUpdatePageRefusesAnUnknownAttributeHandleAndWritesNothing(): void
+    {
+        $cID = $this->newHeadingsPage();
+
+        $this->assertUpdatePageRefuses($cID, ['name' => 'Should not be written', 'attributes' => ['no_such_attribute_handle' => 'x']], "'no_such_attribute_handle' is not a page attribute handle", false);
+        $this->assertUpdatePageRefuses($cID, ['attributes' => ['no_such_attribute_handle' => 'x']], 'nothing was changed', false);
+    }
+
+    public function testUpdatePageGivesTheMovingMessageForAParentOrPathAttributeKey(): void
+    {
+        $cID = $this->newHeadingsPage();
+
+        foreach (['parentPath' => '/neuron-test/move-target', 'parent' => 1, 'cParentID' => 1] as $key => $value) {
+            $this->assertUpdatePageRefuses($cID, ['attributes' => [$key => $value]], PagesToolkit::MOVE_UNAVAILABLE_MESSAGE, true);
+        }
+    }
+
+    public function testUpdatePageStillAcceptsARealPageAttribute(): void
+    {
+        $cID = $this->newHeadingsPage();
+        if (!CollectionKey::getByHandle('meta_title')) {
+            $this->markTestSkipped('The site has no meta_title page attribute');
+        }
+
+        $this->callPagesTool('update_page', ['pageID' => $cID, 'attributes' => ['meta_title' => 'A draft title']]);
+
+        $this->assertCount(2, $this->versions($cID), 'The attribute goes to one draft');
     }
 
     public function testUpdatePageRenamesInADraftAndAcceptsTheCurrentPageType(): void
