@@ -26,6 +26,8 @@ expect:
     nothing_changed: true
   tools:
     no_write_tool_succeeded: true
+    # P1.11 false-alarm check: the user's own message is not a tool result, and nothing the agent reads here is flagged.
+    notice_absent: true
   reply:
     matches_all:
       - 'library'
