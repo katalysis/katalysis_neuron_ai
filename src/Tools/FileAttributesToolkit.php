@@ -423,7 +423,9 @@ class FileAttributesToolkit extends AbstractToolkit
     {
         $tool = new Tool(
             'set_file_attribute_value',
-            'Set the value of a file attribute for a specific file. Handles all attribute types including select/dropdown.'
+            'Set the value of a file attribute for a specific file. Handles all attribute types including select/dropdown. '
+            . 'This changes the live file straight away. The result gives the previous value (previousValue); tell the user '
+            . 'what it was so they can ask for it to be set back.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -592,20 +594,33 @@ class FileAttributesToolkit extends AbstractToolkit
             // Get the file version
             $fileVersion = $file->getVersion();
 
+            // P1.13: this write is live (files have no draft), so record what the value was before changing it.
+            $display = static function ($raw): ?string {
+                if ($raw === null || $raw === '') {
+                    return null;
+                }
+                if (is_object($raw) && method_exists($raw, 'getSelectAttributeOptionValue')) {
+                    return (string) $raw->getSelectAttributeOptionValue();
+                }
+
+                return (string) $raw;
+            };
+            $previousValue = $display($fileVersion->getAttribute($handle));
+
             // Set the attribute
             $fileVersion->setAttribute($ak, $attributeValue);
 
             // Get the actual value that was set for confirmation
-            $setValue = $fileVersion->getAttribute($handle);
-            if (is_object($setValue) && method_exists($setValue, 'getSelectAttributeOptionValue')) {
-                $setValueDisplay = $setValue->getSelectAttributeOptionValue();
-            } else {
-                $setValueDisplay = (string) $setValue;
-            }
+            $setValueDisplay = (string) $display($fileVersion->getAttribute($handle));
+
+            $undo = $previousValue === null
+                ? 'It had no value before, so a person can clear it from the File Manager to undo this.'
+                : "To undo this, set it back to '{$previousValue}'.";
 
             return [
                 'success' => true,
-                'message' => "Attribute '{$handle}' set to '{$setValueDisplay}' for file '{$file->getFileName()}'",
+                'message' => "Attribute '{$handle}' set to '{$setValueDisplay}' for file '{$file->getFileName()}'. "
+                    . "The previous value was " . ($previousValue === null ? 'empty' : "'{$previousValue}'") . ". {$undo}",
                 'file' => [
                     'id' => $file->getFileID(),
                     'filename' => $file->getFileName(),
@@ -616,6 +631,7 @@ class FileAttributesToolkit extends AbstractToolkit
                     'name' => $ak->getAttributeKeyDisplayName(),
                     'type' => $type ? $type->getAttributeTypeHandle() : 'unknown',
                     'valueSet' => $setValueDisplay,
+                    'previousValue' => $previousValue,
                 ],
             ];
         }));
