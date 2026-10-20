@@ -267,7 +267,7 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - `get_user` and the people tools return only the fields the request needs (B-PII-2).
   - `move_file_to_folder`, when used for a delete request, can only target "Assistant – to delete" (B-T1-11).
   - Remove `set_user_attribute_value` (disabled in P1.7).
-- P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change. The approval must cover `create_page`, which today publishes the new page immediately (found in P1.7).
+- P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change. The approval must cover `create_page`, which today publishes the new page immediately (found in P1.7). Note from P1.11: scenario 14 (an injected line in the user's own pasted message, not in a tool result) is outside what P1.11's detector can see, because the detector scans tool results only. Approval before writes is what covers it, so P3.6 should make that scenario's `no_write_tool_succeeded` check pass.
   - from P1.8a: a draft belongs to the page, not to a user. `PageDraft::of()` and `create_page_draft` reuse the page's newest unapproved version, whoever made it. Approval and its UI must show the draft's changes, not only the current call's, and say when the draft already holds someone else's edits
 - P3.7 **Cut the prompt down** to identity, tier and how to use context, under about 60 lines. Each rule it currently holds becomes a tool check or a scenario.
 - P3.8 **Provider adapter:** pick the provider and model from settings, with current Anthropic and OpenAI model choices. Use the cost-efficient model for routing and the stronger model for writes.
@@ -279,6 +279,7 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - chat retention: 90 days by default, configurable, plus an admin purge (B-PII-5)
   - errors sent to the browser are reduced to a safe message, with the detail logged (B-ERR-4). From P1.7a, six chat endpoints still return `$e->getMessage()`: `chat_list`, `load`, `current`, `new_chat`, `delete_chat` and `delete_current_chat`
   - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
+  - chat history load failures should show a clear message to the user (found in P1.11: currently `catch (\Exception)` in `loadExistingMessages()`)
 - P3.10 **Extension model (see `EXTENSIONS.md`):**
   1. the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface
   2. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing

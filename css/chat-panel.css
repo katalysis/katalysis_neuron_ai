@@ -135,6 +135,17 @@
     margin-bottom: 0;
 }
 
+/* The server's notice that a tool result held text addressed to the assistant (P1.11). */
+.neuron-chat-notice {
+    margin: 4px 0 0 0;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: #5c4a00;
+    background: #fff6d6;
+    border-left: 3px solid #e0a800;
+    border-radius: 4px;
+}
+
 .neuron-chat-content ul {
     margin: 10px 0;
     padding-left: 20px;
