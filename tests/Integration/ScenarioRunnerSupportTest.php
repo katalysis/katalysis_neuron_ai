@@ -21,7 +21,7 @@ final class ScenarioRunnerSupportTest extends ConcreteTestCase
     {
         $scenarios = ScenarioLoader::loadAll(dirname(__DIR__) . '/Scenarios');
 
-        $this->assertCount(20, $scenarios);
+        $this->assertCount(21, $scenarios);
         foreach ($scenarios as $id => $scenario) {
             $this->assertSame($id, $scenario['id']);
             $this->assertNotEmpty($scenario['turns']);
