@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Access;
 
+use Concrete\Core\Page\Page;
+use Concrete\Core\Page\View\PageView;
+use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Validation\CSRF\Token;
 
@@ -37,6 +40,32 @@ final class ChatAccess
     public static function canUse(): bool
     {
         return NeuronPermissions::userHas(NeuronPermissions::USE_HANDLE);
+    }
+
+    /**
+     * Whether the panel's markup, CSS and JS go into this view: the user may use the assistant AND Concrete shows
+     * them the toolbar on this page. The panel opens only from a button in that toolbar, so without the toolbar it
+     * could not be opened. The toolbar test is Concrete's own (PageView::startRender() and page_controls_header.php
+     * both ask the page's permissions for canViewToolbar()), so it covers dashboard pages as well. Views that are
+     * not pages (dialogs, tools, errors) never get the panel.
+     *
+     * Only the panel's output depends on this. The chat endpoints use canUse() alone (refusalReason()).
+     *
+     * @param mixed $view the view named by the on_before_render event
+     */
+    public static function canShowPanelOn(mixed $view): bool
+    {
+        if (!$view instanceof PageView || !self::canUse()) {
+            return false;
+        }
+
+        $page = $view->getPageObject();
+        if (!$page instanceof Page || $page->isError()) {
+            return false;
+        }
+
+        // Concrete's answer can be an int (1) rather than true, so compare as a boolean.
+        return (bool) (new Checker($page))->canViewToolbar();
     }
 
     /**

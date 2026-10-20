@@ -73,7 +73,7 @@ class Controller extends Package
     {
         Events::addListener('on_before_render', function($event) {
             $view = $event->getArgument('view');
-            if (!$view || !$this->canShowChatPanel()) {
+            if (!\Katalysis\NeuronAi\Access\ChatAccess::canShowPanelOn($view)) {
                 return;
             }
 
@@ -97,15 +97,6 @@ class Controller extends Package
                 View::element('chat_panel', [], 'katalysis_neuron_ai')
             );
         });
-    }
-
-    /**
-     * Show panel for logged-in users who have the "Use Neuron AI assistant" task permission.
-     * The chat endpoints use the same check (ChatAccess).
-     */
-    private function canShowChatPanel(): bool
-    {
-        return \Katalysis\NeuronAi\Access\ChatAccess::canUse();
     }
 
     private function createDatabaseTables()
