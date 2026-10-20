@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Integration;
 
 use Concrete\Core\Config\Repository\Repository;
+use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Http\Request;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Permission\Checker;
@@ -28,6 +29,11 @@ use PHPUnit\Framework\Attributes\DataProvider;
  * edit permission on it. No page permission is changed, so there is nothing to
  * restore. The user is deleted after each test.
  *
+ * One test grants that throwaway user "Edit Page Properties" on the settings page,
+ * which makes the page override its permissions. Its cleanup returns the page to
+ * inheriting from /dashboard and removes the rows the grant created; the test proves
+ * it with before and after snapshots.
+ *
  * Settings live in an in-memory config with dummy keys, so the dev site's real keys
  * are never read or changed, and nothing calls a provider.
  */
@@ -41,6 +47,9 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
 
     /** @var UserInfo[] throwaway users, deleted in tearDown() */
     private array $createdUsers = [];
+
+    /** Set when a test grants a permission on the settings page, so tearDown() can undo it. */
+    private bool $grantedOnSettingsPage = false;
 
     public static function setUpBeforeClass(): void
     {
@@ -66,6 +75,8 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
     {
         Request::getInstance()->setCustomRequestUser(-1);
         Request::getInstance()->request->replace([]);
+        // The grant goes first: it is found through the user, who must still exist.
+        $this->removeGrantFromSettingsPage();
         foreach ($this->createdUsers as $info) {
             $info->delete();
         }
@@ -121,6 +132,142 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
         $this->assertFalse($page->isError(), 'The settings page is missing. Is katalysis_neuron_ai installed?');
 
         return $page;
+    }
+
+    private function db(): Connection
+    {
+        return $this->app()->make(Connection::class);
+    }
+
+    /**
+     * Grants "Edit Page Properties" on the settings page to the throwaway user.
+     * The page starts to override its permissions; removeGrantFromSettingsPage() undoes that.
+     */
+    private function grantEditToViewOnlyUser(): void
+    {
+        $info = $this->viewOnlyUser();
+        $this->grantedOnSettingsPage = true;
+        $this->settingsPage()->assignPermissions($info, ['edit_page_properties']);
+        $this->forgetCachedPermissions();
+    }
+
+    /**
+     * Puts the settings page back to inheriting its permissions from its parent, and removes the
+     * permission rows that the throwaway user's grant created. Safe to call when nothing was granted.
+     *
+     * Only rows that list the throwaway user's access entity are touched, and an access is removed
+     * only when nothing is assigned to it any more.
+     */
+    private function removeGrantFromSettingsPage(): void
+    {
+        if (!$this->grantedOnSettingsPage) {
+            return;
+        }
+        $this->grantedOnSettingsPage = false;
+
+        $db = $this->db();
+        $peIDs = [];
+        $paIDs = [];
+        foreach ($this->createdUsers as $info) {
+            foreach ($db->fetchFirstColumn('SELECT peID FROM PermissionAccessEntityUsers WHERE uID = ?', [$info->getUserID()]) as $peID) {
+                $peIDs[] = (int) $peID;
+                foreach ($db->fetchFirstColumn('SELECT DISTINCT paID FROM PermissionAccessList WHERE peID = ?', [$peID]) as $paID) {
+                    $paIDs[] = (int) $paID;
+                }
+            }
+        }
+
+        // Page::inheritPermissionsFromParent() also removes the page's own assignments and rescans its areas.
+        $this->settingsPage()->inheritPermissionsFromParent();
+
+        foreach (array_unique($paIDs) as $paID) {
+            $inUse = 0;
+            foreach ($this->assignmentTables() as $table) {
+                $inUse += (int) $db->fetchOne("SELECT COUNT(*) FROM `{$table}` WHERE paID = ?", [$paID]);
+            }
+            if ($inUse === 0) {
+                $db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
+                $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
+            }
+        }
+        foreach (array_unique($peIDs) as $peID) {
+            if ((int) $db->fetchOne('SELECT COUNT(*) FROM PermissionAccessList WHERE peID = ?', [$peID]) === 0) {
+                $db->executeStatement('DELETE FROM PermissionAccessEntityUsers WHERE peID = ?', [$peID]);
+                $db->executeStatement('DELETE FROM PermissionAccessEntities WHERE peID = ?', [$peID]);
+            }
+        }
+        $this->forgetCachedPermissions();
+    }
+
+    private function forgetCachedPermissions(): void
+    {
+        $this->settingsPage()->refreshCache();
+        $this->app()->make('cache/request')->flush();
+    }
+
+    /**
+     * @return string[] every table that assigns a permission access (paID) to an object
+     */
+    private function assignmentTables(): array
+    {
+        return array_map('strval', $this->db()->fetchFirstColumn(
+            'SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS'
+            . " WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'paID' AND TABLE_NAME LIKE '%PermissionAssignments'"
+            . ' ORDER BY TABLE_NAME'
+        ));
+    }
+
+    /**
+     * The permission rows that matter here: the settings page and its parent in full, global row counts,
+     * and the orphans (accesses nothing is assigned to, and entities nothing refers to).
+     *
+     * @return array<string, mixed>
+     */
+    private function permissionSnapshot(): array
+    {
+        $db = $this->db();
+        $settingsID = (int) $this->settingsPage()->getCollectionID();
+        $parentID = (int) $this->settingsPage()->getCollectionParentID();
+        $this->assertGreaterThan(0, $settingsID);
+
+        $snapshot = [
+            'settingsPageID' => $settingsID,
+            'pages' => $db->fetchAllAssociative(
+                'SELECT cID, cInheritPermissionsFrom, cInheritPermissionsFromCID FROM Pages WHERE cID IN (?, ?, 2) ORDER BY cID',
+                [$settingsID, $parentID]
+            ),
+            'pageAssignments' => $db->fetchAllAssociative(
+                'SELECT cID, pkID, paID FROM PagePermissionAssignments WHERE cID IN (?, ?, 2) ORDER BY cID, pkID, paID',
+                [$settingsID, $parentID]
+            ),
+            'areaAssignments' => $db->fetchAllAssociative(
+                'SELECT cID, arHandle, pkID, paID FROM AreaPermissionAssignments WHERE cID = ? ORDER BY arHandle, pkID, paID',
+                [$settingsID]
+            ),
+            'accessListOfAssignedAccesses' => $db->fetchAllAssociative(
+                'SELECT paID, peID, accessType FROM PermissionAccessList WHERE paID IN'
+                . ' (SELECT paID FROM PagePermissionAssignments WHERE cID IN (?, ?, 2)) ORDER BY paID, peID',
+                [$settingsID, $parentID]
+            ),
+        ];
+
+        foreach (['PermissionAccess', 'PermissionAccessList', 'PermissionAccessEntities', 'PermissionAccessEntityUsers', 'PagePermissionAssignments', 'AreaPermissionAssignments', 'Users', 'UserGroups'] as $table) {
+            $snapshot['count ' . $table] = (int) $db->fetchOne("SELECT COUNT(*) FROM `{$table}`");
+        }
+
+        $assigned = [];
+        foreach ($this->assignmentTables() as $table) {
+            $assigned[] = "SELECT paID FROM `{$table}`";
+        }
+        $snapshot['orphan accesses'] = (int) $db->fetchOne('SELECT COUNT(*) FROM PermissionAccess WHERE paID NOT IN (' . implode(' UNION ', $assigned) . ')');
+        $snapshot['orphan access list rows'] = (int) $db->fetchOne('SELECT COUNT(*) FROM PermissionAccessList WHERE paID NOT IN (SELECT paID FROM PermissionAccess)');
+        $snapshot['orphan user entities'] = (int) $db->fetchOne('SELECT COUNT(*) FROM PermissionAccessEntityUsers WHERE uID NOT IN (SELECT uID FROM Users)');
+        // Entities that list no user and no group, and that no access list uses: left behind by a deleted grant.
+        $snapshot['unused user entities'] = (int) $db->fetchOne(
+            'SELECT COUNT(*) FROM PermissionAccessEntityUsers eu WHERE eu.peID NOT IN (SELECT peID FROM PermissionAccessList)'
+        );
+
+        return $snapshot;
     }
 
     private function controller(): NeuronAi
@@ -241,6 +388,82 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
         $this->assertSame('http://changed.invalid', $this->config->get('katalysis.ai.ollama_url'));
         $flashes = $this->app()->make('session')->getFlashBag()->get('page_message');
         $this->assertSame('success', $flashes[0][0] ?? null);
+    }
+
+    public function testANonSuperUserGrantedEditPagePropertiesCanSaveAndTheGrantIsFullyRemovedAfterwards(): void
+    {
+        $before = $this->permissionSnapshot();
+        $beforeRow = $this->db()->fetchAssociative(
+            'SELECT cInheritPermissionsFrom, cInheritPermissionsFromCID FROM Pages WHERE cID = ?',
+            [$before['settingsPageID']]
+        );
+        $this->assertSame('PARENT', $beforeRow['cInheritPermissionsFrom'], 'The settings page should inherit its permissions before the test.');
+        $this->assertSame(
+            0,
+            (int) $this->db()->fetchOne('SELECT COUNT(*) FROM PagePermissionAssignments WHERE cID = ?', [$before['settingsPageID']]),
+            'The settings page should have no assignments of its own before the test.'
+        );
+        // Without the grant the user can view but not save.
+        $this->actAs('viewonly');
+        $info = $this->viewOnlyUser();
+        $this->assertFalse($info->getUserObject()->isSuperUser(), 'The user must not be the super user.');
+        $this->post($this->changeEverything(), true);
+        $this->assertNull($this->controller()->save());
+        $this->assertSame('original-model', $this->config->get('katalysis.ai.open_ai_model'));
+
+        // With "Edit Page Properties" on the settings page, the same user can save.
+        $this->grantEditToViewOnlyUser();
+        $granted = $this->permissionSnapshot();
+        $this->assertNotSame($before['pages'], $granted['pages'], 'The grant should make the page override its permissions.');
+        $this->actAs('viewonly');
+        $checker = new Checker($this->settingsPage());
+        $this->assertTrue((bool) $checker->canViewPage(), 'The grant must not remove view.');
+        $this->assertTrue((bool) $checker->canEditPageProperties());
+        $this->assertFalse((bool) $checker->canEditPagePermissions(), 'Only the one key was granted.');
+
+        $this->post($this->changeEverything(), true);
+        $controller = $this->controller();
+        $response = $controller->save();
+
+        $this->assertSame('', $controller->errorText());
+        $this->assertNotNull($response, 'A successful save redirects back to the page.');
+        $this->assertSame('changed-model', $this->config->get('katalysis.ai.open_ai_model'));
+        $this->assertSame('sk-dummy-NEW-VALUE-4455', $this->config->get('katalysis.ai.open_ai_key'));
+        $this->assertSame('', $this->config->get('katalysis.ai.anthropic_key'));
+        $this->assertStringContainsString('type="submit"', $this->renderSettingsPage(), 'The form shows Save to a user who can save.');
+
+        // Remove the grant: the user is back to view-only, and the permission rows are as they were.
+        $this->removeGrantFromSettingsPage();
+        $this->actAs('viewonly');
+        $checker = new Checker($this->settingsPage());
+        $this->assertTrue((bool) $checker->canViewPage());
+        $this->assertFalse((bool) $checker->canEditPageProperties(), 'The user must lose edit permission with the grant.');
+        $this->post($this->changeEverything(), true);
+        $this->assertNull($this->controller()->save());
+
+        Request::getInstance()->setCustomRequestUser(-1);
+        foreach ($this->createdUsers as $created) {
+            $created->delete();
+        }
+        $this->createdUsers = [];
+        $this->forgetCachedPermissions();
+
+        $after = $this->permissionSnapshot();
+        $this->assertSame($before, $after, 'The permission rows, counts and orphan counts must be as they were before the grant.');
+        $this->assertSame(0, $after['orphan accesses'] - $before['orphan accesses']);
+        $this->assertSame(0, $after['unused user entities'] - $before['unused user entities']);
+
+        // The page inherits from /dashboard again: its own assignment rows are gone, and it points at the same source.
+        $row = $this->db()->fetchAssociative(
+            'SELECT cInheritPermissionsFrom, cInheritPermissionsFromCID FROM Pages WHERE cID = ?',
+            [$after['settingsPageID']]
+        );
+        $this->assertSame('PARENT', $row['cInheritPermissionsFrom']);
+        $this->assertSame((int) $beforeRow['cInheritPermissionsFromCID'], (int) $row['cInheritPermissionsFromCID'], 'The page should use the same permissions source as before.');
+        $this->assertSame(
+            0,
+            (int) $this->db()->fetchOne('SELECT COUNT(*) FROM PagePermissionAssignments WHERE cID = ?', [$after['settingsPageID']])
+        );
     }
 
     /**
