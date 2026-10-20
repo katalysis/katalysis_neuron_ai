@@ -31,6 +31,15 @@ Record decisions that change the plan or design, with the date and who made them
   - **Scenario runner:** runs in-process.
 
 ## Test hygiene
+**Closed by P1.12 (20 October)**, apart from the Concrete core issues, which are drafted in `documentation/upstream/` for Glyn to file or not. Details: `documentation/plans/P1.12.md` and the P1.12 log entry.
+- **Permission rows from deleted pages:** cause found (`Page::delete()` in Concrete 9.5.5 never deletes `AreaPermissionAssignments`); the source was `DraftIsolationTest` (+9 rows, +1 access, +2 list rows per run). Fixed by `AreaGrantFixture`. Existing rows removed by `cleanup_test_leftovers.php`.
+- **User entities with no user:** cause found (`UserInfo::delete()` leaves the `PermissionAccessEntities` row); all 16 were kept alive only by the leftover accesses and were removed with them.
+- **Four orphan `Blocks` rows (41, 43, 54, 256):** closed as pre-existing and not ours (by Glyn). Left alone. Created by `admin` on 27 March and 29 April, no `bt*` row, no reference found anywhere.
+- **The `usersignups` foreign key:** cause found. `RegistrationService::create()` never sets `User::$signup`, so a user made and deleted in the same process cannot be deleted. Joining a group loads it, which is why the group steps looked like the cause. Fixed in `TaskKeyFixture` by refreshing the entity; the SQL workaround, which left 48 notifications and 96 alerts, is gone.
+- **Leak check:** every integration test class now fails if it changes any table except `Logs`.
+
+History, as found before P1.12:
+
 Leftovers in the dev database that the tests or the seed don't clean up. Logged, not fixed. Found in P1.10 (20 October); nothing here changes test results. Whoever picks them up should decide first whether to clean the dev database by hand, fix the code that leaves them, or both.
 
 **These four items are the task P1.12** (DELIVERY_PLAN.md), which comes after P1.11 and before the Phase 1 comparison run: (1) the per-run leak of permission rows from deleted test pages (suspected `DraftIsolationTest`), (2) user entities with no user row, (3) the four orphan `Blocks` rows from P1.8, (4) the `usersignups` foreign key.
@@ -55,6 +64,21 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 
 ## Log
 (newest first)
+
+### 2026-10-20: P1.12 Test hygiene
+- Branch / PR: `task/P1.12-test-hygiene`, PR to be opened after review. Plan: `documentation/plans/P1.12.md`.
+- Done:
+  - **Inventory first (read-only, dump taken)**, then plan approved. Findings in the plan, section 1; changes while doing it in section 9.
+  - **Test fixes, red first.** `TaskKeyFixtureTest` was red on the old fixture (`Notifications` +1, `NotificationAlerts` +2); `AreaGrantFixtureTest` was red with a no-op restore (`AreaPermissionAssignments` +9, `PermissionAccess` +1, `PermissionAccessList` +2, 9 rows remaining). Fixed by `TaskKeyFixture` (refresh the entity; no SQL workaround) and the new `AreaGrantFixture` and `PermissionCleanup`; `DraftIsolationTest` uses the fixture.
+  - **Leak check.** `DatabaseSnapshot` (every table counted in one query; `CHECKSUM TABLE` for `Config` and the permission tables) and `ConcreteTestCase::setUpBeforeClass/tearDownAfterClass`. Only `Logs` is allowed, with its reason in the constant. Seven unit tests and three integration tests; a deliberately leaking class failed with `AreaPermissionAssignments: 378 -> 379 (+1 rows)`.
+  - **Cleanup.** `documentation/fixtures/cleanup_test_leftovers.php` (logic in `tests/Support/LeftoverCleanup.php`, 10 tests): dev-host guard, dry run by default, `--tests-since` required, `--apply` needs the dry run's summary and a fresh complete dump, one transaction that aborts if the numbers differ, a re-check afterwards. Applied once: 369 `AreaPermissionAssignments`, 136 `PermissionAccessList`, 63 `PermissionAccess`, 16 `PermissionAccessEntities`, 96 `NotificationAlerts`, 48 `Notifications` rows. Second dry run: nothing.
+  - **Upstream drafts** (not filed; each reproduced on 9.5.5 in a rolled-back transaction): `documentation/upstream/` for `Page::delete()`, `UserInfo::delete()` and `RegistrationService::create()`.
+  - **The 5 PHP warnings per `DraftIsolationTest` run** found and not fixed: one is our bug at `src/Tools/PagesToolkit.php:1068` (`batch_update_content_headings`, no `headingTexts` with `matchMode=bold_paragraph`), four come from a test input at `DraftIsolationTest.php:791` hitting `core_area_layout/controller.php:370`. Both added to P3.9 (the first also to P3.3).
+  - **CLAUDE.md** Testing: one line on the leak check.
+- Not done / left for later: filing the three Concrete issues (Glyn); the two warnings above (P3.9); the four orphan blocks (closed as not ours).
+- Checks: PHPUnit 402 tests, 2363 assertions, OK, twice in a row after the cleanup; every table identical before and after each run except `Logs`. The seed's `--reset-only` x2 and `--reset` x2: identical counts except `Logs`. No scenarios run (no code under `src/` changed).
+- Plan changes proposed: none to the delivery plan. During the work: the cleanup's cutoff is a required date (`--tests-since`) instead of "above every live page", because seven empty global-area stacks were added the same afternoon; a throwaway page left by my own red test run was deleted before the cleanup; the cleanup's cache clear removed those seven empty stacks (see the plan, section 9).
+- Questions for review: none blocking. Whether to file the three Concrete issues.
 
 ### 2026-10-20: P1.11 Injected instructions are flagged and disclosed
 - Branch / PR: `task/P1.11-injection-disclosure`, PR #23 (merged). Plan: `documentation/plans/P1.11.md`.
