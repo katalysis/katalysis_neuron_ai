@@ -4,7 +4,7 @@ namespace Concrete\Package\KatalysisNeuronAi\Controller\SinglePage\Dashboard\Sys
 use Core;
 use Config;
 use Concrete\Core\Page\Controller\DashboardPageController;
-use Concrete\Core\Permission\Checker;
+use Katalysis\NeuronAi\Access\NeuronPermissions;
 use Katalysis\NeuronAi\Settings\ApiKeySettings;
 
 class NeuronAi extends DashboardPageController
@@ -15,6 +15,15 @@ class NeuronAi extends DashboardPageController
         $this->set('title', t('AI Settings'));
         $this->set('token', $this->app->make('token'));
         $this->set('form', $this->app->make('helper/form'));
+        $this->set('results', []);
+
+        // Without the "Configure Neuron AI" task permission the page shows only a message: no form, no
+        // "Key set" statuses and no settings values.
+        $canConfigure = $this->canConfigure();
+        $this->set('can_configure', $canConfigure);
+        if (!$canConfigure) {
+            return;
+        }
 
         // API keys are never passed to the view (B-SEC-1): it only learns whether each is set.
         $settings = $this->settings();
@@ -22,17 +31,14 @@ class NeuronAi extends DashboardPageController
         foreach ($settings->plainValues() as $field => $value) {
             $this->set($field, $value);
         }
-
-        $this->set('can_edit', $this->canEditSettings());
-        $this->set('results', []);
     }
 
     public function save()
     {
-        // Viewing the page is what lets a user use the chat (B-ACC-1), so it must not be enough to change
-        // the keys, models or URL: saving needs edit permission on the page, as well as the CSRF token.
-        if (!$this->canEditSettings()) {
-            $this->error->add(t('You do not have permission to change these settings.'));
+        // Using the assistant and changing its keys, models and URL are separate Concrete task permissions
+        // ("Use Neuron AI assistant", "Configure Neuron AI"). Saving needs the second, as well as the CSRF token.
+        if (!$this->canConfigure()) {
+            $this->error->add(t('You don\'t have permission to change Neuron AI settings.'));
         } elseif (!$this->token->validate('ai.settings')) {
             $this->error->add($this->token->getErrorMessage());
         }
@@ -65,17 +71,12 @@ class NeuronAi extends DashboardPageController
     }
 
     /**
-     * Whether the current user may change the settings: "Edit Page Properties" on this page.
-     * Everyone who can view the page can open it and see whether each key is set.
+     * Whether the current user has the "Configure Neuron AI" task permission (the super user always does).
+     * The user also needs Concrete's normal view permission on this dashboard page to open it.
      */
-    protected function canEditSettings(): bool
+    protected function canConfigure(): bool
     {
-        $page = $this->getPageObject();
-        if (!$page || $page->isError()) {
-            return false;
-        }
-
-        return (bool) (new Checker($page))->canEditPageProperties();
+        return NeuronPermissions::userHas(NeuronPermissions::CONFIGURE_HANDLE);
     }
 
     protected function settings(): ApiKeySettings
