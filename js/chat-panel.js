@@ -161,7 +161,7 @@
                     const normalizedContent = this.normalizeMessageContent(msg ? msg.content : '');
                     const role = msg && msg.role === 'user' ? 'user' : 'assistant';
                     if (normalizedContent) {
-                        this.addMessage(normalizedContent, role, false);
+                        this.addMessage(normalizedContent, role, false, msg ? msg.notice : null);
                     }
                 });
 
@@ -288,7 +288,8 @@
                 this.hideLoading();
                 
                 if (data.success) {
-                    this.addMessage(data.response, 'assistant');
+                    // data.notice is wording the server wrote (null when there is none); it is shown as it comes.
+                    this.addMessage(data.response, 'assistant', true, data.notice);
                 } else {
                     this.showFailure(data, 'Error: ');
                 }
@@ -596,7 +597,7 @@
                                 const normalizedContent = this.normalizeMessageContent(msg ? msg.content : '');
                                 const role = msg && msg.role === 'user' ? 'user' : 'assistant';
                                 if (normalizedContent) {
-                                    this.addMessage(normalizedContent, role, false);
+                                    this.addMessage(normalizedContent, role, false, msg ? msg.notice : null);
                                 }
                             });
 
@@ -699,7 +700,7 @@
             return String(content || '');
         },
         
-        addMessage(content, type = 'assistant', saveToStorage = true) {
+        addMessage(content, type = 'assistant', saveToStorage = true, notice = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `neuron-chat-message neuron-chat-${type}`;
 
@@ -712,6 +713,16 @@
             contentDiv.innerHTML = `<span class="neuron-chat-inline-icon"><i class="fas ${icon}"></i></span>${formattedContent}`;
 
             messageDiv.appendChild(contentDiv);
+
+            // The server's fixed notice about text addressed to the assistant. Plain text only (textContent), and only
+            // under an assistant reply; this file holds no wording of its own for it.
+            if (type === 'assistant' && typeof notice === 'string' && notice !== '') {
+                const noticeDiv = document.createElement('div');
+                noticeDiv.className = 'neuron-chat-notice';
+                noticeDiv.setAttribute('role', 'note');
+                noticeDiv.textContent = notice;
+                messageDiv.appendChild(noticeDiv);
+            }
             
             this.messages.appendChild(messageDiv);
             this.scrollToBottom();

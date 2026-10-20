@@ -11,6 +11,7 @@ use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
 use Katalysis\NeuronAi\PageContextTag;
+use Katalysis\NeuronAi\Security\InjectionNotice;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
@@ -129,6 +130,8 @@ class Chat extends AbstractController
             echo json_encode([
                 'success' => true,
                 'response' => $response,
+                // The fixed notice text when a tool result held text addressed to the assistant, else null (P1.11).
+                'notice' => $agent->getTurnNotice(),
                 'timestamp' => time(),
                 'history_count' => count($agent->resolveState()->getChatHistory()->getMessages())
             ]);
@@ -152,6 +155,8 @@ class Chat extends AbstractController
                             // Add an assistant error response to maintain alternation
                             $errorResponse = "I ran into an error processing that request. Please try again.";
                             $chatHistory->addMessage(new AssistantMessage($errorResponse));
+                            // The turn read flagged content before it failed: the recovery message carries the flag.
+                            $agent->saveTurnNotice();
                             $this->saveAgentState($agent);
                             
                             \Concrete\Core\Support\Facade\Log::notice(
@@ -494,7 +499,7 @@ class Chat extends AbstractController
                 'success' => true,
                 'chat' => [
                     'id' => $chat->getId(),
-                    'chatHistory' => PageContextTag::stripFromHistoryJson($chat->getChatHistory()),
+                    'chatHistory' => InjectionNotice::annotateHistoryJson(PageContextTag::stripFromHistoryJson($chat->getChatHistory())),
                     'firstMessage' => $chat->getFirstMessage(),
                     'lastMessage' => $chat->getLastMessage(),
                     'createdDate' => $chat->getCreatedDate() ? $chat->getCreatedDate()->format('c') : null,
@@ -552,7 +557,7 @@ class Chat extends AbstractController
                 'success' => true,
                 'chat' => [
                     'id' => $chat->getId(),
-                    'chatHistory' => PageContextTag::stripFromHistoryJson($chat->getChatHistory()),
+                    'chatHistory' => InjectionNotice::annotateHistoryJson(PageContextTag::stripFromHistoryJson($chat->getChatHistory())),
                     'firstMessage' => $chat->getFirstMessage(),
                     'lastMessage' => $chat->getLastMessage(),
                     'createdDate' => $chat->getCreatedDate() ? $chat->getCreatedDate()->format('c') : null,

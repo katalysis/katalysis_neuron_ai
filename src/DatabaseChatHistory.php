@@ -4,6 +4,7 @@ namespace Katalysis\NeuronAi;
 
 use NeuronAI\Chat\History\AbstractChatHistory;
 use NeuronAI\Chat\Messages\Message;
+use NeuronAI\Chat\Messages\ToolCallMessage;
 use Concrete\Core\Support\Facade\Application;
 use Katalysis\NeuronAi\Entity\Chat;
 
@@ -128,6 +129,30 @@ class DatabaseChatHistory extends AbstractChatHistory
     {
         // Intentionally no-op: persistence is handled in setMessages(),
         // which is always called by AbstractChatHistory::addMessage().
+    }
+
+    /**
+     * Puts a metadata value on the most recent message and stores the history again, if that message is a plain
+     * assistant reply (not a tool call and not a user message). Used for the injection notice (P1.11), which belongs to
+     * the turn's final reply. Anything else as the last message is left alone, so an earlier turn's reply is never
+     * flagged by mistake.
+     *
+     * Metadata is written into the stored message JSON (Message::jsonSerialize) and read back by
+     * AbstractChatHistory::deserializeMeta, so it survives a reload. Neuron does not send it to the provider.
+     *
+     * @return bool whether a message was flagged
+     */
+    public function flagLastAssistantMessage(string $key, string $value): bool
+    {
+        $last = end($this->history);
+        if (!$last instanceof Message || $last instanceof ToolCallMessage || $last->getRole() !== 'assistant') {
+            return false;
+        }
+
+        $last->addMetadata($key, $value);
+        $this->persistHistory();
+
+        return true;
     }
 
     protected function onTrimHistory(int $index): void
