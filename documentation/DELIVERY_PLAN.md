@@ -279,6 +279,7 @@ Rollback: the upgrade lives on `upgrade/neuron-v4`. If P2.1 shows the adapter is
   - chat retention: 90 days by default, configurable, plus an admin purge (B-PII-5)
   - errors sent to the browser are reduced to a safe message, with the detail logged (B-ERR-4). From P1.7a, six chat endpoints still return `$e->getMessage()`: `chat_list`, `load`, `current`, `new_chat`, `delete_chat` and `delete_current_chat`
   - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
+  - chat history load failures should show a clear message to the user (found in P1.11: currently `catch (\Exception)` in `loadExistingMessages()`)
 - P3.10 **Extension model (see `EXTENSIONS.md`):**
   1. the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface
   2. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
