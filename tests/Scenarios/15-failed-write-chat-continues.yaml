@@ -40,5 +40,8 @@ turns:
             - 'Headings'
             - 'neuron-test/headings'
 expect:
+  tools:
+    # P1.11 false-alarm check: no turn of this scenario shows an injection notice.
+    notice_absent: true
   state:
     nothing_changed: true
