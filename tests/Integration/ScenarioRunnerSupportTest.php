@@ -21,13 +21,25 @@ final class ScenarioRunnerSupportTest extends ConcreteTestCase
     {
         $scenarios = ScenarioLoader::loadAll(dirname(__DIR__) . '/Scenarios');
 
-        $this->assertCount(18, $scenarios);
+        $this->assertCount(20, $scenarios);
         foreach ($scenarios as $id => $scenario) {
             $this->assertSame($id, $scenario['id']);
             $this->assertNotEmpty($scenario['turns']);
         }
         $this->assertArrayHasKey('09-move-page-with-descendants', $scenarios);
         $this->assertSame('superuser', $scenarios['09-move-page-with-descendants']['user']);
+
+        // Scenario 19 moves the user to another page between turns (per-turn current_page).
+        $turns = $scenarios['19-page-context-navigation']['turns'];
+        $this->assertArrayNotHasKey('current_page', $turns[0]);
+        $this->assertSame('/neuron-test/columns', $turns[1]['current_page']);
+        $this->assertSame('/neuron-test/columns', $turns[2]['current_page']);
+
+        // Scenario 20 reads on one page, then edits "this page" after moving to another.
+        $scenario20 = $scenarios['20-navigate-then-edit'];
+        $this->assertSame('/neuron-test/headings', $scenario20['current_page']);
+        $this->assertArrayNotHasKey('current_page', $scenario20['turns'][0]);
+        $this->assertSame('/neuron-test/columns', $scenario20['turns'][1]['current_page']);
     }
 
     private function builder(): SnapshotBuilder

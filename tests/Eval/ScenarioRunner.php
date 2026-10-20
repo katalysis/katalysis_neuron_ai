@@ -22,6 +22,8 @@ use NeuronAI\Chat\Messages\ToolCallMessage;
  * This is the only code that calls the AI provider. Nothing in tests/Unit or tests/Integration may use it.
  *
  * The agent is built by $agentFactory, so a stand-in agent can be used to try the runner without a provider.
+ * A new agent is built for every turn, as the chat endpoint does for every request; only the chat row carries
+ * the conversation from one turn to the next.
  */
 final class ScenarioRunner
 {
@@ -67,8 +69,7 @@ final class ScenarioRunner
         try {
             $user = $this->loginAs((string) $scenario['user']);
             $start = $this->snapshots->take();
-            $agent = ($this->agentFactory)();
-            $agent->setChatId($this->createChat((string) $scenario['id'], $runNumber, $user, (string) $scenario['current_page']));
+            $chatId = $this->createChat((string) $scenario['id'], $runNumber, $user, (string) $scenario['current_page']);
 
             $page = (string) $scenario['current_page'];
             $lastReply = '';
@@ -77,6 +78,13 @@ final class ScenarioRunner
 
             foreach ($scenario['turns'] as $i => $turn) {
                 $page = (string) ($turn['current_page'] ?? $page);
+
+                // Every turn is a new request, as over HTTP (controllers/chat.php, getOrRestoreAgent): a new agent, its
+                // history read back from the chat row (the entity cache is cleared so it really comes from the database),
+                // and then the page context.
+                $this->entityManager()->clear();
+                $agent = ($this->agentFactory)();
+                $agent->setChatId($chatId);
                 $this->setPageContext($agent, $page);
 
                 $before = $this->snapshots->take();
@@ -84,7 +92,7 @@ final class ScenarioRunner
                 $historyBefore = count($this->messages($agent));
 
                 $turnStarted = microtime(true);
-                $reply = $agent->handle((string) $turn['say']);
+                $reply = $agent->handleUserMessage((string) $turn['say']);
                 $turnSeconds = microtime(true) - $turnStarted;
 
                 $after = $this->snapshots->take();

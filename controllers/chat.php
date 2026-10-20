@@ -10,6 +10,7 @@ use Katalysis\NeuronAi\Access\ChatAccess;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
+use Katalysis\NeuronAi\PageContextTag;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\History\InMemoryChatHistory;
@@ -118,8 +119,8 @@ class Chat extends AbstractController
 
             $this->updateChatLocationFromContext($pageContext);
             
-            // Send message and get response
-            $response = $agent->handle($message);
+            // Send message and get response. The agent puts a line naming the current page in front of the message.
+            $response = $agent->handleUserMessage($message);
             
             // Save agent state (includes chat history)
             $this->saveAgentState($agent);
@@ -492,7 +493,7 @@ class Chat extends AbstractController
                 'success' => true,
                 'chat' => [
                     'id' => $chat->getId(),
-                    'chatHistory' => $chat->getChatHistory(),
+                    'chatHistory' => PageContextTag::stripFromHistoryJson($chat->getChatHistory()),
                     'firstMessage' => $chat->getFirstMessage(),
                     'lastMessage' => $chat->getLastMessage(),
                     'createdDate' => $chat->getCreatedDate() ? $chat->getCreatedDate()->format('c') : null,
@@ -550,7 +551,7 @@ class Chat extends AbstractController
                 'success' => true,
                 'chat' => [
                     'id' => $chat->getId(),
-                    'chatHistory' => $chat->getChatHistory(),
+                    'chatHistory' => PageContextTag::stripFromHistoryJson($chat->getChatHistory()),
                     'firstMessage' => $chat->getFirstMessage(),
                     'lastMessage' => $chat->getLastMessage(),
                     'createdDate' => $chat->getCreatedDate() ? $chat->getCreatedDate()->format('c') : null,

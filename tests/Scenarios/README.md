@@ -27,7 +27,7 @@ rubric: "free text"              # optional, see below
 turns:
   - say: "the user's message"
     approval: approve            # optional: approve | deny. Ignored until P3.6
-    current_page: /other/path    # optional: the user has moved to another page for this turn
+    current_page: /other/path    # optional: the user has moved to this page for this turn, and stays there in later turns unless they set their own (scenario 19)
     expect:                      # optional: checks made after this turn
       ...
 expect:                          # checks made after the last turn
