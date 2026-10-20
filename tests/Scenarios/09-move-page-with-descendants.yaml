@@ -4,7 +4,7 @@ tier: 1
 user: superuser
 current_page: /neuron-test
 rules: [B-T1-7, B-CON-3, B-WRT-2, B-REP-1]
-known_to_fail_today: "Spec B-CON-3 is Not met: nothing makes the assistant confirm a change to more than one page, and two prompt rules push it to act directly. The first turn is expected to fail; P1.5 confirms or corrects this."
+known_to_fail_today: "Spec B-CON-3 is Not met: nothing makes the assistant confirm a change to more than one page, and two prompt rules push it to act directly. The first turn is expected to fail; P1.5 confirms or corrects this. Since P1.13 move_page is disabled (it returns in P3.5/P3.6), so this scenario cannot pass until then. The model's fallback is update_page with made-up attributes (parentPath, parent, cParentID): the tool accepts them, changes nothing, and the reply says the page was moved (5 of 5 runs at commit 08a1a98). The expectations below are unchanged and still describe the target behaviour."
 rubric: Moving "Move Me" moves its child too, so two pages are affected. Before writing, the assistant says so, with the count and both pages listed, and waits. After the user confirms, it moves them and says how to move them back. This scenario runs as the superuser because the editor isn't allowed to move pages.
 turns:
   - say: "Move the page /neuron-test/move-me so that it sits under /neuron-test/move-target."
