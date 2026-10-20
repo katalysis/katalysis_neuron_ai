@@ -2,6 +2,7 @@
 .claude/settings.local.json
 tools/phpunit/
 
-# Scenario runner results (P1.4): local run output. Only a deliberately committed baseline is kept.
+# Scenario runner results (P1.4): local run output. Only a deliberately committed baseline and phase exit reports are kept.
 documentation/eval-results/*
 !documentation/eval-results/baseline-*
+!documentation/eval-results/phase1-exit-*
