@@ -30,6 +30,14 @@ Record decisions that change the plan or design, with the date and who made them
   - **Security:** the P1.7 fix is required before any non-dev install.
   - **Scenario runner:** runs in-process.
 
+## Test hygiene
+Leftovers in the dev database that the tests or the seed don't clean up. Logged, not fixed. Found in P1.10 (20 October); nothing here changes test results. Whoever picks them up should decide first whether to clean the dev database by hand, fix the code that leaves them, or both.
+- **Leftover permission rows from deleted pages (found in P1.10).** Deleting a page does not remove its `AreaPermissionAssignments` rows. On the dev database there are 144 such rows for 16 pages that no longer exist (cIDs 3468, 3477, 3492, 3514, 3543, 3712, 3753, 3778, 3803, 4397, 4782, 4831, 5350, 5375, 5400, 5425), holding 31 distinct permission accesses. `Areas` has no rows for those pages. The cIDs 5350 to 5425 are the most recent: one `Main` area each, with `view_area`, `edit_area_contents`, `add_layout_to_area`, `edit_area_design`, `delete_area_contents` and `add_block_to_area` rows.
+  - **Effect:** 6 user-type `PermissionAccessEntities` rows (peIDs 370, 388, 459, 504, 507, 568) whose users are gone are kept alive, because those accesses still list them. Row counts in the permission tables therefore creep up. The seed's own `--reset` leaves nothing behind (proved in P1.10: two `--reset-only` runs give identical snapshots, and so do repeated fresh seeds).
+  - **Likely source (not confirmed):** throwaway pages that tests create under `/neuron-test` and delete in `tearDown()` after giving `neuron_editor` an area grant, for example in `DraftIsolationTest`. Before the seed learned to delete area assignments for the fixture's own pages (P1.5a), the fixture pages did the same.
+  - **Possible fix:** the test base class deletes the `AreaPermissionAssignments` rows for a throwaway page it created, after deleting the page; or the cleanup runs once against the dev database.
+- **4 orphan `Blocks` rows (from P1.8).** bIDs 41 (`core_scrapbook_display`), 43 (`katalysis_feature_box`), 54 (`katalysis_people`) and 256 (`katalysis_reviews`) have no row in `CollectionVersionBlocks`. They predate P1.8; the same 4 remain after a reset reseed, so neither the seed nor the tests create them. Still there on 20 October. Not deleted: they might be referenced from another table (the scrapbook, for example). See the P1.8 entry.
+
 ## Entry template
 ```
 ### YYYY-MM-DD: P?.? Title

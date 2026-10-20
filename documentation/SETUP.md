@@ -50,7 +50,8 @@ The package should register:
 - Three fake people, "Test Person Alpha", "Test Person Beta" and "Test Person Gamma" (`@neuron-test.invalid` emails). Reset also removes any person whose name starts with "Test Person " and whose email ends in `@neuron-test.invalid`, so people that scenarios create must follow that pattern.
 - A small text file in the file manager, "Neuron Test File", imported (copied) from `documentation/fixtures/neuron-test-file.txt`. Its description holds the fixture marker.
 - An Express object, "Test Room" (`neuron_test_room`): name, capacity, room type (meeting / training / hall) and description, with four entries.
-- A non-admin user, `neuron_editor`, who can view, edit, add subpages under and approve versions of `/neuron-test` and its children. The user cannot delete, move or change permissions on those pages, cannot edit any other page and cannot open the Dashboard.
+- A non-admin user, `neuron_editor`, who can view, edit, add subpages under and approve versions of `/neuron-test` and its children. The user cannot delete, move or change permissions on those pages, cannot edit any other page and cannot open the Dashboard. It cannot use the assistant (no view permission on the settings page), so it is the "logged-in user without access" fixture.
+- A second non-admin user, `neuron_chat_editor` (P1.10), for browser checks. It has the same `/neuron-test` rights as `neuron_editor` (including the add-block grant on the Main area of `headings`), plus **view only** on `/dashboard/system/ai/neuron_ai`, which is what the chat panel's access check asks for. It cannot save the settings (that needs edit permission on the page). Granting view makes the settings page switch from inheriting its permissions to overriding them: the page gets a copy of the `/dashboard` permissions plus that one user. The script refuses to run if the settings page already overrides its permissions in any other way, and `--reset` puts it back to inheriting.
 
 Run from `httpdocs/`. Options for the script go after `--`:
 
@@ -60,11 +61,16 @@ php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fix
 
 # delete everything the script created, then create it again
 php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fixtures/seed_test_content.php -- --reset
+
+# delete everything the script created and stop (nothing is created again)
+php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/documentation/fixtures/seed_test_content.php -- --reset-only
 ```
 
-`--reset` removes only what the script created: the `/neuron-test` tree, the three test people, the test file, the Test Room object, the `neuron_editor` user and the permission rows that user's grant created. It checks a marker on each first. If something with the same path, handle, name or file title exists without the marker, it stops and deletes nothing. It never reads or changes the other pages, people, files, users or Express objects. It also removes the review folder "Assistant – to delete" (or "Assistant - to delete") that a scenario may have created, but only once nothing else is in it: it deletes the fixture file first, and if the folder then holds anything else it leaves the folder and prints a warning. The script itself never creates the folder.
+`--reset-only` is for checking that a reset leaves nothing behind (take a snapshot of the permission tables before the seed and after `--reset-only`; they should match) and for testing code against a site without the fixtures. The site is then without `/neuron-test` and both users until the next seed.
 
-`neuron_editor` has the dev-only password `NeuronEditorDev#1`. Never use this password, or this script, on a server. The script refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host.
+`--reset` removes only what the script created: the `/neuron-test` tree, the three test people, the test file, the Test Room object, the `neuron_editor` and `neuron_chat_editor` users and the permission rows their grants created (including the settings-page grant: the settings page inherits from `/dashboard` again). It checks a marker on each first. If something with the same path, handle, name or file title exists without the marker, it stops and deletes nothing. It never reads or changes the other pages, people, files, users or Express objects. It also removes the review folder "Assistant – to delete" (or "Assistant - to delete") that a scenario may have created, but only once nothing else is in it: it deletes the fixture file first, and if the folder then holds anything else it leaves the folder and prints a warning. The script itself never creates the folder.
+
+`neuron_editor` has the dev-only password `NeuronEditorDev#1`, and `neuron_chat_editor` has the dev-only password `NeuronChatEditorDev#1`. Log in by username (this site has `email_registration` off). Never use these passwords, or this script, on a server. The script refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host.
 
 The editor's rights are set per page through Concrete's API, and the site's simple permission model is enough: advanced permissions don't need to be switched on.
 
