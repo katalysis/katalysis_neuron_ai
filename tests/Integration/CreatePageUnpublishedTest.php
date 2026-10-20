@@ -8,16 +8,15 @@ use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Http\Request;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\PageList;
-use Concrete\Core\Page\Template as PageTemplate;
-use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tools\PagesToolkit;
 
 /**
- * P1.13 spike: a page made with no approved version (cvIsApproved => 0) is not
- * live until a person approves it (B-WRT-3). Every test builds its own throwaway
- * page under /neuron-test and deletes it in tearDown(). Nothing here calls the
- * AI provider.
+ * P1.13: create_page makes a page with no approved version, so it is not live until a person approves it from
+ * Page Versions (B-WRT-3). The tool runs as the non-admin neuron_editor, as in scenario 08, and says so in its
+ * description and result. Every test builds its own throwaway page under /neuron-test and deletes it in
+ * tearDown(). Nothing here calls the AI provider.
  */
 final class CreatePageUnpublishedTest extends ConcreteTestCase
 {
@@ -57,22 +56,50 @@ final class CreatePageUnpublishedTest extends ConcreteTestCase
         return $this->app()->make(Connection::class);
     }
 
-    private function createUnpublished(): Page
+    /**
+     * Runs a Pages toolkit tool as the current user and returns the decoded result.
+     */
+    private function callTool(string $name, array $inputs): array
+    {
+        foreach ((new PagesToolkit())->tools() as $tool) {
+            if ($tool->getName() === $name) {
+                $tool = clone $tool;
+                $tool->setInputs($inputs)->execute();
+                $decoded = json_decode((string) $tool->getResult(), true);
+                $this->assertIsArray($decoded, 'The tool result is not JSON: ' . $tool->getResult());
+
+                return $decoded;
+            }
+        }
+        $this->fail("No tool named {$name}");
+    }
+
+    /**
+     * Creates a page under /neuron-test with the create_page tool, as neuron_editor, and returns the tool's result.
+     */
+    private function createWithTheTool(): array
     {
         $this->actAs('superuser');
         $parent = Page::getByPath('/neuron-test');
         $this->assertFalse($parent->isError(), '/neuron-test does not exist. Run the seed script first.');
-        $template = PageTemplate::getByHandle('full');
-        $unique = bin2hex(random_bytes(3));
-        $page = $parent->add(PageType::getByHandle('page'), [
-            'cName' => 'Unpublished ' . $unique,
-            'cHandle' => 'unpublished-' . $unique,
-            'cvIsApproved' => 0,
-        ], $template);
-        $this->assertFalse($page->isError());
-        $this->pages[] = (int) $page->getCollectionID();
+        $this->actAs('neuron_editor');
 
-        return $page;
+        $result = $this->callTool('create_page', [
+            'parentID' => (int) $parent->getCollectionID(),
+            'name' => 'Unpublished ' . bin2hex(random_bytes(3)),
+            'pageType' => 'page',
+        ]);
+        $this->pages[] = (int) $result['id'];
+
+        return $result;
+    }
+
+    private function createUnpublished(): Page
+    {
+        $result = $this->createWithTheTool();
+        $this->actAs('superuser');
+
+        return Page::getByID((int) $result['id'], 'RECENT');
     }
 
     /**
@@ -89,6 +116,61 @@ final class CreatePageUnpublishedTest extends ConcreteTestCase
         }
 
         return $ids;
+    }
+
+    public function testTheDescriptionAndTheResultSayThePageIsUnpublishedAndAPersonPublishesIt(): void
+    {
+        foreach ((new PagesToolkit())->tools() as $tool) {
+            if ($tool->getName() === 'create_page') {
+                $this->assertStringContainsString('unpublished', $tool->getDescription());
+                $this->assertStringContainsString('Page Versions', $tool->getDescription());
+            }
+        }
+
+        $result = $this->createWithTheTool();
+
+        $this->assertFalse($result['published']);
+        $this->assertStringContainsString('unpublished', $result['note']);
+        $this->assertStringContainsString('Page Versions', $result['note']);
+        $this->assertSame(1, $result['versionID']);
+    }
+
+    public function testALaterBlockAddStaysInVersionOne(): void
+    {
+        $cID = (int) $this->createUnpublished()->getCollectionID();
+
+        $this->actAs('superuser');
+        $this->callTool('add_block_to_page_area', [
+            'pageID' => $cID,
+            'areaHandle' => 'Main',
+            'blockType' => 'content',
+            'value' => ['content' => '<p>Added after creation</p>'],
+        ]);
+
+        $versions = $this->db()->fetchAllAssociative('SELECT cvID, cvIsApproved FROM CollectionVersions WHERE cID = ?', [$cID]);
+        $this->assertCount(1, $versions, 'The edit goes into version 1 and makes no second version');
+        $this->assertSame(0, (int) $versions[0]['cvIsApproved']);
+        $text = (string) $this->db()->fetchOne(
+            'SELECT GROUP_CONCAT(c.content) FROM CollectionVersionBlocks cvb JOIN btContentLocal c ON c.bID = cvb.bID WHERE cvb.cID = ? AND cvb.cvID = 1',
+            [$cID]
+        );
+        $this->assertStringContainsString('Added after creation', $text);
+    }
+
+    public function testARefusedCreateLeavesNoPageBehind(): void
+    {
+        $this->actAs('neuron_editor');
+        $count = fn (): int => (int) $this->db()->fetchOne('SELECT COUNT(*) FROM Pages');
+        $before = $count();
+
+        try {
+            $this->callTool('create_page', ['parentID' => 1, 'name' => 'Neuron Denied', 'pageType' => 'page']);
+            $this->fail('The editor has no add-subpage right on the home page');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Permission denied', $e->getMessage());
+        }
+
+        $this->assertSame($before, $count());
     }
 
     public function testTheNewPageHasNoApprovedVersion(): void

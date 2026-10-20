@@ -1743,7 +1743,8 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new Tool(
             'create_page',
-            'Create a new page in Concrete CMS'
+            'Create a new page in Concrete CMS. The page is created unpublished: it has no approved version, so visitors'
+            . ' cannot see it until a person publishes it from Page Versions in the CMS. This assistant cannot publish.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -1832,7 +1833,8 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot add pages of type '{$pageType}' under parent {$parentID}");
             }
             
-            $data = ['name' => $name];
+            // No approved version: the page is not live until a person approves it from Page Versions (P1.13, B-WRT-3).
+            $data = ['name' => $name, 'cvIsApproved' => 0];
             if ($description) {
                 $data['description'] = $description;
             }
@@ -1848,7 +1850,11 @@ class PagesToolkit extends AbstractToolkit
                 }
             }
             
-            return $this->serializePage($page);
+            return $this->serializePage($page) + [
+                'published' => false,
+                'note' => 'The page is unpublished: visitors cannot see it. A person publishes it from Page Versions in the CMS;'
+                    . ' this assistant cannot publish.',
+            ];
         }));
 
         return $tool;
