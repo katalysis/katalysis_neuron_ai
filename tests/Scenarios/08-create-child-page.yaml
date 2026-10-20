@@ -12,6 +12,7 @@ turns:
 expect:
   state:
     page_exists: /neuron-test/scenario-child
+    page_not_published: /neuron-test/scenario-child
     page_type: {page: /neuron-test/scenario-child, handle: page}
     changed_pages:
       exactly: [/neuron-test/scenario-child]
