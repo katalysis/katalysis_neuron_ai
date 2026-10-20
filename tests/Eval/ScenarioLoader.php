@@ -17,7 +17,7 @@ final class ScenarioLoader
     private const TURN_KEYS = ['say', 'approval', 'current_page', 'expect'];
     private const EXPECT_KEYS = ['state', 'tools', 'reply'];
     private const STATE_KEYS = [
-        'nothing_changed', 'page_exists', 'page_absent', 'page_unchanged', 'page_type', 'attribute',
+        'nothing_changed', 'page_exists', 'page_not_published', 'page_absent', 'page_unchanged', 'page_type', 'attribute',
         'attribute_on_children_of', 'blocks', 'all_text_unchanged', 'live_version_unchanged', 'file_exists',
         'people', 'person_field_empty', 'changed_pages',
     ];
