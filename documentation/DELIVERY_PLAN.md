@@ -240,7 +240,7 @@ A spec document and starter template EPRA staff give to their own Claude, so new
   - note `ext-curl` as a requirement in `SETUP.md`
   - **skip and log a failing external toolkit, permanently** (decided after P2.1, findings §5.4): build each external toolkit's tools once per agent, inside the registry's try; skip and log one that fails; show the skip on the settings page; a test with a toolkit that throws
   - **acceptance checks:** the web class-origin check (P2.1 findings §2.3: which vendor each overlapping class loads from under the web SAPI, after a chat turn and after a settings save), and the pinned version above
-- P2.3 Convert all toolkits to `CallableTool`, mechanically and with no behaviour changes.
+- [x] P2.3 Convert all toolkits to `CallableTool`, mechanically and with no behaviour changes. Done (PR #40): the v3 baseline is matched exactly; unknown inputs are refused on every tool, the one deliberate exception, for P2.9's scenarios. Plan: [plans/P2.3.md](plans/P2.3.md).
   - also (decided at P2.2's plan approval): the public `ToolDefinition` builder (P2.8 needs it), and `ToolKind` reading v4's tool error shape (`{"is_error": true}`)
 - P2.4 `instructions()` → `SystemMessage`.
   - **the guidelines heading** (decided on approving the P2.3 plan): v4 heads each toolkit's guidelines with its tool names inside `<TOOLS-GUIDELINES>`, where v3 used the toolkit's class name (P2.1 findings §9), and `FilteredToolkit`'s "Toolkit: X" line is now redundant. P2.3's baseline compares the guideline text exactly but not the heading; P2.4 decides on the heading as part of the prompt
