@@ -82,6 +82,33 @@ final class CallableToolTest extends TestCase
         $this->assertSame([], $this->calls, 'The handler must not run.');
     }
 
+    /**
+     * P2.3 plan §12.2: the refusal names the unknown inputs and lists the allowed ones; a tool with none says so.
+     */
+    public function testTheRefusalNamesEveryUnknownInputAndSaysWhenTheToolTakesNone(): void
+    {
+        try {
+            $this->runTool($this->tool(), ['thingID' => 7, 'parentPath' => '/x', 'colour' => 'red']);
+            $this->fail('Unknown inputs must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('update_thing does not accept: parentPath, colour. Nothing was changed. It accepts only: thingID, title.', $e->getMessage());
+        }
+
+        $ran = false;
+        $none = new CallableTool('get_text', 'Returns text.', static function () use (&$ran): string {
+            $ran = true;
+
+            return '{"ok":true}';
+        });
+        try {
+            $this->runTool($none, ['pageID' => 3]);
+            $this->fail('An input to a tool that takes none must be refused.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('get_text does not accept: pageID. Nothing was changed. It takes no inputs.', $e->getMessage());
+        }
+        $this->assertFalse($ran);
+    }
+
     public function testAnUnknownInputCanGetAMoreSpecificMessage(): void
     {
         $tool = $this->tool()->refuseUnknownInputsWith(static fn (array $unknown): string => 'Use move_page for ' . implode(', ', $unknown) . '.');

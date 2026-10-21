@@ -18,6 +18,8 @@ use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolCall;
 use NeuronAI\Tools\ToolOutput;
+use NeuronAI\Tools\ToolProperty;
+use NeuronAI\Tools\PropertyType;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -176,6 +178,48 @@ final class ToolResultScannerMiddlewareTest extends TestCase
         $this->assertCount(2, $result->getBlocks());
         $this->assertStringStartsWith('Preview. ', $result->getText());
         $this->assertStringContainsString('suspectedInstructions: ', $result->getText());
+    }
+
+    /**
+     * P2.3: after flagged content, a write that Neuron 4 refused for a missing input (ToolOutput::error(), the tool
+     * never ran) is not a write that succeeded. The scanner used to turn the ToolOutput into its text first, which
+     * dropped the error flag, so ToolKind counted it as a success.
+     */
+    public function testAWriteRefusedWithAToolErrorAfterFlaggedContentIsNotAWriteThatSucceeded(): void
+    {
+        $ran = false;
+        $read = new CallableTool('get_page_content', 'Ours.', static fn (): array => ['ok' => true, 'data' => ['text' => self::NOTE]]);
+        $write = new CallableTool('update_page', 'Ours.', static function () use (&$ran): array {
+            $ran = true;
+
+            return ['ok' => true];
+        });
+        $write->addProperty(new ToolProperty('pageID', PropertyType::INTEGER, 'The page', true));
+        $scanner = $this->scanner();
+
+        $provider = new FakeAIProvider(
+            new ToolCallMessage(null, [new ToolCall('get_page_content', 'call_1', []), new ToolCall('update_page', 'call_2', [])]),
+            new AssistantMessage('Done.'),
+        );
+        $agent = Agent::make()->setThreadId('scanner-tool-error-test')->setAiProvider($provider)->setTools($scanner->wrap([$read, $write]));
+        $agent->addMiddleware(ToolNode::class, $scanner->resultMiddleware());
+        $agent->chat(new UserMessage('Read it, then update it.'));
+
+        $writeResult = null;
+        foreach ($provider->getRecorded()[1]->messages as $message) {
+            if ($message instanceof ToolResultMessage) {
+                foreach ($message->getToolCalls() as $call) {
+                    if ($call->getName() === 'update_page') {
+                        $writeResult = $call->getResult();
+                    }
+                }
+            }
+        }
+
+        $this->assertFalse($ran, 'Neuron must settle the missing input without running the tool.');
+        $this->assertInstanceOf(ToolOutput::class, $writeResult);
+        $this->assertTrue($writeResult->isError());
+        $this->assertSame(InjectionNotice::SUSPECTED, $scanner->turnNoticeKind(), 'A refused write is not a write after the note.');
     }
 
     public function testACleanForeignResultIsUnchanged(): void

@@ -8,6 +8,8 @@ use Katalysis\NeuronAi\Tests\Eval\Html;
 use Katalysis\NeuronAi\Tests\Eval\Snapshot;
 use Katalysis\NeuronAi\Tests\Eval\ToolCall;
 use Katalysis\NeuronAi\Tests\Support\Snapshots as S;
+use Katalysis\NeuronAi\Tools\ToolKind;
+use NeuronAI\Tools\ToolOutput;
 use PHPUnit\Framework\TestCase;
 
 final class SnapshotAndHelpersTest extends TestCase
@@ -122,5 +124,20 @@ final class SnapshotAndHelpersTest extends TestCase
         $this->assertFalse(ToolCall::succeeded(''));
         $this->assertFalse(ToolCall::succeeded('{"error":"something"}'));
         $this->assertTrue(ToolCall::succeeded('plain text result'));
+    }
+
+    /**
+     * P2.3 (from the P2.1 spike): Neuron 4 settles a missing or mistyped input as ToolOutput::error() without running
+     * the tool, and stores it as {"is_error": true, "blocks": [...]}. Both the stored shape and the object are failures.
+     */
+    public function testANeuron4ToolErrorIsAFailure(): void
+    {
+        $error = ToolOutput::error('Parameter "pageID" is required.');
+
+        $this->assertFalse(ToolCall::succeeded((string) json_encode($error)));
+        $this->assertFalse(ToolKind::succeeded($error));
+        $this->assertTrue(ToolCall::succeeded((string) json_encode(ToolOutput::text('fine'))));
+        $this->assertTrue(ToolKind::succeeded(ToolOutput::text('{"ok":true}')));
+        $this->assertFalse(ToolKind::succeeded(ToolOutput::text('{"ok":false,"error":"no"}')));
     }
 }
