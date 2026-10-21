@@ -4,10 +4,19 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Security;
 
+use Katalysis\NeuronAi\Tools\FilteredToolkit;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\ToolKind;
-use NeuronAI\Tools\Tool;
+use NeuronAI\Agent\AgentResources;
+use NeuronAI\Agent\AgentState;
+use NeuronAI\Agent\Middleware\AgentMiddleware;
+use NeuronAI\Agent\Nodes\AgentNodeInterface;
+use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
+use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolOutput;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
+use NeuronAI\Workflow\Events\Event;
 
 /**
  * The one hook that covers every tool (P1.11, plans/P1.11.md 2.2). It wraps each tool's callback so that its return
@@ -16,11 +25,13 @@ use NeuronAI\Tools\Toolkits\ToolkitInterface;
  * changes the content.
  *
  * It works on whatever tools the agent ends up with, so tools from other packages (ExternalToolkitRegistry) are
- * covered without a list. A toolkit's tools are built again on every tools() call, so the wrapper is attached with
- * the toolkit's own with() hook, once for every tool class the toolkit provides, and not by replacing the toolkit.
- *
- * Neuron v3 specific: Tool::$callback is protected and has no getter, so it is read and replaced through a bound
- * closure. tests/Unit/ToolCallbackWrapSpikeTest pins what this depends on. P2.3 moves the wrapper into CallableTool.
+ * covered without a list. Two paths (Neuron 4, plans/P2.2.md 2.5):
+ * - our CallableTool: the handler is wrapped (wrapTool()), so the tool's own result is scanned where it is made;
+ * - everything else, and anything the wrapper did not see: resultMiddleware() on Neuron's ToolNode scans each tool
+ *   result before it goes to the model or into the history. It skips only results the wrapper actually inspected
+ *   (counted per tool name), never a tool it merely believes is wrapped, so a wrap that silently stops working is
+ *   still covered. In streaming mode the raw result chunks reach the stream before the middleware runs; the panel
+ *   doesn't stream.
  *
  * One instance belongs to one agent. reset() starts a turn.
  */
@@ -33,6 +44,8 @@ final class ToolResultScanner
     private array $sources = [];
     /** @var \WeakMap<ToolInterface, true> */
     private \WeakMap $wrapped;
+    /** @var array<string, int> tool name => results the wrapper inspected that the middleware has not seen yet */
+    private array $inspectedByWrapper = [];
 
     /**
      * @param \Closure(string, string): void|null $logger called as ($level, $message); defaults to the Concrete log
@@ -52,6 +65,7 @@ final class ToolResultScanner
         $this->flagged = false;
         $this->writeAfterFlag = false;
         $this->sources = [];
+        $this->inspectedByWrapper = [];
     }
 
     /**
@@ -106,50 +120,87 @@ final class ToolResultScanner
         return $result;
     }
 
+    /**
+     * Builds the toolkit's tools once, wraps them, and returns a toolkit that offers that fixed list with the
+     * original guidelines unchanged. Not the toolkit's with() hook: Neuron 4 keeps one with() callback per tool
+     * class, so any other with() on the same class would silently replace the scanner's.
+     */
     public function wrapToolkit(ToolkitInterface $toolkit): ToolkitInterface
     {
-        // Every class of tool it provides gets the hook. A tool of a class it doesn't provide yet can't appear later.
-        $classes = [];
+        $tools = [];
         foreach ($toolkit->tools() as $tool) {
-            if ($tool instanceof ToolInterface) {
-                $classes[$tool::class] = true;
-            }
+            $tools[] = $tool instanceof ToolInterface ? $this->wrapTool($tool) : $tool;
         }
 
-        foreach (array_keys($classes) as $class) {
-            $toolkit->with($class, function (ToolInterface $tool): ToolInterface {
-                return $this->wrapTool($tool);
-            });
-        }
-
-        return $toolkit;
+        return FilteredToolkit::built($toolkit, $tools);
     }
 
+    /**
+     * Wraps our CallableTool's handler. Any other tool is returned as it is, and isWrapped() says false for it: the
+     * middleware covers it.
+     */
     public function wrapTool(ToolInterface $tool): ToolInterface
     {
-        if (!$tool instanceof Tool || isset($this->wrapped[$tool])) {
-            return $tool;
-        }
-
-        $original = \Closure::bind(fn (): mixed => $this->callback, $tool, Tool::class)();
-        if (!is_callable($original) && method_exists($tool, '__invoke')) {
-            $original = $tool->__invoke(...);
-        }
-        if (!is_callable($original)) {
+        if (!$tool instanceof CallableTool || isset($this->wrapped[$tool])) {
             return $tool;
         }
 
         $name = $tool->getName();
-        $wrapper = function (...$args) use ($original, $name) {
-            return $this->inspect($name, $original(...$args));
-        };
-        \Closure::bind(function () use ($wrapper): void {
-            $this->callback = $wrapper;
-        }, $tool, Tool::class)();
+        $tool->wrapHandler(fn (\Closure $original): \Closure => function (mixed ...$args) use ($original, $name): mixed {
+            $result = $this->inspect($name, $original(...$args));
+            $this->inspectedByWrapper[$name] = ($this->inspectedByWrapper[$name] ?? 0) + 1;
+
+            return $result;
+        });
 
         $this->wrapped[$tool] = true;
 
         return $tool;
+    }
+
+    /**
+     * The middleware for Neuron's ToolNode (register it with addMiddleware(ToolNode::class, ...)). After the node has
+     * run its tool calls, and before the results go to the model or into the history, it scans every result the
+     * wrapper did not inspect.
+     */
+    public function resultMiddleware(): AgentMiddleware
+    {
+        return new class ($this) extends AgentMiddleware {
+            public function __construct(private readonly ToolResultScanner $scanner)
+            {
+            }
+
+            protected function afterAgentNode(AgentNodeInterface $node, Event $result, AgentState $state, AgentResources $resources): void
+            {
+                // ToolNode leaves exactly this node's tool call and result messages on the outgoing request.
+                foreach ($state->request->messages as $message) {
+                    if (!$message instanceof ToolResultMessage) {
+                        continue;
+                    }
+                    foreach ($message->getToolCalls() as $call) {
+                        if ($call->hasResult()) {
+                            $call->setResult($this->scanner->scanUnseenResult($call->getName(), $call->getResult()));
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    /**
+     * @internal For resultMiddleware(). Returns the result scanned, or as it is when the wrapper already scanned it.
+     */
+    public function scanUnseenResult(string $toolName, string|ToolOutput $result): string|ToolOutput
+    {
+        if (($this->inspectedByWrapper[$toolName] ?? 0) > 0) {
+            $this->inspectedByWrapper[$toolName]--;
+
+            return $result;
+        }
+
+        $scanned = $this->inspect($toolName, $result);
+
+        return $scanned instanceof ToolOutput ? $scanned : (is_array($scanned) ? (string) json_encode($scanned) : (string) $scanned);
     }
 
     /**
@@ -161,7 +212,17 @@ final class ToolResultScanner
         $hits = [];
         $returned = $result;
 
-        if (is_array($result)) {
+        if ($result instanceof ToolOutput) {
+            // A multimodal result: its text is scanned, and the hits go in an extra text block.
+            $hits = $this->detector->scan($result->getText());
+            if ($hits !== []) {
+                $returned = new ToolOutput([
+                    ...$result->getBlocks(),
+                    new TextContent('suspectedInstructions: '
+                        . json_encode($hits, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)),
+                ], $result->isError());
+            }
+        } elseif (is_array($result)) {
             $hits = $this->detector->scan($result);
             if ($hits !== []) {
                 $returned = $result;
@@ -193,7 +254,7 @@ final class ToolResultScanner
 
         // A write that succeeded after flagged content was read, in the same turn (not by the same call).
         if ($flaggedBefore && ToolKind::isWrite($toolName)) {
-            $asText = is_string($returned) ? $returned : (string) json_encode($returned);
+            $asText = is_string($returned) || $returned instanceof ToolOutput ? (string) $returned : (string) json_encode($returned);
             if (ToolKind::succeeded($asText)) {
                 $this->writeAfterFlag = true;
             }

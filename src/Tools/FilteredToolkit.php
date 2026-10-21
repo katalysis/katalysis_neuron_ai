@@ -26,17 +26,37 @@ use NeuronAI\Tools\Toolkits\ToolkitInterface;
  * which can't be changed, so the title is "FilteredToolkit". To keep the
  * original name visible to the model, the guidelines start with a line naming
  * the original toolkit.
+ *
+ * built() is for a toolkit whose tools were built once and are offered as they
+ * are, with nothing removed (the result scanner, ExternalToolkitRegistry): its
+ * guidelines are kept exactly, with no name line, so the prompt doesn't change.
  */
 final class FilteredToolkit extends AbstractToolkit
 {
     /**
      * @param ToolInterface[] $tools
+     * @param string|null $builtFrom for built(): the original toolkit's name, kept for a later from() but not shown
      */
     public function __construct(
         private readonly array $tools,
         private readonly ?string $guidelines = null,
-        private readonly ?string $originalName = null
+        private readonly ?string $originalName = null,
+        private readonly ?string $builtFrom = null
     ) {
+    }
+
+    /**
+     * Offers the given, already-built tools with the original's guidelines unchanged.
+     *
+     * @param ToolInterface[] $tools
+     */
+    public static function built(ToolkitInterface $original, array $tools): self
+    {
+        if ($original instanceof self) {
+            return new self(array_values($tools), $original->guidelines, $original->originalName, $original->builtFrom);
+        }
+
+        return new self(array_values($tools), $original->guidelines(), null, self::nameOf($original));
     }
 
     /**
@@ -44,12 +64,20 @@ final class FilteredToolkit extends AbstractToolkit
      */
     public static function from(ToolkitInterface $original, array $tools): self
     {
-        $shortName = (new \ReflectionClass($original))->getShortName();
+        // A built() toolkit stands in for its original: filter it as if it were the original.
+        if ($original instanceof self && $original->originalName === null && $original->builtFrom !== null) {
+            return new self(array_values($tools), $original->guidelines, $original->builtFrom);
+        }
+
+        return new self(array_values($tools), $original->guidelines(), self::nameOf($original));
+    }
+
+    private static function nameOf(ToolkitInterface $toolkit): ?string
+    {
+        $shortName = (new \ReflectionClass($toolkit))->getShortName();
 
         // An anonymous class has no usable name ("class@anonymous" plus a path).
-        $name = preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $shortName) === 1 ? $shortName : null;
-
-        return new self(array_values($tools), $original->guidelines(), $name);
+        return preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $shortName) === 1 ? $shortName : null;
     }
 
     public function guidelines(): ?string
