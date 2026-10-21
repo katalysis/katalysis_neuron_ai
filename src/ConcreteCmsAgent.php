@@ -3,6 +3,7 @@
 namespace Katalysis\NeuronAi;
 
 use NeuronAI\Agent\Agent;
+use NeuronAI\Agent\Nodes\ToolNode;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\Chat\Messages\UserMessage;
@@ -19,6 +20,7 @@ use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
+use Katalysis\NeuronAi\Tools\ExternalToolkitBuild;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use Katalysis\NeuronAi\Security\InjectionNotice;
 use Katalysis\NeuronAi\Security\InstructionDetector;
@@ -37,6 +39,7 @@ class ConcreteCmsAgent extends Agent
     private ?DatabaseChatHistory $chatHistoryInstance = null;
     private ?array $runtimePageContext = null;
     private ?ToolResultScanner $toolResultScanner = null;
+    private ?ExternalToolkitBuild $externalToolkits = null;
     
     public function __construct(?int $chatId = null)
     {
@@ -57,11 +60,17 @@ class ConcreteCmsAgent extends Agent
             // Return a clear error message that the LLM can understand
             return "Error executing tool: " . $safeMessage . ". Please try a different approach or ask for clarification.";
         });
+
+        // Scans the results the scanner's wrapper didn't, such as those of tools we don't build (P2.2).
+        $this->addMiddleware(ToolNode::class, $this->toolResultScanner()->resultMiddleware());
     }
 
-    protected function tools(): array
+    /**
+     * The package's own toolkits, in the order they are offered.
+     */
+    protected function coreToolkits(): array
     {
-        $core = [
+        return [
             new PagesToolkit(),
             new BlocksToolkit(),
             new FilesToolkit(),
@@ -74,10 +83,16 @@ class ConcreteCmsAgent extends Agent
             new PeopleToolkit(),
             new VersionsToolkit(),
         ];
+    }
 
-        // Toolkits other packages registered (e.g. katalysis_pro's people, places and reviews).
+    protected function tools(): array
+    {
+        // Toolkits other packages registered (e.g. katalysis_pro's people, places and reviews), built once per agent:
+        // one that fails is skipped and logged (P2.2).
+        $this->externalToolkits ??= ExternalToolkitRegistry::build();
+
         // On a name clash the external tool wins; then the disabled-tools list is applied to everything.
-        $tools = ToolNameResolver::resolve($core, ExternalToolkitRegistry::getExternalToolkits());
+        $tools = ToolNameResolver::resolve($this->coreToolkits(), $this->externalToolkits->toolkits());
 
         // Last, so every tool the model can call is covered: results are scanned for text addressed to the assistant (P1.11).
         return $this->toolResultScanner()->wrap(DisabledTools::apply($tools));
