@@ -28,8 +28,10 @@ class Chat
     protected $sessionId;
 
     /**
-     * JSON-encoded chat messages in Neuron AI format (role, content, usage)
-     * 
+     * Unused since P2.5: the messages are rows in KatalysisNeuronAiChatMessages (ChatMessage, ChatMessageStore). The
+     * column stays until P3.9 drops it with the Doctrine-managed table.
+     *
+     * @deprecated
      * @var string
      * @ORM\Column(name="`chatHistory`", type="text", nullable=true)
      */
@@ -109,7 +111,7 @@ class Chat
     }
 
     /**
-     * Get chat history JSON
+     * @deprecated Unused since P2.5; read the messages through ChatMessageStore.
      */
     public function getChatHistory(): string
     {
@@ -117,7 +119,7 @@ class Chat
     }
 
     /**
-     * Set chat history JSON
+     * @deprecated Unused since P2.5; write the messages through ChatMessageStore.
      */
     public function setChatHistory(string $chatHistory): self
     {

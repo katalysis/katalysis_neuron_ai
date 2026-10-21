@@ -11,7 +11,7 @@ use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
-use Katalysis\NeuronAi\DatabaseChatHistory;
+use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -39,18 +39,16 @@ use Concrete\Core\Attribute\Key\CollectionKey;
 
 class ConcreteCmsAgent extends Agent
 {
-    private ?int $chatId = null;
-    private ?DatabaseChatHistory $chatHistoryInstance = null;
     private ?array $runtimePageContext = null;
     private ?ToolResultScanner $toolResultScanner = null;
     private ?ExternalToolkitBuild $externalToolkits = null;
     
     public function __construct(?int $chatId = null)
     {
-        $this->chatId = $chatId;
-        
         parent::__construct();
-        
+
+        $this->setChatId($chatId);
+
         // Increase tool max runs to prevent premature failures
         // Default is 10, but complex queries may require more iterations
         $this->toolMaxRuns(20);
@@ -203,21 +201,18 @@ class ConcreteCmsAgent extends Agent
     }
     
     /**
-     * Set the chat ID for the current conversation
-     * This allows the agent to persist chat history to the database
+     * Binds the agent to a stored chat: its history is the Chat row's messages (ChatMessageStore) and its thread is
+     * "chat-<id>" (P2.5). Neuron 4's chat() refuses to run without a thread, so a chat is bound before every turn. With
+     * null nothing is bound. Neuron binds an agent's thread once: binding another chat later throws, so use one agent
+     * per request. Whether the user may use this chat is the caller's check.
      */
     public function setChatId(?int $chatId): self
     {
-        $this->chatId = $chatId;
-        
-        // IMPORTANT: Always call chatHistory() to ensure instance exists
-        // This matches the pattern from katalysis_pro_ai RagAgent
-        $chatHistory = $this->chatHistory();
-        
-        if ($chatHistory instanceof DatabaseChatHistory && $chatId) {
-            $chatHistory->setChatId($chatId);
+        if ($chatId !== null) {
+            $this->setMessageStore(new ChatMessageStore(\Concrete\Core\Support\Facade\Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class)));
+            $this->setThreadId(ChatMessageStore::threadFor($chatId));
         }
-        
+
         return $this;
     }
 
@@ -243,24 +238,12 @@ class ConcreteCmsAgent extends Agent
     }
 
     /**
-     * Use database-backed chat history for persistent storage
-     * Uses singleton pattern to ensure chat ID persistence
-     * 
-     * @return \NeuronAI\Chat\History\AbstractChatHistory
+     * The conversation's token budget: 50,000, as on Neuron 3 (v4's default is 100,000). Neuron's trim ratio (0.5) is
+     * kept, and trimmed messages are archived, not deleted (P2.5, plan §11.4).
      */
-    protected function chatHistory(): \NeuronAI\Chat\History\AbstractChatHistory
+    protected function contextWindow(): int
     {
-        // Use singleton pattern to ensure chat ID persistence
-        if ($this->chatHistoryInstance === null) {
-            $this->chatHistoryInstance = new DatabaseChatHistory(50000);
-            
-            // Set chat ID directly on the instance if available (don't call setChatId to avoid recursion)
-            if ($this->chatId) {
-                $this->chatHistoryInstance->setChatId($this->chatId);
-            }
-        }
-        
-        return $this->chatHistoryInstance;
+        return 50000;
     }
 
     protected function instructions(): SystemMessage
@@ -676,9 +659,10 @@ INST);
         }
 
         try {
-            $history = $this->resolveState()->getChatHistory();
-            if ($history instanceof DatabaseChatHistory) {
-                $history->flagLastAssistantMessage(InjectionNotice::META_KEY, $kind, [
+            $store = $this->resolveMessageStore();
+            $thread = $this->getThreadId();
+            if ($store instanceof ChatMessageStore && $thread !== null) {
+                $store->flagLastAssistantMessage($thread, InjectionNotice::META_KEY, $kind, [
                     InjectionNotice::META_SOURCE_KEY => $this->getTurnNoticeSource() ?? InjectionNotice::SOURCE_OTHER,
                 ]);
             }
