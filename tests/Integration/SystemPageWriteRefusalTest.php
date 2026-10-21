@@ -177,7 +177,7 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
     {
         $other = $this->newPage('Other page ');
         $inputs = match ($tool) {
-            'batch_update_page_content' => ['blocks' => [['blockID' => 1, 'content' => '<p>x</p>']]],
+            'batch_update_page_content' => ['blocks' => [['areaHandle' => 'Main', 'blockID' => 1, 'value' => ['content' => '<p>x</p>']]]],
             'batch_update_content_headings' => ['headingTexts' => ['x'], 'targetTag' => 'h2'],
             'create_page' => ['name' => 'Should not exist'],
             'update_page' => ['name' => 'Changed by the assistant'],
@@ -201,8 +201,8 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
     }
 
     /**
-     * Runs the tool as the superuser. Returns its result, or the message of what it threw (the agent's error
-     * handler gives the model that message).
+     * Runs the tool as the superuser. Returns its result, or what it threw, worded as the agent's error handler
+     * words it for the model.
      */
     private function runTool(ToolkitInterface $toolkit, string $name, array $inputs): string
     {
@@ -217,7 +217,8 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
 
                 return (string) $tool->getResult();
             } catch (\Throwable $e) {
-                return $e->getMessage();
+                // What the agent's tool error handler gives the model (ConcreteCmsAgent).
+                return 'Error executing tool: ' . $e->getMessage();
             }
         }
         $this->fail("No tool named {$name} in " . $toolkit::class);

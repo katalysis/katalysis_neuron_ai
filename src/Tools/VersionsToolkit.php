@@ -12,6 +12,7 @@ use Concrete\Core\User\User;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Area\Area;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
+use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -208,6 +209,7 @@ GUIDELINES;
                 if (!$page || $page->isError()) {
                     return "❌ **Error:** Page ID {$pageID} or version {$versionID} not found.";
                 }
+                SystemPageGuard::refuse($page);
 
                 // Check permissions
                 $permissions = new Checker($page);
@@ -292,6 +294,7 @@ GUIDELINES;
                 if (!$page || $page->isError()) {
                     return "❌ **Error:** Page ID {$pageID} not found.";
                 }
+                SystemPageGuard::refuse($page);
 
                 // Check permissions
                 $permissions = new Checker($page);
@@ -394,6 +397,7 @@ GUIDELINES;
                 if (!$page || $page->isError()) {
                     return "❌ **Error:** Page ID {$pageID} or version {$versionID} not found.";
                 }
+                SystemPageGuard::refuse($page);
 
                 // Check permissions
                 $permissions = new Checker($page);
