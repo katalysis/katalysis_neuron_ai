@@ -229,11 +229,11 @@ Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is me
 A spec document and starter template EPRA staff give to their own Claude, so new data apps come out with the right structure: the approved chart library, theme tokens, the API proxy pattern and the file layout. It doesn't depend on Neuron and becomes the seed of the Tier 3 app spec.
 
 ### Phase 2: Neuron AI 4.x upgrade (M)
-**Branching (decided after P2.1, 2026-10-21):** P2.2–P2.6 and P2.8 merge into a protected integration branch, `integration/neuron4`, not into `development`. None of them leaves the site working on its own (P2.1 findings §7: with v4 installed and nothing else changed, every page returns 500 and chat fails). P2.9 merges `integration/neuron4` into `development` once, after a full scenario run.
+**Branching (decided after P2.1, 2026-10-21; P2.7 and the sync rule added at P2.2's plan approval):** P2.2–P2.8 merge into a protected integration branch, `integration/neuron4`, not into `development`. None of them leaves the site working on its own (P2.1 findings §7: with v4 installed and nothing else changed, every page returns 500 and chat fails). P2.9 runs the full scenarios on `integration/neuron4`, then opens the PR that merges it into `development`, once. Whenever `development` changes during Phase 2, it is synced into `integration/neuron4` by a PR merged with a merge commit.
 
 - [x] P2.1 Adapter spike (see §4). Done (PR #30): go with conditions ([plans/P2.1-findings.md](plans/P2.1-findings.md)). Do it on a throwaway branch, against the v4 source. Shape the adapter as the public `Katalysis\NeuronAi\Extension\ToolDefinition` builder (see `EXTENSIONS.md`), so extensions never extend Neuron classes directly.
 - P2.2 Update dependencies:
-  - pin `neuron-core/neuron-ai` exactly, in `composer.json`, to the newest 4.1.x release that is at least two weeks old (decided after P2.1; the spike used 4.1.12, see findings §2.2 for 4.1.13)
+  - pin `neuron-core/neuron-ai` exactly, in `composer.json`, to the newest 4.1.x release that is at least two weeks old (decided after P2.1; the spike used 4.1.12, see findings §2.2 for 4.1.13). **Decided at P2.2's plan approval: pin 4.1.12** (the spike's evidence is on it; nothing on `integration/neuron4` leaves the dev machine before P2.9, when 4.1.12 passes two weeks); run `composer audit` and record the result
   - run `composer update` with Herd's PHP and composer
   - remove Guzzle and Inspector if nothing else needs them
   - commit the rebuilt `vendor/`
@@ -241,16 +241,19 @@ A spec document and starter template EPRA staff give to their own Claude, so new
   - **skip and log a failing external toolkit, permanently** (decided after P2.1, findings §5.4): build each external toolkit's tools once per agent, inside the registry's try; skip and log one that fails; show the skip on the settings page; a test with a toolkit that throws
   - **acceptance checks:** the web class-origin check (P2.1 findings §2.3: which vendor each overlapping class loads from under the web SAPI, after a chat turn and after a settings save), and the pinned version above
 - P2.3 Convert all toolkits to `CallableTool`, mechanically and with no behaviour changes.
+  - also (decided at P2.2's plan approval): the public `ToolDefinition` builder (P2.8 needs it), and `ToolKind` reading v4's tool error shape (`{"is_error": true}`)
 - P2.4 `instructions()` → `SystemMessage`.
 - P2.5 Rewrite `DatabaseChatHistory` as a `MessageStoreInterface` implementation backed by the `Chat` entity. Keep the existing JSON format readable, or add a one-off migration, so old chats still load.
   - **Repair chats with two user messages in a row** (decided after P2.1, findings §6.4): v4 refuses to continue such a chat, and only after a paid provider call. The repair runs when a chat loads, before any provider call.
 - P2.6 Fix the agent error path (`resolveState()`) and the controller's `getOrRestoreAgent` / `saveAgentState` for the v4 `AgentState`.
+  - also (decided at P2.2's plan approval): move the scenario runner to the v4 API (history through `getChatHistory()`, results from `ToolResultMessage`), with a free `FakeAIProvider` dry run before any paid run
 - P2.7 Check that `ConcreteCmsLogObserver` still works. Add a PSR-14 listener later, in Phase 3. **Whatever logs event data (the observer now, the PSR-14 listener later) must pass it through `SecretRedactor` first** (found in P1.7a: the observer isn't attached today, but the event data can include request and provider details).
 - P2.8 Coordinated `katalysis_pro` PR: convert `KatalysisProEntitiesToolkit` to `ToolDefinition`s, so it no longer touches Neuron classes and is unaffected by future library upgrades. The full provider and event registration follows in P3.10.
   - **Must be ready before P2.9** (decided after P2.1): without it, `katalysis_pro`'s 7 tools are not offered on v4 (findings §5).
   - Check whether its toolkit can be made to work with both Neuron v3 and v4, so `katalysis_pro` does not have to be released in lockstep with the upgrade.
   - **Known defect, found in the Phase 1 exit review** (not caused by the upgrade): `add_person` fails in every run with `{"ok":false,"error":"Target class [user] does not exist."}`, from `KatalysisProEntitiesToolkit.php:740` (`$app->make('user')`). It has been visible since P1.6 loaded the external toolkits. It was seen under the scenario runner only; check it over HTTP first. It needs a `katalysis_pro` PR, and it need not wait for this task: do it with the guideline cleanup (remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines) as one small PR in that repo.
 - P2.9 Run the scenarios (a full run, on `integration/neuron4`), then merge `integration/neuron4` into `development`, once. **Exit: the pass rate is at least the P1.5 baseline, with no new failures**, and old chats still load.
+  - before the run (decided at P2.2's plan approval): re-apply the two-week rule to the Neuron pin; the PHPUnit known-failures list in PROGRESS is empty; the web class-origin check (P2.1 findings §2.3) after a successful chat turn
 
 Rollback: the upgrade lives on `integration/neuron4`. If P2.1 shows the adapter isn't workable, bump to the latest 3.17.x instead (a low-risk minor update), re-baseline, and do the v4 move during Phase 3 alongside the toolkit split.
 

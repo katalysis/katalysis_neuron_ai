@@ -87,6 +87,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
    - A dependency upgrade gets its own PR.
    - It must not be combined with refactoring.
    - It must keep scenario results the same.
+   - On an integration branch, the dependency change is its own commit, and the integration merge (e.g. P2.9) carries the "scenario results unchanged" check.
 9. **Don't touch secrets:** API keys live in Concrete config (`katalysis.ai.*`) and must never be logged or returned to the frontend.
 
 ## Testing
