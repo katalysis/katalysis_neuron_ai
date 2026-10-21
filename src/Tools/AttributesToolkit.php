@@ -18,6 +18,7 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -54,7 +55,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeListPageAttributesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_page_attributes',
             'List all page attributes defined in the system with their handles, names, and types.'
         );
@@ -85,7 +86,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeListAttributeTypesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_attribute_types',
             'List all available attribute types that can be used when creating new attributes.'
         );
@@ -123,7 +124,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeGetAttributeDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_attribute_details',
             'Get detailed information about a specific page attribute by handle.'
         );
@@ -185,7 +186,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeCreatePageAttributeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_page_attribute',
             'Create a new page attribute with specified type and settings. Use list_attribute_types to see available types.'
         );
@@ -335,7 +336,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeUpdateSelectAttributeOptionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'update_select_attribute_options',
             'Update the options for an existing select/dropdown page attribute. Replaces all existing options.'
         );
@@ -449,7 +450,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeSetPageAttributeValueTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'set_page_attribute_value',
             'Set the value of a page attribute for a specific page. Handles all attribute types including select/dropdown. Supports fuzzy matching for page names and option values.'
         );
@@ -665,7 +666,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeListAttributeSetsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_attribute_sets',
             'List all attribute sets for a category (page, user, or file)'
         );
@@ -721,7 +722,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeCreateAttributeSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_attribute_set',
             'Create a new attribute set in a category'
         );
@@ -784,7 +785,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeDeleteAttributeSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'delete_attribute_set',
             'Delete an attribute set (attributes are not deleted, just ungrouped)'
         );
@@ -842,7 +843,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeAddAttributeToSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'add_attribute_to_set',
             'Add an attribute to an attribute set'
         );
@@ -923,7 +924,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeRemoveAttributeFromSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'remove_attribute_from_set',
             'Remove an attribute from its attribute set (ungroup it)'
         );

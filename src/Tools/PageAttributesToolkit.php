@@ -13,6 +13,7 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -44,7 +45,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeListPageAttributesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_page_attributes',
             'List all page attributes defined in the system with their handles, names, and types.'
         );
@@ -78,7 +79,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeListAttributeTypesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_attribute_types',
             'List all available attribute types that can be used when creating new attributes.'
         );
@@ -115,7 +116,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeGetPageAttributeDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_page_attribute_details',
             'Get detailed information about a specific page attribute by handle.'
         );
@@ -181,7 +182,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeCreatePageAttributeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_page_attribute',
             'Create a new page attribute with specified type and settings. Use list_attribute_types to see available types.'
         );
@@ -360,7 +361,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeCreatePageAttributeAndAddToSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_page_attribute_and_add_to_set',
             'Create a new page attribute and immediately add it to an attribute set. This combines attribute creation with set assignment to avoid timing issues.'
         );
@@ -577,7 +578,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeUpdatePageSelectAttributeOptionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'update_page_select_attribute_options',
             'Update the options for an existing select/dropdown page attribute. Replaces all existing options.'
         );
@@ -691,7 +692,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeSetPageAttributeValueTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'set_page_attribute_value',
             'Set the value of a page attribute for a specific page. Handles all attribute types including select/dropdown. Supports fuzzy matching for page names and option values.'
         );

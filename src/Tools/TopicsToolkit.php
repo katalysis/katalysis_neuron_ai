@@ -8,6 +8,7 @@ use Concrete\Core\Tree\Type\Topic as TopicTree;
 use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -41,7 +42,7 @@ class TopicsToolkit extends AbstractToolkit
 
     protected function makeListTopicTreesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_topic_trees',
             'List all topic trees available in the system with their names and IDs.'
         );
@@ -75,7 +76,7 @@ class TopicsToolkit extends AbstractToolkit
 
     protected function makeGetTopicTreeStructureTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_topic_tree_structure',
             'Get the complete hierarchical structure of a topic tree with all topics and their children.'
         );
@@ -130,7 +131,7 @@ class TopicsToolkit extends AbstractToolkit
 
     protected function makeGetTopicByNameTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_topic_by_name',
             'Search for a topic by name within a specific topic tree. Supports partial/fuzzy matching.'
         );
@@ -181,7 +182,7 @@ class TopicsToolkit extends AbstractToolkit
 
     protected function makeGetTopicDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_topic_details',
             'Get detailed information about a specific topic including its parent, children, and path.'
         );
@@ -246,7 +247,7 @@ class TopicsToolkit extends AbstractToolkit
 
     protected function makeCreateTopicTreeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_topic_tree',
             'Create a new topic tree in the system.'
         );
@@ -297,7 +298,7 @@ class TopicsToolkit extends AbstractToolkit
 
     protected function makeCreateTopicTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_topic',
             'Create a new topic in a topic tree. Optionally specify a parent topic to create a child topic.'
         );
@@ -396,7 +397,7 @@ class TopicsToolkit extends AbstractToolkit
 
     protected function makeRenameTopicTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'rename_topic',
             'Rename an existing topic in a topic tree.'
         );
@@ -455,7 +456,7 @@ class TopicsToolkit extends AbstractToolkit
 
     protected function makeDeleteTopicTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'delete_topic',
             'Delete a topic from a topic tree. WARNING: This will also delete all child topics and associations.'
         );

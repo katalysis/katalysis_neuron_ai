@@ -11,6 +11,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use Concrete\Core\User\UserInfo;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -40,7 +41,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeListUserAttributesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_user_attributes',
             'List all user attributes defined in the system with their handles, names, and types.'
         );
@@ -73,7 +74,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeGetUserAttributeDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_user_attribute_details',
             'Get detailed information about a specific user attribute by handle.'
         );
@@ -138,7 +139,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeCreateUserAttributeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_user_attribute',
             'Create a new user attribute with specified type and settings. Use list_attribute_types to see available types.'
         );
@@ -307,7 +308,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeUpdateUserSelectAttributeOptionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'update_user_select_attribute_options',
             'Update the options for an existing select/dropdown user attribute. Replaces all existing options.'
         );
@@ -421,7 +422,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeSetUserAttributeValueTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'set_user_attribute_value',
             'Set the value of a user attribute for a specific user. Handles all attribute types including select/dropdown.'
         );

@@ -11,6 +11,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use Concrete\Core\File\File;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -40,7 +41,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeListFileAttributesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_file_attributes',
             'List all file attributes defined in the system with their handles, names, and types.'
         );
@@ -73,7 +74,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeGetFileAttributeDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_file_attribute_details',
             'Get detailed information about a specific file attribute by handle.'
         );
@@ -138,7 +139,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeCreateFileAttributeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_file_attribute',
             'Create a new file attribute with specified type and settings.'
         );
@@ -307,7 +308,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeUpdateFileSelectAttributeOptionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'update_file_select_attribute_options',
             'Update the options for an existing select/dropdown file attribute. Replaces all existing options.'
         );
@@ -421,7 +422,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeSetFileAttributeValueTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'set_file_attribute_value',
             'Set the value of a file attribute for a specific file. Handles all attribute types including select/dropdown. '
             . 'This changes the live file straight away. The result gives the previous value (previousValue); tell the user '

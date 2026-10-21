@@ -12,6 +12,7 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\Tree\Node\Type\FileFolder;
 use Concrete\Core\Support\Facade\Database;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -43,7 +44,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeMoveFileToFolderTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'move_file_to_folder',
             'Move a file into a target file manager folder.'
         );
@@ -129,7 +130,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeCreateFileFolderTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_file_folder',
             'Create a folder in the Concrete CMS file manager (supports single folder name or nested folder path).'
         );
@@ -238,7 +239,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeResolveFileIdFromPathTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'resolve_file_id_from_path',
             'Resolve a Concrete CMS file URL/path to the actual file ID (fID). Never infer fID from URL folder segments.'
         );
@@ -387,7 +388,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeListFilesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_files',
             'List files in the file manager with optional filtering'
         );
@@ -448,7 +449,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeGetFileTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_file',
             'Retrieve detailed information about a specific file by ID'
         );
@@ -488,7 +489,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeDeleteFileTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'delete_file',
             'Delete a file from the file manager'
         );
@@ -530,7 +531,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeGetFileFoldersTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_file_folders',
             'List all file manager folders'
         );

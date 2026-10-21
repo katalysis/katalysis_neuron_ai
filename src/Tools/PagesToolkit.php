@@ -32,6 +32,7 @@ use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -79,7 +80,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeGetCurrentPageContextTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_current_page_context',
             'Get context for the page currently being viewed in the browser, including attributes and area/block summary.'
         );
@@ -110,7 +111,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeListPagesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_pages',
             'List pages with optional filtering and sorting. Returns most recently modified pages by default. Use includeDescendants=true to get all pages under a path (not just direct children).'
         );
@@ -219,7 +220,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeListPageTypesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_page_types',
             'List Concrete CMS page types by handle, including usage counts and total number of defined types.'
         );
@@ -259,7 +260,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeGetPageTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_page',
             'Retrieve detailed information about a specific page by ID. Supports active and recent versions.'
         );
@@ -313,7 +314,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeGetPageContentTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_page_content',
             'Get page content as a document with HTML and plain text. Prefer this over get_page when you need to review or summarize page copy.'
         );
@@ -398,7 +399,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeGetPageBlocksTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_page_blocks',
             'Get detailed inventory of all blocks on a page grouped by area. Use this for debugging or when you need block IDs for updates.'
         );
@@ -541,7 +542,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeBatchUpdatePageContentTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'batch_update_page_content',
             'Safely update multiple blocks on a page. Creates a new page version, remaps block IDs automatically, then updates each block. Does not auto-approve the version.'
         );
@@ -983,7 +984,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeBatchUpdateContentHeadingsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'batch_update_content_headings',
             'Find Content blocks on a page by heading text and update heading tag level only (for example bold paragraph to h3) while preserving body text.'
         );
@@ -1290,7 +1291,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeSyncMultiLinksToEpraResourcesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'sync_multi_links_to_epra_resources_list',
             'For each area on a page that contains Multi Link blocks, sync file-linked entries into EPRA Resources List blocks in the same area. Supports update-only, create-if-missing, and create-new modes, plus append or replace entry behavior.'
         );
@@ -1742,7 +1743,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeCreatePageToolInternal(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_page',
             'Create a new page in Concrete CMS. The page is created unpublished: it has no approved version, so visitors'
             . ' cannot see it until a person publishes it from Page Versions in the CMS. This assistant cannot publish.'
@@ -2085,7 +2086,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeMovePageTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'move_page',
             'Move a page to a new parent location in the sitemap'
         );
@@ -2144,7 +2145,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeDeletePageTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'delete_page',
             'Delete a page (moves to trash)'
         );
@@ -2189,7 +2190,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeGetPageChildrenTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_page_children',
             'Get all child pages of a specific page. Provide either pageID or parentPath.'
         );
@@ -2261,7 +2262,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeAddBlockToPageAreaTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'add_block_to_page_area',
             'Add a new block to a specific page area. '
             . 'blockType must be the handle of the block type the user asked for. Never substitute a different type '
@@ -2357,7 +2358,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeUpdateBlockInPageAreaTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'update_block_in_page_area',
             'Update an existing block in a specific page area'
         );
@@ -2726,7 +2727,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeDeleteBlockFromPageAreaTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'delete_block_from_page_area',
             'Delete a block from a specific page area'
         );
@@ -2799,7 +2800,7 @@ class PagesToolkit extends AbstractToolkit
 
     protected function makeMoveBlockBetweenAreasTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'move_block_between_areas',
             'Move an existing block to a different area on the same page'
         );

@@ -17,7 +17,12 @@ use Katalysis\NeuronAi\Entity\Chat;
  * - Analytics and reporting on conversations
  * - Resume conversations across browser sessions
  * - Search and filter capabilities
+ *
+ * P2.1 spike: Neuron 4 has no AbstractChatHistory, and Doctrine's mapping driver require_once()s every file under
+ * src/, so an unguarded `extends` here returns 500 on every page. Declared only on Neuron 3; on Neuron 4 the agent
+ * uses Chat\ChatMessageStore.
  */
+if (class_exists(AbstractChatHistory::class)) {
 class DatabaseChatHistory extends AbstractChatHistory
 {
     private $app;
@@ -330,4 +335,5 @@ class DatabaseChatHistory extends AbstractChatHistory
             }
         }
     }
+}
 }

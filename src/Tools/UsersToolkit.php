@@ -12,6 +12,7 @@ use Concrete\Core\User\Search\ColumnSet\Column\DateAddedColumn;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -40,7 +41,7 @@ class UsersToolkit extends AbstractToolkit
 
     protected function makeListUsersTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_users',
             'List users in the system with pagination'
         );
@@ -88,7 +89,7 @@ class UsersToolkit extends AbstractToolkit
 
     protected function makeGetUserTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_user',
             'Retrieve detailed information about a specific user by ID'
         );
@@ -152,7 +153,7 @@ class UsersToolkit extends AbstractToolkit
 
     protected function makeGetCurrentUserTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'get_current_user',
             'Get information about the currently logged in user'
         );
@@ -180,7 +181,7 @@ class UsersToolkit extends AbstractToolkit
 
     protected function makeSearchUsersTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'search_users',
             'Search for users by username or email'
         );

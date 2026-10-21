@@ -12,6 +12,7 @@ use Concrete\Core\Attribute\Set as AttributeSet;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -42,7 +43,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeListAttributeSetsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'list_attribute_sets',
             'List all attribute sets for a category (page, user, or file) with their contained attributes.'
         );
@@ -99,7 +100,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeCreateAttributeSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'create_attribute_set',
             'Create a new attribute set in a category to organize related attributes.'
         );
@@ -169,7 +170,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeDeleteAttributeSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'delete_attribute_set',
             'Delete an attribute set. Note: Attributes are not deleted, they are just removed from the set (ungrouped).'
         );
@@ -233,7 +234,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeAddAttributeToSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'add_attribute_to_set',
             'Add an attribute to an attribute set for better organization in the CMS interface.'
         );
@@ -323,7 +324,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeRemoveAttributeFromSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new LegacyTool(
             'remove_attribute_from_set',
             'Remove an attribute from its attribute set (ungroup it). The attribute itself is not deleted.'
         );
