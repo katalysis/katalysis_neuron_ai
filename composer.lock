@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "937e8be6298037813e76e44716cdab9a",
+    "content-hash": "aebd254c56883e5130ee21c53cf62130",
     "packages": [
         {
             "name": "neuron-core/neuron-ai",

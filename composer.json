@@ -20,9 +20,6 @@
         }
     },
     "extra": {
-        "bundled-dependencies": {
-            "neuron-core/neuron-ai": "^3.15"
-        },
-        "build-note": "Run './build.sh' to update bundled dependencies. All dependencies are pre-packaged in vendor/ directory."
+        "build-note": "All dependencies are pre-packaged in vendor/. To change a version, see documentation/SETUP.md, 'Updating the bundled dependencies'."
     }
 }

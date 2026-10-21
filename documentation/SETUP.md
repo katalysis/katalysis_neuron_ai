@@ -2,6 +2,16 @@
 
 **Note:** This package bundles all dependencies in its `vendor/` directory. You do NOT need to run `composer install` for normal installation.
 
+**Requirements:** PHP 8.1 or later with the `curl` extension (`ext-curl`). Neuron AI 4 sends every request to the AI provider through curl; there is no other HTTP client bundled. Check it on every server the package runs on (`php -m | grep curl`, for the PHP version the site uses), including production before the Neuron 4 upgrade reaches it.
+
+### Updating the bundled dependencies (developers only)
+The versions are pinned in `composer.json` (`neuron-core/neuron-ai` exactly) and locked in `composer.lock`; `config.platform.php` is 8.1.0, so composer picks versions that work on the lowest PHP the package supports. To change a version (its own commit, CLAUDE.md rule 8):
+
+1. Edit the pin in `composer.json`.
+2. With Herd's composer, from the package folder: `composer update`, then `composer validate` and `composer audit`.
+3. Commit `composer.json`, `composer.lock` and `vendor/` together and with nothing else: `ALLOW_VENDOR=1 git commit ...` (the pre-commit hook refuses `vendor/` otherwise).
+4. Clear the Concrete cache, then run the PHPUnit suite.
+
 ## New developer setup (Claude Code)
 
 For working on this package (Glyn and Alex: macOS, Herd, the Claude Code VS Code extension). Once per clone:
