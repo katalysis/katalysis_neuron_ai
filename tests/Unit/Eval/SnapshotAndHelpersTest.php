@@ -123,4 +123,16 @@ final class SnapshotAndHelpersTest extends TestCase
         $this->assertFalse(ToolCall::succeeded('{"error":"something"}'));
         $this->assertTrue(ToolCall::succeeded('plain text result'));
     }
+
+    /**
+     * P2.1 spike: Neuron 4 settles a missing or mistyped input as ToolOutput::error() without running the tool, and
+     * stores it as {"is_error": true, "blocks": [...]}.
+     */
+    public function testANeuron4ToolErrorIsAFailure(): void
+    {
+        $stored = json_encode(\NeuronAI\Tools\ToolOutput::error('Parameter "pageID" is required.'));
+
+        $this->assertFalse(ToolCall::succeeded($stored));
+        $this->assertTrue(ToolCall::succeeded(json_encode(\NeuronAI\Tools\ToolOutput::text('fine'))));
+    }
 }

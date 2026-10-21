@@ -3,6 +3,7 @@
 namespace Katalysis\NeuronAi;
 
 use NeuronAI\Agent\Agent;
+use NeuronAI\Agent\Nodes\ToolNode;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\Chat\Messages\UserMessage;
@@ -57,6 +58,9 @@ class ConcreteCmsAgent extends Agent
             // Return a clear error message that the LLM can understand
             return "Error executing tool: " . $safeMessage . ". Please try a different approach or ask for clarification.";
         });
+
+        // P2.1 spike: scans the results of tools the scanner can't wrap (any Tool that isn't our CallableTool).
+        $this->addMiddleware(ToolNode::class, $this->toolResultScanner()->resultMiddleware());
     }
 
     protected function tools(): array
@@ -155,17 +159,13 @@ class ConcreteCmsAgent extends Agent
     /**
      * Set page context collected from the frontend request.
      *
-     * The page context is part of instructions(). Neuron builds the instructions, the start event that carries them
-     * and the tool bootstrap once, on the first chat(), and keeps them for the life of the agent. So a new context
-     * only reaches the model if those caches are dropped here, and the next chat() rebuilds them.
+     * The page context is part of instructions(). P2.1 spike: Neuron 4 calls instructions() again for every execution
+     * segment (it caches them only after setInstructions()), so the next chat() picks the new context up without the
+     * v3 cache resets.
      */
     public function setRuntimePageContext(?array $context): self
     {
         $this->runtimePageContext = is_array($context) ? $context : null;
-
-        // Both are typed properties, so unset() puts them back to "not built yet".
-        unset($this->instructions, $this->startEvent);
-        $this->toolsBootstrapCache = [];
 
         return $this;
     }

@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Security;
 
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\ToolKind;
-use NeuronAI\Tools\Tool;
+use NeuronAI\Agent\AgentResources;
+use NeuronAI\Agent\AgentState;
+use NeuronAI\Agent\Middleware\AgentMiddleware;
+use NeuronAI\Agent\Nodes\AgentNodeInterface;
+use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Workflow\Events\Event;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 
 /**
@@ -127,29 +133,64 @@ final class ToolResultScanner
 
     public function wrapTool(ToolInterface $tool): ToolInterface
     {
-        if (!$tool instanceof Tool || isset($this->wrapped[$tool])) {
-            return $tool;
-        }
-
-        $original = \Closure::bind(fn (): mixed => $this->callback, $tool, Tool::class)();
-        if (!is_callable($original) && method_exists($tool, '__invoke')) {
-            $original = $tool->__invoke(...);
-        }
-        if (!is_callable($original)) {
+        // P2.1 spike: on Neuron 4 only our CallableTool can be wrapped; it exposes its handler, so no reflection on
+        // Neuron internals. Any other tool is left unwrapped and isWrapped() says so (see resultMiddleware()).
+        if (!$tool instanceof CallableTool || isset($this->wrapped[$tool])) {
             return $tool;
         }
 
         $name = $tool->getName();
-        $wrapper = function (...$args) use ($original, $name) {
+        $tool->wrapHandler(fn (\Closure $original): \Closure => function (...$args) use ($original, $name) {
             return $this->inspect($name, $original(...$args));
-        };
-        \Closure::bind(function () use ($wrapper): void {
-            $this->callback = $wrapper;
-        }, $tool, Tool::class)();
+        });
 
         $this->wrapped[$tool] = true;
 
         return $tool;
+    }
+
+    /**
+     * P2.1 spike: covers the tools wrapTool() can't wrap (any Neuron 4 tool that isn't our CallableTool, such as a
+     * third-party toolkit's own Tool subclass). Registered on ToolNode, it runs after the node's tool calls settle
+     * and before their results go to the model or into the history. A streamed turn has already sent the raw result
+     * chunks to the browser by then.
+     */
+    public function resultMiddleware(): AgentMiddleware
+    {
+        $scanner = $this;
+
+        return new class ($scanner) extends AgentMiddleware {
+            public function __construct(private readonly ToolResultScanner $scanner)
+            {
+            }
+
+            protected function afterAgentNode(AgentNodeInterface $node, Event $result, AgentState $state, AgentResources $resources): void
+            {
+                foreach ($state->request->messages as $message) {
+                    if (!$message instanceof ToolResultMessage) {
+                        continue;
+                    }
+                    foreach ($message->getToolCalls() as $call) {
+                        $tool = $resources->tools->find($call->getName());
+                        if ($tool === null || $this->scanner->isWrapped($tool) || !$call->hasResult()) {
+                            continue;
+                        }
+                        $value = $call->getResult();
+                        if (is_string($value)) {
+                            $call->setResult($this->scanner->inspectResult($call->getName(), $value));
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    /**
+     * @internal For resultMiddleware().
+     */
+    public function inspectResult(string $toolName, string $result): mixed
+    {
+        return $this->inspect($toolName, $result);
     }
 
     /**

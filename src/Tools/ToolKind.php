@@ -34,6 +34,11 @@ final class ToolKind
 
         $data = json_decode($text, true);
         if (is_array($data)) {
+            // Neuron 4 stores ToolOutput::error() (a missing or mistyped input, settled without running the tool) as
+            // {"is_error": true, "blocks": [...]}.
+            if (($data['is_error'] ?? false) === true) {
+                return false;
+            }
             if (array_key_exists('ok', $data)) {
                 return (bool) $data['ok'];
             }
