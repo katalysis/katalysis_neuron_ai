@@ -33,9 +33,28 @@ class ExternalToolkitRegistry
                 }
 
                 foreach ($resolved as $toolkit) {
-                    if (is_object($toolkit)) {
-                        $toolkits[] = $toolkit;
+                    if (!is_object($toolkit)) {
+                        continue;
                     }
+
+                    // P2.1 spike only: a toolkit whose tools can't be built (katalysis_pro's still builds v3 Tool
+                    // objects) is skipped and logged, so one package can't break every chat turn.
+                    if ($toolkit instanceof \NeuronAI\Tools\Toolkits\ToolkitInterface) {
+                        try {
+                            $toolkit->tools();
+                        } catch (\Throwable $e) {
+                            Log::warning(sprintf(
+                                'Katalysis Neuron AI: external toolkit %s from provider "%s" skipped; its tools could not be built: %s',
+                                $toolkit::class,
+                                $key,
+                                $e->getMessage()
+                            ));
+
+                            continue;
+                        }
+                    }
+
+                    $toolkits[] = $toolkit;
                 }
             } catch (\Throwable $e) {
                 Log::warning(sprintf(

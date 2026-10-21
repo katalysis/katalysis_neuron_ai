@@ -8,6 +8,7 @@ use Katalysis\NeuronAi\Tests\Support\ToolListChecks;
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\ToolNameResolver;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\LegacyTool;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -50,7 +51,7 @@ final class ToolNameResolverTest extends TestCase
 
             public function provide(): array
             {
-                return array_map(fn (string $n): ToolInterface => new Tool($n, 'from ' . spl_object_id($this)), $this->names);
+                return array_map(fn (string $n): ToolInterface => new LegacyTool($n, 'from ' . spl_object_id($this)), $this->names);
             }
         };
     }
@@ -173,7 +174,7 @@ final class ToolNameResolverTest extends TestCase
 
     public function testASingleToolIsDroppedByName(): void
     {
-        $result = ToolNameResolver::resolve([new Tool('list_people', 'core'), new Tool('keep', 'core')], [new Tool('list_people', 'ext')], $this->logger());
+        $result = ToolNameResolver::resolve([new LegacyTool('list_people', 'core'), new LegacyTool('keep', 'core')], [new LegacyTool('list_people', 'ext')], $this->logger());
 
         $this->assertSame(['keep', 'list_people'], self::names(self::flatten($result)));
         $this->assertSame('ext', self::flatten($result)[1]->getDescription());

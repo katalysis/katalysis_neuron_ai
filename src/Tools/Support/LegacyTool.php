@@ -12,9 +12,15 @@ namespace Katalysis\NeuronAi\Tools\Support;
  */
 class LegacyTool extends CallableTool
 {
-    public function __construct(string $name, ?string $description = null)
+    /**
+     * @param \NeuronAI\Tools\ToolPropertyInterface[] $properties as v3's third argument (tests use it; no toolkit does)
+     */
+    public function __construct(string $name, ?string $description = null, array $properties = [])
     {
         parent::__construct($name, $description);
+        foreach ($properties as $property) {
+            $this->addProperty($property);
+        }
     }
 
     public function setCallable(callable $callback): static
