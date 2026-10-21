@@ -60,7 +60,7 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 - Checks: PHPUnit … / Scenarios x of y (baseline z) / manual …
 - Who / tool / model:
 - Time: elapsed from /start-task to the PR; own time
-- Cost: /usage; scenario spend
+- Scenario spend:
 - Plan changes proposed:
 - Questions for review:
 ```

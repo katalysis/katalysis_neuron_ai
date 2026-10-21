@@ -11,12 +11,12 @@ The **base branch** is the one `/start-task` recorded: `git config branch.<branc
    1. `git push origin <branch>` (allowed for `task/*` and `spike/*`)
    2. `gh pr create --base <base>`, filled in from `.github/pull_request_template.md` (prompts for approval)
 5. Last commit, now that the PR number is known (prefix: the task ID):
-   - the `documentation/PROGRESS.md` entry from the template there, newest at the top of the Log section, with the cost fields:
+   - the `documentation/PROGRESS.md` entry from the template there, newest at the top of the Log section, with the fields:
      - Who / tool / model
      - Time: elapsed since the start time in the branch description, plus the person's own time
-     - Cost: `/usage`, and scenario spend
+     - Scenario spend: in $, or "none"
 
-     Ask the person for their own time and their `/usage` figures. If they don't give them, write "not recorded".
+     Ask the person for their own time. If they don't give it, write "not recorded". Don't ask for `/usage`: it is recorded weekly, not per task.
    - "Current position" in PROGRESS: the last completed task and the next open one
    - the task's tick in `DELIVERY_PLAN.md`: `[x]` and "Done (PR #N)"
 
