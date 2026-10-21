@@ -47,7 +47,10 @@ use Symfony\Component\HttpFoundation\JsonResponse;
  */
 class PagesToolkit extends AbstractToolkit
 {
-    use GetBlockToEditTrait;
+    use GetBlockToEditTrait {
+        getBlockToWorkWith as protected coreGetBlockToWorkWith;
+        getBlockToEdit as protected coreGetBlockToEdit;
+    }
     use ValidateBlockRequestTrait;
 
     public function guidelines(): ?string
@@ -640,6 +643,9 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found. The page may not exist or may have been deleted.");
             }
             SystemPageGuard::refuse($page);
+            foreach ($updates as $update) {
+                SystemPageGuard::refuseGlobalArea($page, (string) $update['areaHandle']);
+            }
 
             $permissions = new Checker($page);
             if (!$permissions->canEditPageContents()) {
@@ -2334,6 +2340,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            SystemPageGuard::refuseGlobalArea($page, $areaHandle);
 
             $bt = BlockType::getByHandle($blockType);
             if (!$bt) {
@@ -2416,6 +2423,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            SystemPageGuard::refuseGlobalArea($page, $areaHandle);
 
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
@@ -2774,6 +2782,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            SystemPageGuard::refuseGlobalArea($page, $areaHandle);
 
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
@@ -2797,7 +2806,16 @@ class PagesToolkit extends AbstractToolkit
                 $area->getAreaHandle()
             );
 
+            // Report only what happened (BF-2): the command does nothing, silently, when the draft has no such block.
+            $placements = fn (): int => (int) Application::getFacadeApplication()->make('database')->connection()->fetchOne(
+                'SELECT COUNT(*) FROM CollectionVersionBlocks WHERE cID = ? AND cvID = ? AND bID = ?',
+                [$pageToModify->getCollectionID(), $pageToModify->getVersionID(), $block->getBlockID()]
+            );
+            $before = $placements();
             Application::getFacadeApplication()->executeCommand($command);
+            if ($before === 0 || $placements() > 0) {
+                throw new \RuntimeException("Block {$blockID} was not deleted from page {$pageID}: it is not in the draft being edited.");
+            }
 
             return [
                 'pageID' => $pageID,
@@ -2860,6 +2878,8 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            SystemPageGuard::refuseGlobalArea($page, $fromAreaHandle);
+            SystemPageGuard::refuseGlobalArea($page, $toAreaHandle);
 
             try {
                 [, $block] = $this->getBlockToWorkWith($page, $fromAreaHandle, $blockID);
@@ -2898,6 +2918,26 @@ class PagesToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * Concrete's block lookup, refusing a global area first (BF-2): for a global area it reaches into the stack.
+     */
+    public function getBlockToWorkWith(Page $page, string $areaHandle, $blockID): array
+    {
+        SystemPageGuard::refuseGlobalArea($page, $areaHandle);
+
+        return $this->coreGetBlockToWorkWith($page, $areaHandle, $blockID);
+    }
+
+    /**
+     * Concrete's "block to edit", refusing a global area first (BF-2): for a global area it makes a stack version.
+     */
+    public function getBlockToEdit(Page $page, Area $area, string $areaHandle, $blockID): ?Block
+    {
+        SystemPageGuard::refuseGlobalArea($page, $areaHandle);
+
+        return $this->coreGetBlockToEdit($page, $area, $areaHandle, $blockID);
     }
 
     protected function guarded(callable $callable): callable
