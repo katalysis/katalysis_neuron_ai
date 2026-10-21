@@ -33,10 +33,12 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
   5. last, after `gh pr create` so the number is known: the PROGRESS entry, "Current position" and the `DELIVERY_PLAN.md` tick ("Done (PR #N)"), with the task ID prefix
 
   Nothing is pushed straight to `development` or `main`.
-- **PROGRESS cost fields**, in every entry. Write "not recorded" rather than guess.
+- **PROGRESS fields**, in every entry. Write "not recorded" rather than guess.
   - `Who / tool / model`: e.g. `Glyn; Claude Code (VS Code); claude-opus-5-5`
   - `Time`: elapsed from `/start-task` to the PR, plus the person's own time (they estimate it)
-  - `Cost`: Claude Code usage from `/usage` ($ and tokens for API-key users, plan usage for subscription users), plus scenario spend in $, or "none"
+  - `Scenario spend`: in $ (the runner's estimate), or "none"
+
+  Claude Code usage (`/usage`) is not recorded per task: Glyn and Alex record their weekly `/usage` limit percentages separately.
 - **Guards and their limits:**
   - `.claude/hooks/guard-bash.php` (PreToolUse, Bash) blocks:
     - force pushes, and pushes to or deleting `main`, `development` or `integration/*`, however they are written

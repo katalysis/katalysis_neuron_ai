@@ -8,6 +8,9 @@ use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\SystemMessage;
+use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
@@ -27,6 +30,7 @@ use Katalysis\NeuronAi\Security\InstructionDetector;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Security\ToolResultScanner;
 use Katalysis\NeuronAi\Tools\DisabledTools;
+use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\ToolNameResolver;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\Page\Page;
@@ -96,6 +100,56 @@ class ConcreteCmsAgent extends Agent
 
         // Last, so every tool the model can call is covered: results are scanned for text addressed to the assistant (P1.11).
         return $this->toolResultScanner()->wrap(DisabledTools::apply($tools));
+    }
+
+    /**
+     * The system prompt and the tools offered, for each turn. Overrides Neuron 4's version only to render the toolkit
+     * guidelines exactly as Neuron 3 did, so the prompt the model gets is byte-identical to v3's (P2.4, decision A):
+     * each toolkit headed "# <class short name>", its guidelines, then its tool names one per line (the first without
+     * "- ", as v3 joined them), all appended to the instructions after one line break, as one text block.
+     *
+     * Tools are collected as Neuron 4 collects them. resolveTools() is a Neuron internal, not a documented hook:
+     * PromptBaselineTest fails if Neuron changes or renames it. P3.7 decides the heading.
+     *
+     * @return array{SystemMessage, array<int, mixed>}
+     */
+    protected function resolveTools(): array
+    {
+        $tools = [];
+        $guidelines = [];
+
+        foreach ($this->getTools() as $tool) {
+            if ($tool instanceof ToolkitInterface) {
+                $innerTools = array_values(array_filter($tool->tools(), static fn (ToolInterface $t): bool => $t->isVisible()));
+                $tools = array_merge($tools, $innerTools);
+
+                $kitGuidelines = $tool->guidelines();
+                if ($kitGuidelines !== null && $kitGuidelines !== '') {
+                    $names = array_map(static fn (ToolInterface $t): string => $t->getName(), $innerTools);
+                    // A toolkit wrapped only to be built once (FilteredToolkit::built()) is headed as its original was.
+                    $heading = $tool instanceof FilteredToolkit
+                        ? $tool->guidelinesHeading()
+                        : (new \ReflectionClass($tool))->getShortName();
+                    $guidelines[] = '# ' . $heading . PHP_EOL . $kitGuidelines
+                        . PHP_EOL . implode(PHP_EOL . '- ', $names);
+                }
+            } elseif ($tool->isVisible()) {
+                $tools[] = $tool;
+            }
+        }
+
+        $configured = $this->getInstructions();
+        $text = (string) $configured->getContent();
+        if ($guidelines !== []) {
+            $text .= PHP_EOL . '<TOOLS-GUIDELINES>' . PHP_EOL . implode(PHP_EOL . PHP_EOL, $guidelines) . PHP_EOL . '</TOOLS-GUIDELINES>';
+        }
+
+        $instructions = new SystemMessage($text);
+        if ($configured->isCached()) {
+            $instructions->cache();
+        }
+
+        return [$instructions, $tools];
     }
 
     /**
@@ -170,17 +224,12 @@ class ConcreteCmsAgent extends Agent
     /**
      * Set page context collected from the frontend request.
      *
-     * The page context is part of instructions(). Neuron builds the instructions, the start event that carries them
-     * and the tool bootstrap once, on the first chat(), and keeps them for the life of the agent. So a new context
-     * only reaches the model if those caches are dropped here, and the next chat() rebuilds them.
+     * The page context is part of instructions(). Neuron 4 builds the instructions and the tools afresh for every turn
+     * (resolveTools()), so the next turn sends this context; there is no cache to drop (P2.4).
      */
     public function setRuntimePageContext(?array $context): self
     {
         $this->runtimePageContext = is_array($context) ? $context : null;
-
-        // Both are typed properties, so unset() puts them back to "not built yet".
-        unset($this->instructions, $this->startEvent);
-        $this->toolsBootstrapCache = [];
 
         return $this;
     }
@@ -214,10 +263,10 @@ class ConcreteCmsAgent extends Agent
         return $this->chatHistoryInstance;
     }
 
-    protected function instructions(): string
+    protected function instructions(): SystemMessage
     {
         $context = $this->getCurrentContext();
-        return <<<INST
+        return new SystemMessage(<<<INST
 You are an AI assistant for Concrete CMS with comprehensive site management capabilities.
 
 CURRENT CONTEXT:
@@ -274,7 +323,7 @@ TRUST BOUNDARY:
 
 RESPONSE STYLE:
 - Concise and helpful
-INST;
+INST);
 
     }
 
