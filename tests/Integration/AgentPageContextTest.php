@@ -220,11 +220,18 @@ final class AgentPageContextTest extends ConcreteTestCase
         $em->flush();
         $chatId = (int) $chat->getId();
         $db = $this->app()->make(Connection::class);
+        // A thread is bound once (Neuron 4), so these agents are bound to the chat from the start.
+        $agentOnChat = function (array $context) use ($chatId): array {
+            $provider = new FakeAIProvider(new AssistantMessage('OK.'));
+            $agent = (new ConcreteCmsAgent())->setChatId($chatId)->setAiProvider($provider);
+            $agent->setRuntimePageContext($context);
+
+            return [$agent, $provider];
+        };
 
         try {
             // Turn 1 "request": an agent on the headings page.
-            [$turnOne, $providerOne] = $this->agentOn($this->headings);
-            $turnOne->setChatId($chatId);
+            [$turnOne, $providerOne] = $agentOnChat($this->headings);
             $this->assertStringContainsString('/neuron-test/headings', $this->sentInstructions($this->turn($turnOne, $providerOne)));
 
             // What is stored is the conversation only: neither the instructions, nor the page context lines, nor the
@@ -239,8 +246,7 @@ final class AgentPageContextTest extends ConcreteTestCase
 
             // Turn 2 "request": a new agent on the columns page, history read back from the same Chat row.
             $em->clear();
-            [$turnTwo, $providerTwo] = $this->agentOn($this->columns);
-            $turnTwo->setChatId($chatId);
+            [$turnTwo, $providerTwo] = $agentOnChat($this->columns);
             $request = $this->turn($turnTwo, $providerTwo);
 
             $this->assertCount(3, $request->messages, 'the conversation itself is restored, then the new message');
