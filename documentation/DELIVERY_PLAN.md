@@ -231,7 +231,7 @@ A spec document and starter template EPRA staff give to their own Claude, so new
 ### Phase 2: Neuron AI 4.x upgrade (M)
 **Branching (decided after P2.1, 2026-10-21):** P2.2–P2.6 and P2.8 merge into a protected integration branch, `integration/neuron4`, not into `development`. None of them leaves the site working on its own (P2.1 findings §7: with v4 installed and nothing else changed, every page returns 500 and chat fails). P2.9 merges `integration/neuron4` into `development` once, after a full scenario run.
 
-- P2.1 Adapter spike (see §4). Do it on a throwaway branch, against the v4 source. Shape the adapter as the public `Katalysis\NeuronAi\Extension\ToolDefinition` builder (see `EXTENSIONS.md`), so extensions never extend Neuron classes directly.
+- [x] P2.1 Adapter spike (see §4). Done (PR #30): go with conditions ([plans/P2.1-findings.md](plans/P2.1-findings.md)). Do it on a throwaway branch, against the v4 source. Shape the adapter as the public `Katalysis\NeuronAi\Extension\ToolDefinition` builder (see `EXTENSIONS.md`), so extensions never extend Neuron classes directly.
 - P2.2 Update dependencies:
   - pin `neuron-core/neuron-ai` exactly, in `composer.json`, to the newest 4.1.x release that is at least two weeks old (decided after P2.1; the spike used 4.1.12, see findings §2.2 for 4.1.13)
   - run `composer update` with Herd's PHP and composer
