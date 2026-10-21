@@ -207,6 +207,7 @@ final class InjectionNoticeStorageTest extends ConcreteTestCase
         $this->store()->append(ChatMessageStore::threadFor($chatId), new UserMessage('First question.'));
         $this->store()->append(ChatMessageStore::threadFor($chatId), new UserMessage('Second question, after the first failed.'));
         $this->store()->append(ChatMessageStore::threadFor($chatId), new AssistantMessage('An answer.'));
+        $storedBefore = $this->storedJson($chatId);
 
         $messages = $this->history($chatId)->getMessages();
 
@@ -214,7 +215,9 @@ final class InjectionNoticeStorageTest extends ConcreteTestCase
         $this->assertStringContainsString('Recovered', $messages[1]->getContent());
         $this->assertSame('An answer.', $messages[3]->getContent());
         $this->assertNull($messages[1]->getUsage());
-        $this->assertStringContainsString('Recovered', $this->storedJson($chatId), 'the repaired history is stored');
+        // P2.5 (plan §6, §11.3): the repair is in memory only; loading never writes.
+        $this->assertSame($storedBefore, $this->storedJson($chatId), 'the stored rows are unchanged');
+        $this->assertStringNotContainsString('Recovered', $this->storedJson($chatId));
     }
 
     public function testTheFlagIsNotSentToTheProvider(): void
