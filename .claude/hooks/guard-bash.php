@@ -1,0 +1,388 @@
+<?php
+
+/**
+ * Claude Code PreToolUse hook for the Bash tool (WP-1).
+ *
+ * Run as: php "${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.php" (see .claude/settings.json).
+ * Reads the hook input (JSON) on stdin. Exit 2 blocks the command and sends the reason on
+ * stderr to Claude; exit 0 lets the normal permission rules decide. A hook can block but
+ * never approve, so it cannot weaken the rules.
+ *
+ * It catches what the deny rules' prefix and wildcard matching can't: git global options
+ * before the subcommand, refspecs that name a protected branch, flags after the arguments,
+ * the current branch on a plain "git push", and SQL inside -e or a heredoc.
+ *
+ * It does NOT fail safe. If PHP is missing or this script dies with an error, Claude Code
+ * treats that as a non-blocking hook error and the command goes on to the permission rules.
+ * The deny rules in .claude/settings.json are the backstop (CLAUDE.md, Working agreement).
+ * Input it can't read is blocked.
+ *
+ * Needs only php and git. Tested by tests/Unit/BashGuardTest.php.
+ */
+
+declare(strict_types=1);
+
+final class NeuronBashGuard
+{
+    private const PROTECTED_BRANCHES = ['main', 'development'];
+
+    /** Words that can come before a command without changing what runs. */
+    private const COMMAND_PREFIXES = ['command', 'exec', 'env', 'sudo', 'time', 'nice', 'nohup', 'xargs'];
+
+    /**
+     * Returns why the command is blocked, or null if the guard has no objection.
+     *
+     * @param callable(): ?string $currentBranch the checked-out branch, asked for only when a push names none
+     */
+    public static function check(string $command, callable $currentBranch): ?string
+    {
+        $reason = self::checkText($command);
+        if ($reason !== null) {
+            return $reason;
+        }
+        foreach (self::segments($command) as $tokens) {
+            $reason = self::checkGit($tokens, $currentBranch) ?? self::checkGh($tokens);
+            if ($reason !== null) {
+                return $reason;
+            }
+        }
+
+        return null;
+    }
+
+    public static function main(string $input): int
+    {
+        $data = json_decode($input, true);
+        if (!is_array($data)) {
+            fwrite(STDERR, "Blocked by the project guard (.claude/hooks/guard-bash.php): it could not read the hook input.\n");
+
+            return 2;
+        }
+        if (($data['tool_name'] ?? null) !== 'Bash') {
+            return 0;
+        }
+        $command = $data['tool_input']['command'] ?? null;
+        if (!is_string($command)) {
+            fwrite(STDERR, "Blocked by the project guard (.claude/hooks/guard-bash.php): the hook input has no command.\n");
+
+            return 2;
+        }
+        $cwd = is_string($data['cwd'] ?? null) ? $data['cwd'] : (string) getcwd();
+
+        $reason = self::check($command, static fn (): ?string => self::gitBranch($cwd));
+        if ($reason === null) {
+            return 0;
+        }
+        fwrite(STDERR, "Blocked by the project guard (.claude/hooks/guard-bash.php): {$reason}. See CLAUDE.md, Working agreement.\n");
+
+        return 2;
+    }
+
+    /** Checks on the raw text, so they also see quoted strings, -e arguments and heredoc bodies. */
+    private static function checkText(string $command): ?string
+    {
+        if (preg_match('/--no-verify\b/', $command)) {
+            return 'it skips the git hooks (--no-verify)';
+        }
+        if (preg_match('/\bdrop\s+(database|schema|table)\b/i', $command)) {
+            return 'it drops a database, schema or table';
+        }
+        if (preg_match('/\btruncate\s+(table\s+)?[`\w]/i', $command)) {
+            return 'it truncates a table';
+        }
+        if (preg_match('/\bmysqladmin\b/', $command)) {
+            return 'mysqladmin can drop databases';
+        }
+        if (preg_match('/database\.php\b|generated_overrides/', $command)) {
+            return 'it reads the Concrete config that holds the database password and API keys';
+        }
+        if (preg_match('/(^|[\s\'"=\/<>])\.env(\.[\w.-]+)?(?=$|[\s\'";|&)])/', $command)) {
+            return 'it reads a .env file';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<array{string, bool}> $tokens
+     * @param callable(): ?string $currentBranch
+     */
+    private static function checkGit(array $tokens, callable $currentBranch): ?string
+    {
+        $i = self::commandIndex($tokens, 'git');
+        if ($i === null) {
+            return null;
+        }
+        foreach ($tokens as [$value]) {
+            if (stripos($value, 'core.hookspath') !== false) {
+                return 'it changes core.hooksPath, which turns off the git hooks';
+            }
+        }
+
+        // Global options come before the subcommand: git -c x=y -C dir --git-dir=... push.
+        $n = count($tokens);
+        $i++;
+        while ($i < $n && str_starts_with($tokens[$i][0], '-') && !$tokens[$i][1]) {
+            if (in_array($tokens[$i][0], ['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--config-env'], true)) {
+                $i++;
+            }
+            $i++;
+        }
+        $subcommand = $tokens[$i][0] ?? '';
+        $args = array_slice($tokens, $i + 1);
+
+        return match ($subcommand) {
+            'push' => self::checkPush($args, $currentBranch),
+            'commit' => self::checkCommit($args),
+            default => null,
+        };
+    }
+
+    /**
+     * @param list<array{string, bool}> $args
+     * @param callable(): ?string $currentBranch
+     */
+    private static function checkPush(array $args, callable $currentBranch): ?string
+    {
+        $positional = [];
+        $n = count($args);
+        for ($i = 0; $i < $n; $i++) {
+            [$value, $quoted] = $args[$i];
+            if ($quoted || !str_starts_with($value, '-') || $value === '-') {
+                $positional[] = $value;
+                continue;
+            }
+            if ($value === '--') {
+                foreach (array_slice($args, $i + 1) as [$rest]) {
+                    $positional[] = $rest;
+                }
+                break;
+            }
+            if (str_starts_with($value, '--')) {
+                $name = explode('=', $value, 2)[0];
+                if (in_array($name, ['--force', '--force-with-lease', '--force-if-includes'], true)) {
+                    return 'it is a force push';
+                }
+                if (in_array($name, ['--all', '--mirror', '--branches'], true)) {
+                    return "it pushes every branch ({$name})";
+                }
+                if (!str_contains($value, '=') && in_array($name, ['--push-option', '--repo', '--receive-pack', '--exec'], true)) {
+                    $i++;
+                }
+                continue;
+            }
+            // A cluster of short flags, e.g. -uf.
+            if (str_contains($value, 'f')) {
+                return 'it is a force push (-f)';
+            }
+            if (str_ends_with($value, 'o')) {
+                $i++;
+            }
+        }
+
+        $refspecs = array_slice($positional, 1);
+        if ($refspecs === []) {
+            $branch = $currentBranch();
+            if ($branch !== null && in_array($branch, self::PROTECTED_BRANCHES, true)) {
+                return "it pushes the current branch, {$branch}, which takes changes only through a PR";
+            }
+
+            return null;
+        }
+        foreach ($refspecs as $refspec) {
+            if (str_starts_with($refspec, '+')) {
+                return "it force-pushes the refspec {$refspec}";
+            }
+            $destination = str_contains($refspec, ':') ? explode(':', $refspec, 2)[1] : $refspec;
+            if ($destination === 'HEAD' || $destination === '@') {
+                $destination = (string) $currentBranch();
+            }
+            if (str_starts_with($destination, 'refs/heads/')) {
+                $destination = substr($destination, strlen('refs/heads/'));
+            }
+            if (in_array($destination, self::PROTECTED_BRANCHES, true)) {
+                return "it pushes to or deletes {$destination}, which takes changes only through a PR";
+            }
+        }
+
+        return null;
+    }
+
+    /** @param list<array{string, bool}> $args */
+    private static function checkCommit(array $args): ?string
+    {
+        $n = count($args);
+        for ($i = 0; $i < $n; $i++) {
+            [$value, $quoted] = $args[$i];
+            if ($quoted || !preg_match('/^-[a-zA-Z]+$/', $value)) {
+                continue;
+            }
+            // In -m, -F, -C, -c and -t the rest of the cluster (or the next word) is a value.
+            $flags = preg_split('/[mFCct]/', substr($value, 1), 2)[0];
+            if (str_contains($flags, 'n')) {
+                return 'it skips the git hooks (git commit -n)';
+            }
+            if (strlen($flags) === strlen($value) - 2) {
+                $i++;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param list<array{string, bool}> $tokens */
+    private static function checkGh(array $tokens): ?string
+    {
+        $i = self::commandIndex($tokens, 'gh');
+        if ($i === null) {
+            return null;
+        }
+        $sub = $tokens[$i + 1][0] ?? '';
+        $action = $tokens[$i + 2][0] ?? '';
+        if ($sub === 'pr' && $action === 'merge') {
+            return 'merging is done by a person on GitHub';
+        }
+        if ($sub === 'repo' && in_array($action, ['edit', 'delete', 'rename', 'archive', 'unarchive'], true)) {
+            return "it changes the repository (gh repo {$action})";
+        }
+        if ($sub !== 'api') {
+            return null;
+        }
+
+        $method = null;
+        $sendsData = false;
+        $args = array_slice($tokens, $i + 2);
+        $n = count($args);
+        for ($j = 0; $j < $n; $j++) {
+            [$value, $quoted] = $args[$j];
+            if ($quoted) {
+                continue;
+            }
+            if ($value === '-X' || $value === '--method') {
+                $method = $args[$j + 1][0] ?? '';
+                $j++;
+            } elseif (str_starts_with($value, '--method=')) {
+                $method = substr($value, strlen('--method='));
+            } elseif (preg_match('/^-X(\w+)$/', $value, $m)) {
+                $method = $m[1];
+            } elseif (preg_match('/^(-f|-F|--field|--raw-field|--input)(=|$)/', $value)) {
+                $sendsData = true;
+            }
+        }
+        if ($method !== null && strtoupper($method) !== 'GET') {
+            return 'gh api with a method other than GET can change the repository';
+        }
+        if ($method === null && $sendsData) {
+            return 'gh api with fields or --input sends a POST';
+        }
+
+        return null;
+    }
+
+    /**
+     * The index of $program when it is the command in this segment (after any VAR=value
+     * assignments and prefixes such as "command" or "sudo"), or null.
+     *
+     * @param list<array{string, bool}> $tokens
+     */
+    private static function commandIndex(array $tokens, string $program): ?int
+    {
+        foreach ($tokens as $i => [$value, $quoted]) {
+            if (!$quoted && basename($value) === $program) {
+                return $i;
+            }
+            if ($quoted || !(preg_match('/^\w+=/', $value) || in_array($value, self::COMMAND_PREFIXES, true))) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Splits a command line into simple commands at ; & | newlines, brackets and backticks,
+     * outside quotes. Each token is [value without quotes, whether any of it was quoted].
+     *
+     * @return list<list<array{string, bool}>>
+     */
+    private static function segments(string $command): array
+    {
+        $segments = [];
+        $tokens = [];
+        $token = '';
+        $quoted = false;
+        $inToken = false;
+        $quote = null;
+        $length = strlen($command);
+
+        $endToken = static function () use (&$tokens, &$token, &$quoted, &$inToken): void {
+            if ($inToken) {
+                $tokens[] = [$token, $quoted];
+            }
+            $token = '';
+            $quoted = false;
+            $inToken = false;
+        };
+        $endSegment = static function () use (&$segments, &$tokens, $endToken): void {
+            $endToken();
+            if ($tokens !== []) {
+                $segments[] = $tokens;
+            }
+            $tokens = [];
+        };
+
+        for ($i = 0; $i < $length; $i++) {
+            $c = $command[$i];
+            if ($quote !== null) {
+                if ($c === $quote) {
+                    $quote = null;
+                } elseif ($c === '\\' && $quote === '"' && $i + 1 < $length) {
+                    $token .= $command[++$i];
+                } else {
+                    $token .= $c;
+                }
+                continue;
+            }
+            if ($c === '"' || $c === "'") {
+                $quote = $c;
+                $quoted = true;
+                $inToken = true;
+            } elseif ($c === '\\' && $i + 1 < $length) {
+                $token .= $command[++$i];
+                $inToken = true;
+            } elseif (str_contains(";&|\n()`", $c) || ($c === '$' && ($command[$i + 1] ?? '') === '(')) {
+                $endSegment();
+            } elseif ($c === ' ' || $c === "\t") {
+                $endToken();
+            } else {
+                $token .= $c;
+                $inToken = true;
+            }
+        }
+        $endSegment();
+
+        return $segments;
+    }
+
+    private static function gitBranch(string $cwd): ?string
+    {
+        $process = @proc_open(
+            ['git', '-C', $cwd, 'symbolic-ref', '--short', '-q', 'HEAD'],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        if (!is_resource($process)) {
+            return null;
+        }
+        $branch = trim((string) stream_get_contents($pipes[1]));
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+
+        return $branch === '' ? null : $branch;
+    }
+}
+
+if (PHP_SAPI === 'cli' && realpath((string) ($_SERVER['argv'][0] ?? '')) === __FILE__) {
+    exit(NeuronBashGuard::main((string) stream_get_contents(STDIN)));
+}
