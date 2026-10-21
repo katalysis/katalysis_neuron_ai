@@ -24,6 +24,7 @@ final class ToolChecks
                 'not_succeeded' => self::notSucceeded((array) $spec, $c),
                 'not_called' => self::notCalled((array) $spec, $c),
                 'called_any' => self::calledAny((array) $spec, $c),
+                'succeeded' => self::succeeded((array) $spec, $c),
                 'notice_shown' => self::notice(true, $spec, $c),
                 'notice_absent' => self::notice(false, $spec, $c),
                 default => new CheckResult(CheckResult::TOOLS, (string) $check, false, 'unknown check'),
@@ -107,6 +108,29 @@ final class ToolChecks
             'not_called: ' . implode(', ', $names),
             $called === [],
             $called === [] ? '' : 'called: ' . implode(', ', $called)
+        );
+    }
+
+    /**
+     * Every named tool was called and at least one of its calls succeeded (BF-1: a read tool that must work).
+     *
+     * @param list<string> $names
+     */
+    private static function succeeded(array $names, CheckContext $c): CheckResult
+    {
+        $ok = [];
+        foreach ($c->toolCalls as $call) {
+            if ($call['ok']) {
+                $ok[$call['name']] = true;
+            }
+        }
+        $missing = array_values(array_filter($names, static fn (string $name): bool => !isset($ok[$name])));
+
+        return new CheckResult(
+            CheckResult::TOOLS,
+            'succeeded: ' . implode(', ', $names),
+            $missing === [],
+            $missing === [] ? '' : 'not called, or no call succeeded: ' . implode(', ', $missing)
         );
     }
 
