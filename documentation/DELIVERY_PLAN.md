@@ -293,6 +293,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If P2.1 shows the adapter 
   - **the user's permissions** on the stack page and the stack's own area, not only the page's; a user who can't edit the stack is refused with the reason
   - **a notice** before the change (P3.6 approval preview) and in the report: it will appear on every page that shows the area (count and examples), when the page or stack is published
   - **never add to another user's pending stack version without warning:** refuse or warn, with a test (Glyn, on approving BF-2)
+  - **test whether `neuron_editor` is stopped by Concrete's permissions alone** when adding a block through a global area, with the BF-2 refusal switched off in the test (Glyn, after BF-2; BF-2 couldn't tell, because its refusal comes first)
   - turn on `SystemPageGuard::stackEditingEnabled()`; system single pages and page type defaults stay refused; B-WRT-5 (b) to "met"
   - tests per tool on a throwaway global area (BF-2's fixture); scenarios: a global-area edit through a page (draft, notice, other pages unchanged until approval), and an editor without stack permission refused
 - P3.7 **Cut the prompt down** to identity, tier and how to use context, under about 60 lines. Each rule it currently holds becomes a tool check or a scenario.
