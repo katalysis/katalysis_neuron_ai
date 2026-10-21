@@ -83,11 +83,18 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
   - **Deny rules** and the guard are unchanged.
   - **`/start-task` and `/finish-task`:** one command per call, with no `&&` chains and no `cd` prefix. `/finish-task` says to use `-F <file>` when a commit message mentions guard words.
   - **CLAUDE.md:** what still prompts.
+  - **After review (Glyn):**
+    - **`defaultMode: acceptEdits`:**
+      - Edits inside the package don't prompt.
+      - That mode also accepts `mkdir`, `touch`, `mv`, `cp` and `sed` in the workspace. `rm` stays on ask.
+      - The `vendor/` deny still applies.
+      - The Claude Code docs say VS Code sessions don't take the starting mode from project settings, so SETUP.md says how to pick it in the extension. Not yet checked there.
+    - **Nine more `BashGuardTest` cases:** refspec pushes the new allow rules would match (`task/x:main`, `task/x:development`, `spike/x:refs/heads/main`, a second ref after the branch, `:main` deletes). All are blocked by the existing guard, and none needed a guard change.
 - Not done / left for later:
-  - `sed` isn't allowed, because `sed -i` writes files.
+  - `sed` isn't allowed (Glyn: use `head`, `tail`, `grep -n`).
   - Whether the new rules actually stop the prompts can't be checked in the session that wrote them. Check it on the next `/start-task`.
 - Checks:
-  - **PHPUnit:** fast tier, 519 tests, OK (8.3 s). The full suite wasn't run; the change is config and docs only.
+  - **PHPUnit:** fast tier, 519 tests, OK (8.3 s). After review: 528 tests (9 new guard cases), OK (8.3 s). The full suite wasn't run; the change is config, docs and unit tests only.
   - **Scenarios:** not needed.
   - **Manual:** settings.json parses as JSON.
 - Who / tool / model: Glyn; Claude Code (VS Code); claude-opus-5-5
@@ -96,7 +103,7 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 - Plan changes proposed: none.
 - Questions for review:
   - Is `git config *` too wide? The denies and the guard still block `core.hooksPath`.
-  - Should `sed -n` (read-only) be allowed?
+  - ~~Should `sed -n` be allowed?~~ No (Glyn).
 
 ### 2026-10-21: WP-1 Agent tooling and working practice
 - Branch / PR: `task/WP-1-agent-tooling`, PR #28. Plan: `documentation/plans/WP-1.md` (approved by Glyn, with decisions 1 to 10). Findings: `documentation/plans/WP-1-findings.md` (the Copilot agent's report, as given).

@@ -48,6 +48,16 @@ final class BashGuardTest extends TestCase
             'all branches' => ['git push --all origin'],
             'mirror' => ['git push --mirror origin'],
             'upstream flag to main' => ['git push -u origin main'],
+            // Refspecs the WP-1a allow rules (`git push origin task/*`, `spike/*`) would match.
+            'task branch to main' => ['git push origin task/x:main'],
+            'task branch to development' => ['git push origin task/x:development'],
+            'spike branch to full main ref' => ['git push origin spike/x:refs/heads/main'],
+            'spike branch to development' => ['git push origin spike/x:development'],
+            'upstream task branch to main' => ['git push -u origin task/x:main'],
+            'set-upstream spike branch to development' => ['git push --set-upstream origin spike/x:development'],
+            'task branch then main' => ['git push origin task/x main'],
+            'spike branch then development' => ['git push origin spike/x development'],
+            'task branch then colon delete' => ['git push origin task/x :main'],
             // Deleting them.
             'colon delete' => ['git push origin :development'],
             'delete flag first' => ['git push --delete origin main'],
