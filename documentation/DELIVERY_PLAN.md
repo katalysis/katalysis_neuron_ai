@@ -365,7 +365,7 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
   - WebFetch for the Neuron docs, GitHub, Packagist and Concrete's docs, and WebSearch
 
   `gh pr create`, `mysql`, the scenario runner and `composer require|update` stay on ask, and the deny rules and the Bash guard are unchanged. `/start-task` and `/finish-task` run their steps as separate commands, not `&&` chains.
-- [ ] WP-1b **Widen the allow list again, and fix one guard rule** (small; its own PR; **next, before P2.2**). Found in P2.1 ([findings §12](plans/P2.1-findings.md)):
+- [x] WP-1b **Widen the allow list again, and fix one guard rule** (small; its own PR; **next, before P2.2**). Done (PR #31). Found in P2.1 ([findings §12](plans/P2.1-findings.md)):
   - allow `tail`, `diff`, `which`, `composer validate`, and pipes through `sort`, `uniq`, `cut` and `wc`
   - allow `curl` to `katalysis-pro.test` only
   - make `guard-bash.php` allow reading `git config core.hooksPath` (no value), to match the deny rule, which blocks only setting it
