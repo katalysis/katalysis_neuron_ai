@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Unit;
 
 use Katalysis\NeuronAi\Tools\DisabledTools;
-use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -36,7 +36,7 @@ final class DisabledToolsTest extends TestCase
 
             public function provide(): array
             {
-                return array_map(static fn (string $n): ToolInterface => new Tool($n, 'd'), $this->names);
+                return array_map(static fn (string $n): ToolInterface => new CallableTool($n, 'd'), $this->names);
             }
         };
     }
@@ -104,8 +104,8 @@ final class DisabledToolsTest extends TestCase
     {
         $items = [
             self::kit(['list_people', 'delete_person', 'delete_all_people']),
-            new Tool('delete_person', 'single'),
-            new Tool('keep_me', 'single'),
+            new CallableTool('delete_person', 'single'),
+            new CallableTool('keep_me', 'single'),
         ];
 
         $result = DisabledTools::apply($items, $this->logger());

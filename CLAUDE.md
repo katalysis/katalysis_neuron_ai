@@ -78,7 +78,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 
    How rule 4 applies by situation:
    - **New tools, or tools whose behaviour changes:** need their own PHPUnit test in the same PR.
-   - **Mechanical conversions** (e.g. P2.3, converting all 112 tools to `CallableTool`): covered by one registry test that checks every tool registers with a valid name, description and schema, plus the scenarios. Individual tests aren't needed.
+   - **Mechanical conversions** (e.g. P2.3, converting the 87 core tools to `CallableTool`): covered by one registry test that checks every tool registers with a valid name, description and schema, plus the scenarios. Individual tests aren't needed.
    - **Permission-denied tests for existing tools:** come in P3.5.
 5. **Put behavioural rules in code, not in `instructions()`.** If the model keeps getting something wrong, fix the tool or add a check and a scenario. Don't add another prompt rule. Exception: the trust-boundary rule in `instructions()`, see `plans/P1.11.md`.
 6. **No client-specific code in this package** (e.g. EPRA block handles). It belongs in a separate package that registers through `ExternalToolkitRegistry`.

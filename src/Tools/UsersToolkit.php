@@ -12,6 +12,7 @@ use Concrete\Core\User\Search\ColumnSet\Column\DateAddedColumn;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -40,7 +41,7 @@ class UsersToolkit extends AbstractToolkit
 
     protected function makeListUsersTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_users',
             'List users in the system with pagination'
         );
@@ -59,7 +60,7 @@ class UsersToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $limit = 20,
             ?bool $activeOnly = false
         ): array {
@@ -88,7 +89,7 @@ class UsersToolkit extends AbstractToolkit
 
     protected function makeGetUserTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_user',
             'Retrieve detailed information about a specific user by ID'
         );
@@ -107,7 +108,7 @@ class UsersToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (?int $userID = null, ?string $identifier = null): array {
+        $tool->setHandler($this->guarded(function (?int $userID = null, ?string $identifier = null): array {
             if (!$userID && (!$identifier || trim($identifier) === '')) {
                 throw new \RuntimeException("userID or identifier is required");
             }
@@ -152,12 +153,12 @@ class UsersToolkit extends AbstractToolkit
 
     protected function makeGetCurrentUserTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_current_user',
             'Get information about the currently logged in user'
         );
 
-        $tool->setCallable($this->guarded(function (): array {
+        $tool->setHandler($this->guarded(function (): array {
             $user = new User();
             
             if (!$user->isRegistered()) {
@@ -180,7 +181,7 @@ class UsersToolkit extends AbstractToolkit
 
     protected function makeSearchUsersTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'search_users',
             'Search for users by username or email'
         );
@@ -199,7 +200,7 @@ class UsersToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (?string $query = null, ?int $limit = 20): array {
+        $tool->setHandler($this->guarded(function (?string $query = null, ?int $limit = 20): array {
             if (!$query) {
                 throw new \RuntimeException("query is required");
             }

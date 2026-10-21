@@ -9,7 +9,7 @@ use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ToolListChecks;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use NeuronAI\Tools\PropertyType;
-use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
 use NeuronAI\Tools\ToolPropertyInterface;
@@ -177,9 +177,9 @@ final class ToolRegistryTest extends ConcreteTestCase
                     public function provide(): array
                     {
                         return [
-                            new Tool('list_people', 'external list_people'),
-                            new Tool('p16_external_only', 'only in the external toolkit'),
-                            new Tool('delete_person', 'must be disabled'),
+                            new CallableTool('list_people', 'external list_people'),
+                            new CallableTool('p16_external_only', 'only in the external toolkit'),
+                            new CallableTool('delete_person', 'must be disabled'),
                         ];
                     }
                 },

@@ -12,6 +12,7 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\Tree\Node\Type\FileFolder;
 use Concrete\Core\Support\Facade\Database;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -43,7 +44,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeMoveFileToFolderTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'move_file_to_folder',
             'Move a file into a target file manager folder.'
         );
@@ -62,7 +63,7 @@ class FilesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (?string $fileID = null, ?int $folderID = null): array {
+        $tool->setHandler($this->guarded(function (?string $fileID = null, ?int $folderID = null): array {
             if (!$fileID || trim($fileID) === '') {
                 throw new \RuntimeException('fileID is required');
             }
@@ -129,7 +130,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeCreateFileFolderTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_file_folder',
             'Create a folder in the Concrete CMS file manager (supports single folder name or nested folder path).'
         );
@@ -155,7 +156,7 @@ class FilesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $name = null,
             ?int $parentFolderID = null,
             ?bool $createParents = false
@@ -238,7 +239,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeResolveFileIdFromPathTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'resolve_file_id_from_path',
             'Resolve a Concrete CMS file URL/path to the actual file ID (fID). Never infer fID from URL folder segments.'
         );
@@ -250,7 +251,7 @@ class FilesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (?string $path = null): array {
+        $tool->setHandler($this->guarded(function (?string $path = null): array {
             if (!$path || trim($path) === '') {
                 throw new \RuntimeException('path is required');
             }
@@ -387,7 +388,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeListFilesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_files',
             'List files in the file manager with optional filtering'
         );
@@ -413,7 +414,7 @@ class FilesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $limit = 20,
             ?int $folderID = null,
             ?string $extension = null
@@ -448,7 +449,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeGetFileTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_file',
             'Retrieve detailed information about a specific file by ID'
         );
@@ -460,7 +461,7 @@ class FilesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (?string $fileID = null): array {
+        $tool->setHandler($this->guarded(function (?string $fileID = null): array {
             if (!$fileID) {
                 throw new \RuntimeException("fileID is required");
             }
@@ -488,7 +489,7 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeDeleteFileTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'delete_file',
             'Delete a file from the file manager'
         );
@@ -500,7 +501,7 @@ class FilesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (?int $fileID = null): array {
+        $tool->setHandler($this->guarded(function (?int $fileID = null): array {
             if (!$fileID) {
                 throw new \RuntimeException("fileID is required");
             }
@@ -530,12 +531,12 @@ class FilesToolkit extends AbstractToolkit
 
     protected function makeGetFileFoldersTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_file_folders',
             'List all file manager folders'
         );
 
-        $tool->setCallable($this->guarded(function (): array {
+        $tool->setHandler($this->guarded(function (): array {
             // Get file manager tree
             $filesystem = new \Concrete\Core\File\Filesystem();
             $rootFolder = $filesystem->getRootFolder();

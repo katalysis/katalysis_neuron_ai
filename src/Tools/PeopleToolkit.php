@@ -10,6 +10,7 @@ use Concrete\Core\Support\Facade\Database;
 use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -40,7 +41,7 @@ class PeopleToolkit extends AbstractToolkit
 
     protected function makeListPeopleTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_people',
             'List all people in the system with filtering options. Returns basic info including specialisms and topics.'
         );
@@ -66,7 +67,7 @@ class PeopleToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?bool $active_only = true,
             ?bool $featured_only = false,
             ?int $limit = 100
@@ -121,7 +122,7 @@ class PeopleToolkit extends AbstractToolkit
 
     protected function makeGetPersonDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_person_details',
             'Get detailed information about a specific person including all relationships.'
         );
@@ -147,7 +148,7 @@ class PeopleToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $person_id = null,
             ?string $name = null,
             ?string $email = null
@@ -223,7 +224,7 @@ class PeopleToolkit extends AbstractToolkit
 
     protected function makeGetPeopleImageFileIdsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_people_image_file_ids',
             'Get image file IDs for all people as a comma-separated list. Useful for batch thumbnail generation.'
         );
@@ -249,7 +250,7 @@ class PeopleToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?bool $active_only = true,
             ?bool $featured_only = false,
             ?bool $exclude_null = true
@@ -301,7 +302,7 @@ class PeopleToolkit extends AbstractToolkit
 
     protected function makeUpdatePersonSpecialismsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'update_person_specialisms',
             'Update the specialisms (topic tree nodes) for a person. Replaces all existing specialisms with the provided list.'
         );
@@ -320,7 +321,7 @@ class PeopleToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $person_id = null,
             ?array $specialism_ids = null
         ): array {
@@ -393,7 +394,7 @@ class PeopleToolkit extends AbstractToolkit
 
     protected function makeUpdatePersonTopicsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'update_person_topics',
             'Update the topics (topic tree nodes) for a person. Replaces all existing topics with the provided list.'
         );
@@ -412,7 +413,7 @@ class PeopleToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $person_id = null,
             ?array $topic_ids = null
         ): array {
