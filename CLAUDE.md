@@ -2,7 +2,7 @@
 
 A Concrete CMS 9.3+ package (PHP 8.1+) that adds an AI assistant to the CMS. It's built on Neuron AI (`neuron-core/neuron-ai`, bundled in `vendor/`). It's on 3.15.26 now, and an upgrade to 4.x is planned in Phase 2 of the delivery plan.
 
-Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integration branch: `development`. `main` and `development` are protected: changes go in only through PRs, with no force pushes and no deletion.
+Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integration branch: `development`, except where `DELIVERY_PLAN.md` names an `integration/*` branch for a task (P2.2–P2.6 and P2.8 use `integration/neuron4`): those task branches branch from it and PR into it. `main`, `development` and `integration/*` are protected: changes go in only through PRs, with no force pushes and no deletion.
 
 **Tooling:** Glyn and Alex use the Claude Code VS Code extension with this package folder (`httpdocs/packages/katalysis_neuron_ai`) as the workspace root, so this file, `.claude/settings.json` (permission rules and hooks) and `.claude/commands/` apply. Copilot is no longer used. First-time setup: `documentation/SETUP.md`, "New developer setup".
 
@@ -39,14 +39,16 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
   - `Cost`: Claude Code usage from `/usage` ($ and tokens for API-key users, plan usage for subscription users), plus scenario spend in $, or "none"
 - **Guards and their limits:**
   - `.claude/hooks/guard-bash.php` (PreToolUse, Bash) blocks:
-    - force pushes, and pushes to or deleting `main` or `development`, however they are written
-    - `--no-verify`, `git commit -n` and changes to `core.hooksPath`
+    - force pushes, and pushes to or deleting `main`, `development` or `integration/*`, however they are written
+    - `--no-verify`, `git commit -n` and changes to `core.hooksPath` (reading it, `git config core.hooksPath`, is allowed)
     - `DROP`, `TRUNCATE` and `mysqladmin`
     - `gh pr merge`, `gh repo edit|delete` and non-GET `gh api`
     - commands that name `database.php`, `generated_overrides` or `.env`
 
+    It **asks** (a prompt even when an allow rule matches, WP-1b) for any command containing `run_scenarios`, however it is written, and for `curl` unless it only reads from `katalysis-pro.test`.
+
     **The guard does not fail safe.** If PHP is missing or the hook errors, Claude Code treats that as a non-blocking hook error and the command goes on to the permission rules. The deny rules in `.claude/settings.json` are the backstop. Don't work around a block: report it.
-  - `.githooks/` (pre-commit: `vendor/`; pre-push: `main`, `development`, non-fast-forward) is enabled once per clone with `git config core.hooksPath .githooks`. `--no-verify` skips it, so GitHub branch protection is the real guard.
+  - `.githooks/` (pre-commit: `vendor/`; pre-push: `main`, `development`, `integration/*`, non-fast-forward) is enabled once per clone with `git config core.hooksPath .githooks`. `--no-verify` skips it, so GitHub branch protection is the real guard.
   - The `allow` rules in `.claude/settings.json` apply only after you accept the workspace trust dialog once. The `deny` and `ask` rules always apply.
   - `defaultMode` is `acceptEdits` (WP-1a):
     - **Accepted without a prompt:** file edits inside the package, and the filesystem commands that mode covers (`mkdir`, `touch`, `mv`, `cp`, `sed`; `rm` and `rmdir` too, but the `rm *` ask rule still prompts for them).
