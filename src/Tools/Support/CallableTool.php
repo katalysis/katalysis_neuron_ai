@@ -22,7 +22,7 @@ use NeuronAI\Tools\ToolPropertyInterface;
  *
  * wrapHandler() lets the core wrap the closure (the result scanner, P1.11) without touching Neuron's internals.
  *
- * @internal Not part of the extension API. Extensions use the ToolDefinition builder (P2.3).
+ * @internal Not part of the extension API. Extensions use Katalysis\NeuronAi\Extension\ToolDefinition.
  */
 class CallableTool extends Tool
 {
@@ -112,10 +112,10 @@ class CallableTool extends Tool
     public static function unknownInputsMessage(string $tool, array $unknown, array $declared): string
     {
         return sprintf(
-            '%s does not accept: %s. Nothing was changed. It accepts only: %s.',
+            '%s does not accept: %s. Nothing was changed. %s',
             $tool,
             implode(', ', $unknown),
-            implode(', ', $declared)
+            $declared === [] ? 'It takes no inputs.' : 'It accepts only: ' . implode(', ', $declared) . '.'
         );
     }
 }
