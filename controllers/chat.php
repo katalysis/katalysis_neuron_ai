@@ -126,7 +126,24 @@ class Chat extends AbstractController
             
             // Save agent state (includes chat history)
             $this->saveAgentState($agent);
-            
+
+            // P2.1 spike only (plan 3.2, evidence 2): where the classes that overlap with core were loaded from, under
+            // the web SAPI, after a real turn. Never merged.
+            $origins = [];
+            foreach (array_merge(get_declared_classes(), get_declared_interfaces()) as $class) {
+                foreach (['NeuronAI\\', 'Psr\\EventDispatcher\\', 'Psr\\Http\\', 'GuzzleHttp\\', 'Inspector\\'] as $family) {
+                    if (str_starts_with($class, $family)) {
+                        $file = (string) (new \ReflectionClass($class))->getFileName();
+                        $where = str_contains($file, '/katalysis_neuron_ai/vendor/') ? 'OURS' : (str_contains($file, '/concrete/vendor/') ? 'CORE' : 'OTHER');
+                        $origins[$family][$where] = ($origins[$family][$where] ?? 0) + 1;
+                    }
+                }
+            }
+            foreach (['Psr\\EventDispatcher\\EventDispatcherInterface', 'Psr\\EventDispatcher\\ListenerProviderInterface', 'Psr\\EventDispatcher\\StoppableEventInterface'] as $iface) {
+                $origins[$iface] = interface_exists($iface, false) ? (string) (new \ReflectionClass($iface))->getFileName() : 'not loaded';
+            }
+            \Concrete\Core\Support\Facade\Log::info('P2.1 spike class origin (' . PHP_SAPI . '): ' . json_encode($origins, JSON_UNESCAPED_SLASHES));
+
             echo json_encode([
                 'success' => true,
                 'response' => $response,
