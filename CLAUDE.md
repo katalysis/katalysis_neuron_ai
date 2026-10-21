@@ -24,7 +24,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 
 ## Working agreement
 - **Significant tasks stop for plan approval** after `/start-task`. A task is significant if it touches prompts (`instructions()`, guidelines), tools, the safety layers (draft isolation, injection detection, disabled tools, approval), permissions, the DB schema or fixtures, dependencies, or anything in `BEHAVIOUR_SPEC.md`. **Everything else is a small task:** implement it, then report with the PR and its PROGRESS entry. If unsure, treat it as significant.
-- **Always stop and ask**, whatever the size: anything in the Workflow "Stop and ask" list, any change to a scenario's expected values or the baseline, running paid scenarios the plan doesn't name, and any command an `ask` rule prompts for (commit, push, `gh pr create`, `mysql`, the scenario runner).
+- **Always stop and ask**, whatever the size: anything in the Workflow "Stop and ask" list, any change to a scenario's expected values or the baseline, running paid scenarios the plan doesn't name, and any command that prompts: the `ask` rules (`gh pr create`, `mysql`, the scenario runner, `composer require|update`, deleting a branch, discarding changes) and anything not allowed, such as a push to a branch other than `task/*` or `spike/*`. Commits and pushes to `task/*` and `spike/*` are allowed (WP-1a). Run commands one per call, not in `&&` chains, so the allow rules match.
 - **PR contents, in commit order:**
   1. `PLAN:` the plan, or the `DELIVERY_PLAN.md` entry for a new task
   2. tests, red first when behaviour changes
