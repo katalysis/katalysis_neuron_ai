@@ -19,7 +19,8 @@ use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\Providers\MessageMapperInterface;
-use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolCall;
+use NeuronAI\Tools\ToolOutput;
 use stdClass;
 
 use function array_filter;
@@ -71,9 +72,9 @@ class MessageMapper implements MessageMapperInterface
             ],
             ReasoningContent::class => [
                 'type' => 'thinking',
+                // A list of chunks, the shape Mistral sends and expects back
                 'thinking' => [
-                    'type' => 'text',
-                    'text' => $block->content,
+                    ['type' => 'text', 'text' => $block->content],
                 ],
             ],
             ImageContent::class => $this->mapImageBlock($block),
@@ -124,14 +125,14 @@ class MessageMapper implements MessageMapperInterface
     {
         $item = [
             'role' => MessageRole::ASSISTANT,
-            'tool_calls' => array_map(fn (ToolInterface $tool): array => [
+            'tool_calls' => array_map(fn (ToolCall $tool): array => [
                 'id' => $tool->getCallId(),
                 'type' => 'function',
                 'function' => [
                     'name' => $tool->getName(),
                     'arguments' => json_encode($tool->getInputs() ?: new stdClass()),
                 ],
-            ], $message->getTools()),
+            ], $message->getToolCalls()),
         ];
 
         $contents = $this->mapBlocks($message->getContentBlocks());
@@ -144,11 +145,13 @@ class MessageMapper implements MessageMapperInterface
 
     protected function mapToolsResult(ToolResultMessage $message): void
     {
-        foreach ($message->getTools() as $tool) {
+        foreach ($message->getToolCalls() as $tool) {
             $this->mapping[] = [
                 'role' => MessageRole::TOOL,
                 'tool_call_id' => $tool->getCallId(),
-                'content' => $tool->getResult(),
+                'content' => ($result = $tool->getResult()) instanceof ToolOutput
+                    ? ($this->mapBlocks($result->getBlocks()) ?: $result->getText())
+                    : $result,
             ];
         }
     }

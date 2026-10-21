@@ -4,49 +4,54 @@ declare(strict_types=1);
 
 namespace NeuronAI\RAG\VectorStore;
 
+use JsonException;
 use NeuronAI\Exceptions\HttpException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\Exceptions\VectorStoreException;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
+use NeuronAI\RAG\VectorStore\Compilers\PineconeFilterCompiler;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 
-use function array_map;
-use function in_array;
-use function trim;
+use function rtrim;
 use function array_chunk;
+use function array_map;
 
 class PineconeVectorStore implements VectorStoreInterface
 {
     use HasHttpClient;
+    use HasDocumentSchema;
 
-    /**
-     * Metadata filters.
-     *
-     * https://docs.pinecone.io/reference/api/2025-04/data-plane/query#body-filter
-     */
-    protected array $filters = [];
+    protected string $baseUri;
 
     public function __construct(
         string $key,
-        protected string $indexUrl,
+        string $indexUrl,
         protected int $topK = 4,
         string $version = '2025-04',
         protected string $namespace = '__default__', // Default namespace
         ?HttpClientInterface $httpClient = null,
+        ?DocumentSchema $schema = null,
     ) {
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri(trim($this->indexUrl, '/').'/')
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'Api-Key' => $key,
-                'X-Pinecone-API-Version' => $version,
-            ]);
+        $this->initializeSchema($schema);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->baseUri = $indexUrl;
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'Api-Key' => $key,
+            'X-Pinecone-API-Version' => $version,
+        ];
     }
 
     /**
      * @throws HttpException
+     * @throws JsonException
+     * @throws VectorStoreException
      */
     public function addDocument(Document $document): VectorStoreInterface
     {
@@ -55,15 +60,17 @@ class PineconeVectorStore implements VectorStoreInterface
 
     /**
      * @throws HttpException
+     * @throws VectorStoreException|JsonException
      */
     public function addDocuments(array $documents): VectorStoreInterface
     {
+        $this->validateDocuments($documents);
         $chunks = array_chunk($documents, 100);
 
         foreach ($chunks as $chunk) {
             $this->httpClient->request(
                 HttpRequest::post(
-                    uri: 'vectors/upsert',
+                    uri: rtrim($this->baseUri, '/') . '/vectors/upsert',
                     body: [
                         'namespace' => $this->namespace,
                         'vectors' => array_map(fn (Document $document): array => [
@@ -73,10 +80,11 @@ class PineconeVectorStore implements VectorStoreInterface
                                 'content' => $document->getContent(),
                                 'sourceType' => $document->getSourceType(),
                                 'sourceName' => $document->getSourceName(),
-                                ...$document->metadata,
+                                ...MetadataMapper::toStorage($document, $this->schema),
                             ],
                         ], $chunk),
-                    ]
+                    ],
+                    headers: $this->httpHeaders,
                 )
             );
         }
@@ -85,33 +93,20 @@ class PineconeVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @deprecated Use deleteBy() instead.
      * @throws HttpException
+     * @throws DocumentSchemaException
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        return $this->deleteBy($sourceType, $sourceName);
-    }
-
-    /**
-     * @throws HttpException
-     */
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
-    {
-        $filter = $sourceName !== null
-            ? [
-                'sourceType' => ['$eq' => $sourceType],
-                'sourceName' => ['$eq' => $sourceName],
-            ]
-            : ['sourceType' => ['$eq' => $sourceType]];
-
+        $this->validateFilters($filters);
         $this->httpClient->request(
             HttpRequest::post(
-                uri: 'vectors/delete',
+                uri: rtrim($this->baseUri, '/') . '/vectors/delete',
                 body: [
                     'namespace' => $this->namespace,
-                    'filter' => $filter,
-                ]
+                    'filter' => (new PineconeFilterCompiler())->compile($filters),
+                ],
+                headers: $this->httpHeaders,
             )
         );
 
@@ -120,51 +115,46 @@ class PineconeVectorStore implements VectorStoreInterface
 
     /**
      * @throws HttpException
+     * @throws DocumentSchemaException
+     * @throws VectorStoreException
      */
-    public function similaritySearch(array $embedding): iterable
+    public function search(SearchRequest $request): iterable
     {
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+        }
+
         $queryParams = [
             'namespace' => $this->namespace,
             'includeMetadata' => true,
             'includeValues' => true,
-            'vector' => $embedding,
-            'topK' => $this->topK,
+            'vector' => $request->embedding,
+            'topK' => $request->topK ?? $this->topK,
         ];
 
-        // Only include filter parameter if filters are not empty
-        if ($this->filters !== []) {
-            $queryParams['filter'] = $this->filters;
+        if ($request->filters instanceof FilterExpression) {
+            $queryParams['filter'] = (new PineconeFilterCompiler())->compile($request->filters);
         }
 
         $result = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'query',
-                body: $queryParams
+                uri: rtrim($this->baseUri, '/') . '/query',
+                body: $queryParams,
+                headers: $this->httpHeaders,
             )
         )->json();
 
         return array_map(function (array $item): Document {
-            $document = new Document();
-            $document->id = $item['id'];
-            $document->embedding = $item['values'];
-            $document->content = $item['metadata']['content'];
-            $document->sourceType = $item['metadata']['sourceType'];
-            $document->sourceName = $item['metadata']['sourceName'];
-            $document->score = $item['score'];
+            $document = (new Document($item['metadata']['content']))
+                ->setId($item['id'])
+                ->setEmbedding($item['values'])
+                ->setSourceType($item['metadata']['sourceType'])
+                ->setSourceName($item['metadata']['sourceName'])
+                ->setScore($item['score']);
 
-            foreach ($item['metadata'] as $name => $value) {
-                if (!in_array($name, ['content', 'sourceType', 'sourceName'])) {
-                    $document->addMetadata($name, $value);
-                }
-            }
+            MetadataMapper::hydrate($document, $item['metadata']);
 
             return $document;
         }, $result['matches']);
-    }
-
-    public function withFilters(array $filters): self
-    {
-        $this->filters = $filters;
-        return $this;
     }
 }

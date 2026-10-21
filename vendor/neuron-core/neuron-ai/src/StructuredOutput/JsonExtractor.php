@@ -7,11 +7,12 @@ namespace NeuronAI\StructuredOutput;
 use JsonException;
 use Throwable;
 
-use function in_array;
+use function is_array;
+use function is_object;
 use function is_string;
 use function json_decode;
 use function json_encode;
-use function mb_strlen;
+use function strlen;
 use function strpos;
 use function strrpos;
 use function substr;
@@ -21,9 +22,18 @@ use const JSON_THROW_ON_ERROR;
 
 /**
  * Inspired by: https://github.com/cognesy/instructor-php
+ *
+ * Offsets and lengths count bytes, never characters: the markers it looks for are ASCII,
+ * and no byte of a UTF-8 multibyte character is ASCII.
  */
 class JsonExtractor
 {
+    /**
+     * Each extractor receives the raw text and returns one or more JSON candidates.
+     * Extractors run in order; the first candidate that parses wins.
+     *
+     * @var array<callable(string): (array|string|null)>
+     */
     protected array $extractors;
 
     public function __construct()
@@ -37,8 +47,30 @@ class JsonExtractor
     }
 
     /**
+     * Can be a function or an invokable class.
+     *
+     * @param callable(string): (array|string|null) $extractor
+     */
+    public function addExtractor(callable $extractor): self
+    {
+        $this->extractors[] = $extractor;
+        return $this;
+    }
+
+    /**
+     * A list of functions or an invokable classes.
+     *
+     * @param array<callable(string): (array|string|null)> $extractors
+     */
+    public function setExtractors(array $extractors): self
+    {
+        $this->extractors = $extractors;
+        return $this;
+    }
+
+    /**
      * Attempt to find and parse a complete valid JSON string in the input.
-     * Returns a JSON-encoded string on success or an empty string on failure.
+     * Returns the first candidate that parses, re-encoded as JSON, or null when none does.
      */
     public function getJson(string $input): ?string
     {
@@ -78,19 +110,16 @@ class JsonExtractor
     }
 
     /**
-     * Returns an associative array on success, or null if the parsing fails.
+     * Returns the decoded object or list, or null for any other JSON value.
      *
      * @throws JsonException
      */
-    private function tryParse(string $maybeJson): ?array
+    private function tryParse(string $maybeJson): array|object|null
     {
-        $data = json_decode($maybeJson, true, 512, JSON_THROW_ON_ERROR);
+        // Objects stay objects, so re-encoding keeps {} and numeric keys as the model wrote them
+        $data = json_decode($maybeJson, false, 512, JSON_THROW_ON_ERROR);
 
-        if (in_array($data, [false, null, ''], true)) {
-            return null;
-        }
-
-        return $data;
+        return is_array($data) || is_object($data) ? $data : null;
     }
 
     /**
@@ -110,7 +139,7 @@ class JsonExtractor
 
         while (($startFence = strpos($text, $fenceTag, $offset)) !== false) {
             // Find the next triple-backtick fence AFTER the "```json"
-            $closeFence = strpos($text, '```', $startFence + mb_strlen($fenceTag));
+            $closeFence = strpos($text, '```', $startFence + strlen($fenceTag));
             if ($closeFence === false) {
                 // No closing fence found, stop scanning
                 break;
@@ -119,8 +148,8 @@ class JsonExtractor
             // Substring that represents the code block between "```json" and "```"
             $codeBlock = substr(
                 $text,
-                $startFence + mb_strlen($fenceTag),
-                $closeFence - ($startFence + mb_strlen($fenceTag))
+                $startFence + strlen($fenceTag),
+                $closeFence - ($startFence + strlen($fenceTag))
             );
 
             // Now find the first '{' and last '}' within this code block
@@ -177,7 +206,7 @@ class JsonExtractor
         $bracketCount = 0;
         $inString = false;
         $escape = false;
-        $len = mb_strlen($text);
+        $len = strlen($text);
 
         for ($i = 0; $i < $len; $i++) {
             $char = $text[$i];
@@ -188,13 +217,14 @@ class JsonExtractor
                         $currentCandidate = '';
                     }
                     $bracketCount++;
-                } elseif ($char === '}') {
+                } elseif ($char === '}' && $bracketCount > 0) {
+                    // Only an open block can close: a stray brace in the prose is ignored
                     $bracketCount--;
                 }
             }
 
-            // Toggle inString if we encounter an unescaped quote
-            if ($char === '"' && !$escape) {
+            // Toggle inString on an unescaped quote inside a block: a quote in the prose starts no string
+            if ($char === '"' && !$escape && $bracketCount > 0) {
                 $inString = !$inString;
             }
 

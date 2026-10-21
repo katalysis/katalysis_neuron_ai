@@ -4,59 +4,21 @@ declare(strict_types=1);
 
 namespace NeuronAI\Workflow\Events;
 
-use function array_is_list;
+use NeuronAI\Exceptions\WorkflowException;
+
+use function array_key_exists;
+use function is_string;
 
 /**
  * Event that triggers parallel branch execution.
  *
- * When a node's __invoke() returns a ParallelEvent subclass, the executor runs all
- * branches (sequentially by default, concurrently with AsyncExecutor). After all
- * branches complete, each branch's StopEvent::getResult() is stored in
- * {@see $branchResults}, and the ParallelEvent instance is routed through the
- * event→node map to a join node.
+ * Return a ParallelEvent subclass from a fork node and the executor runs all
+ * branches (sequentially by default, concurrently with AsyncBranchRunner). Each
+ * branch's StopEvent result is stored via setResult(), then the instance is
+ * routed through the event→node map to a join node, whose __invoke() accepts
+ * the subclass and reads the results back.
  *
- * Pattern:
- *  1. Extend ParallelEvent for your specific parallel operation.
- *  2. Return it from a fork node's __invoke(), passing the branch-starting events.
- *  3. Register a join node whose __invoke() accepts your ParallelEvent subclass.
- *     Read branch results from {@see $branchResults}.
- *
- * Branch IDs:
- *  - Associative array keys are used as-is as branch IDs.
- *  - Sequential (integer-indexed) arrays auto-derive IDs from the event class short name
- *    (e.g. new ExtractTextEvent() → branch ID "ExtractTextEvent").
- *
- * Example:
- *
- *   class DocumentParallelEvent extends ParallelEvent {}
- *
- *   class AnalyzeDocument extends Node {
- *       public function __invoke(StartEvent $event, WorkflowState $state): DocumentParallelEvent
- *       {
- *           return new DocumentParallelEvent([
- *               'text'   => new ExtractTextEvent(),
- *               'images' => new AnalyzeImagesEvent(),
- *           ]);
- *       }
- *   }
- *
- *   class ExtractText extends Node {
- *       public function __invoke(ExtractTextEvent $event, WorkflowState $state): StopEvent
- *       {
- *           return new StopEvent(result: $extractedText);
- *       }
- *   }
- *
- *   class CompileResults extends Node {
- *       public function __invoke(DocumentParallelEvent $event, WorkflowState $state): StopEvent
- *       {
- *           $state->set('result', [
- *               'text'   => $event->branchResults['text'],
- *               'images' => $event->branchResults['images'],
- *           ]);
- *           return new StopEvent();
- *       }
- *   }
+ * Every branch must have a non-empty string name, which becomes its branch ID.
  */
 class ParallelEvent implements Event
 {
@@ -64,31 +26,29 @@ class ParallelEvent implements Event
     public readonly array $branches;
 
     /**
-     * Branch results, keyed by branch ID.
-     *
-     * Populated by the executor after all branches complete. Each value is
-     * whatever the branch's terminal node returned via `StopEvent::getResult()`.
+     * Branch results keyed by branch ID, populated by the executor as
+     * branches complete.
      *
      * @var array<string, mixed>
      */
     protected array $results = [];
 
     /**
-     * @param array<string, Event>|array<int, Event> $branches
-     *   Named branches (string keys) or unnamed branches (integer keys, IDs are
-     *   auto-derived from the short class name of each event).
+     * @param array<array-key, Event> $branches Events keyed by non-empty string branch names
+     * @throws WorkflowException
      */
     public function __construct(array $branches)
     {
-        if (array_is_list($branches)) {
-            $named = [];
-            foreach ($branches as $branchEvent) {
-                $named[$branchEvent::class] = $branchEvent;
+        $named = [];
+        foreach ($branches as $branch => $event) {
+            if (!is_string($branch) || $branch === '') {
+                throw new WorkflowException('Parallel branches must use non-empty string names.');
             }
-            $this->branches = $named;
-        } else {
-            $this->branches = $branches;
+
+            $named[$branch] = $event;
         }
+
+        $this->branches = $named;
     }
 
     public function setResult(string $branch, mixed $result): self
@@ -97,8 +57,15 @@ class ParallelEvent implements Event
         return $this;
     }
 
+    /**
+     * @throws WorkflowException
+     */
     public function getResult(string $branch): mixed
     {
+        if (!$this->hasResult($branch)) {
+            throw new WorkflowException("No completed parallel branch is named '{$branch}'.");
+        }
+
         return $this->results[$branch];
     }
 
@@ -107,8 +74,11 @@ class ParallelEvent implements Event
         return $this->results;
     }
 
+    /**
+     * Whether the branch completed: one that completed without a result holds null.
+     */
     public function hasResult(string $branch): bool
     {
-        return isset($this->results[$branch]);
+        return array_key_exists($branch, $this->results);
     }
 }

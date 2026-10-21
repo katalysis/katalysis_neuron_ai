@@ -5,59 +5,75 @@ declare(strict_types=1);
 namespace NeuronAI\RAG\VectorStore;
 
 use NeuronAI\Exceptions\HttpException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\Exceptions\VectorStoreException;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentFieldType;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
+use NeuronAI\RAG\VectorStore\Compilers\WeaviateFilterCompiler;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 
+use function rtrim;
 use function array_chunk;
+use function array_column;
+use function array_key_exists;
 use function array_map;
 use function implode;
 use function in_array;
-use function is_null;
-use function sprintf;
-use function ucfirst;
-use function count;
 use function is_array;
+use function is_null;
 use function json_decode;
 use function json_encode;
+use function sprintf;
 use function strcasecmp;
+use function ucfirst;
 
 class WeaviateVectorStore implements VectorStoreInterface
 {
     use HasHttpClient;
+    use HasDocumentSchema;
 
-    /**
-     * @throws HttpException
-     */
+    protected string $baseUri;
+
+    protected bool $initialized = false;
+
     public function __construct(
         protected string $collection,
-        protected string $host = 'http://localhost:8080',
+        string $host = 'http://localhost:8080',
         protected ?string $key = null,
         protected int $topK = 5,
         ?HttpClientInterface $httpClient = null,
+        ?DocumentSchema $schema = null,
     ) {
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($host)
-            ->withHeaders([
-                'Content-Type' => 'application/json',
-                ...(!is_null($this->key) && $this->key !== '' ? ['Authorization' => 'Bearer '.$this->key] : []),
-            ]);
-
-        $this->initialize();
+        $this->initializeSchema($schema);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->baseUri = $host;
+        $this->httpHeaders = [
+            'Content-Type' => 'application/json',
+            ...(!is_null($this->key) && $this->key !== '' ? ['Authorization' => 'Bearer '.$this->key] : []),
+        ];
     }
 
     /**
+     * Create the collection if it doesn't exist, the first time an operation needs it
+     *
      * @throws HttpException
      */
     protected function initialize(): void
     {
-        if ($this->collectionExists()) {
+        if ($this->initialized) {
             return;
         }
 
-        $this->createCollection();
+        if (!$this->collectionExists()) {
+            $this->createCollection();
+        }
+
+        $this->initialized = true;
     }
 
     /**
@@ -66,12 +82,13 @@ class WeaviateVectorStore implements VectorStoreInterface
     public function destroy(): void
     {
         $this->httpClient->request(
-            HttpRequest::delete(uri: 'v1/schema/'.ucfirst($this->collection))
+            HttpRequest::delete(uri: rtrim($this->baseUri, '/') . '/v1/schema/'.ucfirst($this->collection), headers: $this->httpHeaders)
         );
     }
 
     /**
      * @throws HttpException
+     * @throws VectorStoreException
      */
     public function addDocument(Document $document): VectorStoreInterface
     {
@@ -81,9 +98,12 @@ class WeaviateVectorStore implements VectorStoreInterface
     /**
      * @param Document[] $documents
      * @throws HttpException
+     * @throws VectorStoreException
      */
     public function addDocuments(array $documents): VectorStoreInterface
     {
+        $this->validateDocuments($documents);
+        $this->initialize();
         $objects = array_map(fn (Document $document): array => [
             'class' => ucfirst($this->collection),
             'id' => (string) $document->getId(),
@@ -92,7 +112,8 @@ class WeaviateVectorStore implements VectorStoreInterface
                 'content' => $document->getContent(),
                 'sourceType' => $document->getSourceType(),
                 'sourceName' => $document->getSourceName(),
-                'metadata' => json_encode($document->metadata),
+                'metadata' => json_encode($document->getMetadata()),
+                ...$this->declaredMetadata($document),
             ],
         ], $documents);
 
@@ -101,8 +122,9 @@ class WeaviateVectorStore implements VectorStoreInterface
         foreach ($chunks as $chunk) {
             $this->httpClient->request(
                 HttpRequest::post(
-                    uri: 'v1/batch/objects',
-                    body: ['objects' => $chunk]
+                    uri: rtrim($this->baseUri, '/') . '/v1/batch/objects',
+                    body: ['objects' => $chunk],
+                    headers: $this->httpHeaders,
                 )
             );
         }
@@ -111,48 +133,23 @@ class WeaviateVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @deprecated Use deleteBy() instead.
      * @throws HttpException
+     * @throws DocumentSchemaException
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        return $this->deleteBy($sourceType, $sourceName);
-    }
-
-    /**
-     * @throws HttpException
-     */
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
-    {
-        $conditions = [
-            [
-                'path' => ['sourceType'],
-                'operator' => 'Equal',
-                'valueText' => $sourceType,
-            ],
-        ];
-
-        if ($sourceName !== null) {
-            $conditions[] = [
-                'path' => ['sourceName'],
-                'operator' => 'Equal',
-                'valueText' => $sourceName,
-            ];
-        }
-
-        $where = 1 === count($conditions)
-            ? $conditions[0]
-            : ['operator' => 'And', 'operands' => $conditions];
-
+        $this->validateFilters($filters);
+        $this->initialize();
         $this->httpClient->request(
             HttpRequest::delete(
-                uri: 'v1/batch/objects',
+                uri: rtrim($this->baseUri, '/') . '/v1/batch/objects',
                 body: [
                     'match' => [
                         'class' => ucfirst($this->collection),
-                        'where' => $where,
+                        'where' => (new WeaviateFilterCompiler($this->schema))->compile($filters),
                     ],
-                ]
+                ],
+                headers: $this->httpHeaders,
             )
         );
 
@@ -161,10 +158,20 @@ class WeaviateVectorStore implements VectorStoreInterface
 
     /**
      * @throws HttpException
+     * @throws DocumentSchemaException
+     * @throws VectorStoreException
      */
-    public function similaritySearch(array $embedding): iterable
+    public function search(SearchRequest $request): iterable
     {
-        $vectorString = implode(', ', $embedding);
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+        }
+
+        $vectorString = implode(', ', $request->embedding);
+
+        $where = $request->filters instanceof FilterExpression
+            ? 'where: ' . (new WeaviateFilterCompiler($this->schema))->compileGraphQL($request->filters)
+            : '';
 
         $query = sprintf(
             <<<'GQL'
@@ -173,6 +180,7 @@ class WeaviateVectorStore implements VectorStoreInterface
                     %s (
                       nearVector: { vector: [%s] }
                       limit: %d
+                      %s
                     ) {
                       _additional { id vector distance }
                       content
@@ -185,32 +193,42 @@ class WeaviateVectorStore implements VectorStoreInterface
                 GQL,
             ucfirst($this->collection),
             $vectorString,
-            $this->topK,
+            $request->topK ?? $this->topK,
+            $where,
         );
 
+        $this->initialize();
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'v1/graphql',
-                body: ['query' => $query]
+                uri: rtrim($this->baseUri, '/') . '/v1/graphql',
+                body: ['query' => $query],
+                headers: $this->httpHeaders,
             )
         )->json();
+
+        // GraphQL reports a rejected query with a 200 status, which would otherwise read as no results
+        if (($response['errors'] ?? []) !== []) {
+            throw new VectorStoreException('Weaviate rejected the search: ' . implode('; ', array_column($response['errors'], 'message')));
+        }
 
         $items = $response['data']['Get'][ucfirst($this->collection)] ?? [];
 
         return array_map(function (array $item): Document {
             $document = new Document($item['content']);
-            $document->id = $item['_additional']['id'];
-            $document->embedding = $item['_additional']['vector'] ?? [];
-            $document->sourceType = $item['sourceType'];
-            $document->sourceName = $item['sourceName'];
+            $document->setId($item['_additional']['id'])
+                ->setSourceType($item['sourceType'])
+                ->setSourceName($item['sourceName']);
+            if (($item['_additional']['vector'] ?? []) !== []) {
+                $document->setEmbedding($item['_additional']['vector']);
+            }
 
             $distance = (float) ($item['_additional']['distance'] ?? 0);
-            $document->score = 1 - $distance;
+            $document->setScore(1 - $distance);
 
             $metadata = json_decode($item['metadata'] ?? '{}', true);
             if (is_array($metadata)) {
                 foreach ($metadata as $key => $value) {
-                    if (!in_array($key, ['content', 'sourceType', 'sourceName', 'score', 'embedding', 'id'])) {
+                    if (!in_array($key, DocumentSchema::RESERVED_FIELDS, true)) {
                         $document->addMetadata($key, $value);
                     }
                 }
@@ -226,7 +244,7 @@ class WeaviateVectorStore implements VectorStoreInterface
     protected function collectionExists(): bool
     {
         $response = $this->httpClient->request(
-            HttpRequest::get(uri: 'v1/schema')
+            HttpRequest::get(uri: rtrim($this->baseUri, '/') . '/v1/schema', headers: $this->httpHeaders)
         )->json();
 
         foreach ($response['classes'] ?? [] as $class) {
@@ -243,19 +261,56 @@ class WeaviateVectorStore implements VectorStoreInterface
      */
     protected function createCollection(): void
     {
+        $properties = [
+            ['name' => 'content', 'dataType' => ['text']],
+            ['name' => 'sourceType', 'dataType' => ['text']],
+            ['name' => 'sourceName', 'dataType' => ['text']],
+            ['name' => 'metadata', 'dataType' => ['text']],
+        ];
+
+        foreach ($this->schema->fields() as $field) {
+            $properties[] = [
+                'name' => $field->getName(),
+                'dataType' => [match ($field->getType()) {
+                    DocumentFieldType::String => 'text',
+                    DocumentFieldType::Integer => 'int',
+                    DocumentFieldType::Float => 'number',
+                    DocumentFieldType::Boolean => 'boolean',
+                    DocumentFieldType::StringArray => 'text[]',
+                    DocumentFieldType::IntegerArray => 'int[]',
+                    DocumentFieldType::FloatArray => 'number[]',
+                    DocumentFieldType::BooleanArray => 'boolean[]',
+                }],
+            ];
+        }
+
         $this->httpClient->request(
             HttpRequest::post(
-                uri: 'v1/schema',
+                uri: rtrim($this->baseUri, '/') . '/v1/schema',
                 body: [
                     'class' => ucfirst($this->collection),
-                    'properties' => [
-                        ['name' => 'content', 'dataType' => ['text']],
-                        ['name' => 'sourceType', 'dataType' => ['text']],
-                        ['name' => 'sourceName', 'dataType' => ['text']],
-                        ['name' => 'metadata', 'dataType' => ['text']],
-                    ],
-                ]
+                    'properties' => $properties,
+                ],
+                headers: $this->httpHeaders,
             )
         );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function declaredMetadata(Document $document): array
+    {
+        $metadata = $document->getMetadata();
+        $declared = [];
+
+        foreach ($this->schema->fields() as $field) {
+            $name = $field->getName();
+            if (array_key_exists($name, $metadata) && $metadata[$name] !== null) {
+                $declared[$name] = $metadata[$name];
+            }
+        }
+
+        return $declared;
     }
 }

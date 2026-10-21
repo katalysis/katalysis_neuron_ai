@@ -7,15 +7,14 @@ namespace NeuronAI\RAG\DataLoader;
 use NeuronAI\Exceptions\DataReaderException;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
-use Exception;
 
-use function array_key_exists;
 use function array_map;
 use function array_merge;
 use function array_reduce;
 use function dirname;
 use function explode;
 use function is_executable;
+use function is_file;
 use function is_null;
 use function is_readable;
 use function preg_match;
@@ -59,7 +58,7 @@ class PdfReader implements ReaderInterface
 
     public function setBinPath(string $binPath): self
     {
-        if (!is_executable($binPath)) {
+        if (!is_file($binPath) || !is_executable($binPath)) {
             throw new DataReaderException("The provided path is not executable.");
         }
         $this->binPath = $binPath;
@@ -91,7 +90,7 @@ class PdfReader implements ReaderInterface
      */
     protected function findPdfToText(): string
     {
-        return $this->findBinary('pdftotext');
+        return $this->binPath ?? $this->findBinary('pdftotext');
     }
 
     /**
@@ -194,28 +193,12 @@ class PdfReader implements ReaderInterface
     }
 
     /**
-     * @throws Exception
+     * Reads on a copy, so a reader shared by many files keeps none of them.
+     *
+     * @throws DataReaderException
      */
-    public static function getText(
-        string $filePath,
-        array $options = []
-    ): string {
-        /** @phpstan-ignore new.static */
-        $instance = new static();
-        $instance->setPdf($filePath);
-
-        if (array_key_exists('binPath', $options)) {
-            $instance->setBinPath($options['binPath']);
-        }
-
-        if (array_key_exists('options', $options)) {
-            $instance->setOptions($options['options']);
-        }
-
-        if (array_key_exists('timeout', $options)) {
-            $instance->setTimeout($options['timeout']);
-        }
-
-        return $instance->text();
+    public function read(string $filePath): string
+    {
+        return (clone $this)->setPdf($filePath)->text();
     }
 }

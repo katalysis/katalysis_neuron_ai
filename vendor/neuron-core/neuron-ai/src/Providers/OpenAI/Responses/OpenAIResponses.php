@@ -4,27 +4,34 @@ declare(strict_types=1);
 
 namespace NeuronAI\Providers\OpenAI\Responses;
 
+use NeuronAI\Chat\Enums\SourceType;
+use NeuronAI\Chat\Messages\ContentBlocks\ImageContent;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Citation;
 use NeuronAI\Chat\Messages\ContentBlocks\ContentBlockInterface;
 use NeuronAI\Chat\Messages\ContentBlocks\ReasoningContent;
 use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
+use NeuronAI\Chat\Messages\Message;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Exceptions\ProviderException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\HandleWithTools;
 use NeuronAI\Providers\MessageMapperInterface;
 use NeuronAI\Providers\ToolMapperInterface;
-use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolCall;
 
+use function in_array;
 use function array_map;
 use function array_merge;
-use function json_decode;
-use function uniqid;
+use function array_unshift;
 use function array_values;
+use function is_array;
+use function is_string;
+use function uniqid;
 
 class OpenAIResponses implements AIProviderInterface
 {
@@ -42,7 +49,7 @@ class OpenAIResponses implements AIProviderInterface
     /**
      * System instructions.
      */
-    protected ?string $system = null;
+    protected ?SystemMessage $system = null;
 
     protected MessageMapperInterface $messageMapper;
     protected ToolMapperInterface $toolPayloadMapper;
@@ -59,27 +66,107 @@ class OpenAIResponses implements AIProviderInterface
     ) {
         // Use the provided client or create the default Guzzle client
         // Provider always configures authentication and base URI
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->baseUri)
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer ' . $this->key,
-            ]);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $this->key,
+        ];
     }
 
-    public function systemPrompt(?string $prompt): AIProviderInterface
+    public function getModel(): string
     {
-        $this->system = $prompt;
+        return $this->model;
+    }
+
+    public function systemPrompt(SystemMessage|string|null $prompt): AIProviderInterface
+    {
+        $this->system = is_string($prompt) ? new SystemMessage($prompt) : $prompt;
         return $this;
     }
 
-    public function messageMapper(): MessageMapperInterface
+    /**
+     * @param Message[] $messages
+     * @return array<string, mixed>
+     */
+    protected function requestBody(array $messages, bool $stream = false): array
+    {
+        $body = $stream ? ['stream' => true] : [];
+        $body = [
+            ...$body,
+            'model' => $this->model,
+            'input' => $this->messageMapper()->map($messages),
+            ...$this->parameters,
+        ];
+
+        if ($this->system instanceof SystemMessage) {
+            $this->attachSystemPrompt($body, $this->system);
+        }
+
+        if ($this->tools !== []) {
+            $body['tools'] = $this->toolPayloadMapper()->map($this->tools);
+        }
+
+        return $body;
+    }
+
+    /**
+     * A generated image, or a streamed preview of it: base64 in the requested format.
+     */
+    protected function createImageContent(string $base64, ?string $format): ImageContent
+    {
+        return new ImageContent($base64, SourceType::BASE64, 'image/' . ($format ?? 'png'));
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    protected function attachSystemPrompt(array &$body, SystemMessage $system): void
+    {
+        $blocks = $system->getTextBlocks();
+        $hasCacheBreakpoint = false;
+
+        foreach ($blocks as $block) {
+            if ($block->isCached()) {
+                $hasCacheBreakpoint = true;
+                break;
+            }
+        }
+
+        if (!$hasCacheBreakpoint) {
+            $body['instructions'] = $system->getContent();
+            return;
+        }
+
+        unset($body['instructions']);
+
+        $content = array_map(function (TextContent $block): array {
+            $mapped = [
+                'type' => 'input_text',
+                'text' => $block->content,
+            ];
+
+            if ($block->isCached()) {
+                $mapped['prompt_cache_breakpoint'] = ['mode' => 'explicit'];
+            }
+
+            return $mapped;
+        }, array_values($blocks));
+
+        $input = is_array($body['input'] ?? null) ? $body['input'] : [];
+        array_unshift($input, [
+            'role' => 'developer',
+            'content' => $content,
+        ]);
+        $body['input'] = $input;
+    }
+
+    protected function messageMapper(): MessageMapperInterface
     {
         return $this->messageMapper ??= new MessageMapper();
     }
 
-    public function toolPayloadMapper(): ToolMapperInterface
+    protected function toolPayloadMapper(): ToolMapperInterface
     {
         return $this->toolPayloadMapper ??= new ToolMapper();
     }
@@ -89,14 +176,20 @@ class OpenAIResponses implements AIProviderInterface
         $blocks = [];
         $citations = [];
         foreach ($response['output'] as $block) {
+            // A message holds several parts; a refusal stays readable as text
             if ($block['type'] === 'message') {
-                $content = $block['content'][0];
-
-                $blocks[] = new TextContent($content['text']);
-
-                if (isset($content['annotations'])) {
-                    $citations = array_merge($citations, $this->extractCitations($content['text'], $content['annotations']));
+                foreach ($block['content'] ?? [] as $part) {
+                    if (($part['type'] ?? null) === 'refusal') {
+                        $blocks[] = new TextContent($part['refusal'] ?? '');
+                    } elseif (isset($part['text'])) {
+                        $blocks[] = new TextContent($part['text']);
+                        $citations = array_merge($citations, $this->extractCitations($part['annotations'] ?? []));
+                    }
                 }
+            }
+
+            if ($block['type'] === 'image_generation_call' && isset($block['result'])) {
+                $blocks[] = $this->createImageContent($block['result'], $block['output_format'] ?? null);
             }
 
             if ($block['type'] === 'reasoning' && !empty($block['summary'])) {
@@ -121,11 +214,11 @@ class OpenAIResponses implements AIProviderInterface
     protected function createToolCallMessage(array $toolCalls, array|null $content = null): ToolCallMessage
     {
         $tools = array_map(
-            fn (array $item): ToolInterface => $this->findTool($item['name'])
-                ->setInputs(
-                    json_decode((string) $item['arguments'], true)
-                )
-                ->setCallId($item['call_id']),
+            fn (array $item): ToolCall => $this->newToolCall(
+                $item['name'],
+                $item['call_id'],
+                $this->decodeToolArguments($item['name'], $item['arguments'] ?? null),
+            ),
             $toolCalls
         );
 
@@ -133,46 +226,36 @@ class OpenAIResponses implements AIProviderInterface
     }
 
     /**
-     * Extract citations from OpenAI Responses annotations.
+     * Responses annotations are flat. A file annotation marks a single
+     * position of the answer, so its span starts and ends there.
      *
      * @param array<int, array<string, mixed>> $annotations
      * @return Citation[]
      */
-    protected function extractCitations(string $text, array $annotations): array
+    protected function extractCitations(array $annotations): array
     {
         $citations = [];
 
         foreach ($annotations as $annotation) {
             $type = $annotation['type'] ?? null;
 
-            if ($type === 'file_citation') {
-                $fileCitation = $annotation['file_citation'] ?? [];
-                $citations[] = new Citation(
-                    id: $fileCitation['file_id'] ?? uniqid('openai_responses_file_'),
-                    source: $fileCitation['file_id'] ?? '',
-                    startIndex: $annotation['start_index'] ?? null,
-                    endIndex: $annotation['end_index'] ?? null,
-                    citedText: $annotation['text'] ?? null,
-                    metadata: [
-                        'type' => 'file_citation',
-                        'quote' => $fileCitation['quote'] ?? null,
-                        'provider' => 'openai_responses',
-                    ]
-                );
-            } elseif ($type === 'file_path') {
-                $filePath = $annotation['file_path'] ?? [];
-                $citations[] = new Citation(
-                    id: $filePath['file_id'] ?? uniqid('openai_responses_path_'),
-                    source: $filePath['file_id'] ?? '',
-                    startIndex: $annotation['start_index'] ?? null,
-                    endIndex: $annotation['end_index'] ?? null,
-                    citedText: $annotation['text'] ?? null,
-                    metadata: [
-                        'type' => 'file_path',
-                        'provider' => 'openai_responses',
-                    ]
-                );
+            if (!in_array($type, ['url_citation', 'file_citation', 'container_file_citation', 'file_path'], true)) {
+                continue;
             }
+
+            $metadata = ['type' => $type, 'provider' => 'openai_responses'];
+            if (isset($annotation['container_id'])) {
+                $metadata['container_id'] = $annotation['container_id'];
+            }
+
+            $citations[] = new Citation(
+                id: $annotation['file_id'] ?? uniqid('openai_responses_'),
+                source: $annotation['url'] ?? $annotation['file_id'] ?? '',
+                title: $annotation['title'] ?? $annotation['filename'] ?? null,
+                startIndex: $annotation['start_index'] ?? $annotation['index'] ?? null,
+                endIndex: $annotation['end_index'] ?? $annotation['index'] ?? null,
+                metadata: $metadata
+            );
         }
 
         return $citations;

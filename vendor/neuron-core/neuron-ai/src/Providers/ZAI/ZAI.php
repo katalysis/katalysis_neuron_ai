@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace NeuronAI\Providers\ZAI;
 
+use Generator;
+use NeuronAI\Chat\Messages\Stream\Chunks\StreamChunk;
+use NeuronAI\Chat\Messages\Stream\Chunks\ReasoningChunk;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ContentBlocks\ReasoningContent;
 use NeuronAI\HttpClient\HasHttpClient;
@@ -33,12 +36,12 @@ class ZAI extends OpenAI
         parent::__construct($key, $model, $parameters, $strict_response, $httpClient);
     }
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
         return $this->messageMapper ??= new MessageMapper();
     }
 
-    public function toolPayloadMapper(): ToolMapperInterface
+    protected function toolPayloadMapper(): ToolMapperInterface
     {
         return $this->toolPayloadMapper ??= new ToolMapper();
     }
@@ -52,5 +55,23 @@ class ZAI extends OpenAI
         }
 
         return $response;
+    }
+
+    /**
+     * GLM thinking models stream their reasoning in reasoning_content, beside the answer.
+     *
+     * @return Generator<StreamChunk>
+     */
+    protected function processContentDelta(array $choice): Generator
+    {
+        $reasoning = $choice['delta']['reasoning_content'] ?? '';
+
+        if ($reasoning !== '') {
+            // A key of its own keeps the reasoning ahead of the answer's text block
+            $this->streamState->updateContentBlock(-1, new ReasoningContent($reasoning));
+            yield new ReasoningChunk($this->streamState->messageId(), $reasoning);
+        }
+
+        yield from parent::processContentDelta($choice);
     }
 }

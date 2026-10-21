@@ -35,8 +35,12 @@ class WordsCount extends AbstractValidationRule
             throw new StructuredOutputException('Either option "min" or "max" must be given for validation rule "WordsCount"');
         }
 
-        if (is_null($value) && ($this->min > 0 || $this->exactly > 0)) {
-            $violations[] = $this->buildMessage($name, '{name} cannot be empty');
+        // A missing value is empty: it only falls short of a minimum
+        if (is_null($value)) {
+            if ($this->min > 0 || $this->exactly > 0) {
+                $violations[] = $this->buildMessage($name, '{name} cannot be empty');
+            }
+
             return;
         }
 
@@ -45,8 +49,10 @@ class WordsCount extends AbstractValidationRule
             return;
         }
 
-        $results = preg_split('/[ \-\r\n]+/', (string) $value, -1, PREG_SPLIT_NO_EMPTY);
-        $length = count($results);
+        // Any Unicode whitespace separates words; text that is not valid UTF-8 splits on ASCII whitespace
+        $words = preg_split('/[\s\-]+/u', (string) $value, -1, PREG_SPLIT_NO_EMPTY)
+            ?: preg_split('/[\s\-]+/', (string) $value, -1, PREG_SPLIT_NO_EMPTY);
+        $length = count($words);
 
         if (null !== $this->max && $length > $this->max) {
             $shouldExact = $this->min == $this->max;
@@ -62,7 +68,7 @@ class WordsCount extends AbstractValidationRule
             $shouldExact = $this->min == $this->max;
 
             if ($shouldExact) {
-                $violations[] = $this->buildMessage($name, '{name} must have exactly {exact} words long', ['exact' => $this->min]);
+                $violations[] = $this->buildMessage($name, '{name} must have exactly {exact} words', ['exact' => $this->min]);
             } else {
                 $violations[] = $this->buildMessage($name, '{name} is too short. It must be at least {min} words', ['min' => $this->min]);
             }

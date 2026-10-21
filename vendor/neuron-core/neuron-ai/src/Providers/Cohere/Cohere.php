@@ -10,9 +10,11 @@ use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\Providers\MessageMapperInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
+use NeuronAI\Providers\ProviderResponse;
 
+use function array_key_last;
+use function rtrim;
 use function array_replace_recursive;
-use function end;
 use function is_array;
 
 /**
@@ -37,7 +39,7 @@ class Cohere extends OpenAI
         parent::__construct($key, $model, $parameters, $strict_response, $httpClient);
     }
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
         return $this->messageMapper ??= new MessageMapper();
     }
@@ -47,24 +49,32 @@ class Cohere extends OpenAI
         unset($payload['stream_options']);
 
         return HttpRequest::post(
-            uri: 'chat',
-            body: $payload
+            uri: rtrim($this->baseUri, '/') . '/chat',
+            body: $payload,
+            headers: $this->httpHeaders,
         );
     }
 
-    public function structured(Message|array $messages, string $class, array $response_format): Message
+    public function structured(Message|array $messages, string $class, array $response_format): ProviderResponse
     {
-        $this->parameters = array_replace_recursive($this->parameters, [
-            'response_format' => [
-                'type' => 'json_object',
-                'json_schema' => $response_format,
-            ],
-        ]);
+        $originalParameters = $this->parameters;
 
-        $messages = is_array($messages) ? $messages : [$messages];
-        $message = end($messages);
-        $message->addContent(new TextContent('Generate a JSON'));
+        try {
+            $this->parameters = array_replace_recursive($this->parameters, [
+                'response_format' => [
+                    'type' => 'json_object',
+                    'json_schema' => $response_format,
+                ],
+            ]);
 
-        return $this->chat(...$messages);
+            // The instruction goes on a copy: the caller's message belongs to the chat history
+            $messages = is_array($messages) ? $messages : [$messages];
+            $lastIndex = array_key_last($messages);
+            $messages[$lastIndex] = (clone $messages[$lastIndex])->addContent(new TextContent('Generate a JSON'));
+
+            return $this->chat(...$messages);
+        } finally {
+            $this->parameters = $originalParameters;
+        }
     }
 }

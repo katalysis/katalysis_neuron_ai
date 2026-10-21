@@ -7,7 +7,7 @@ namespace NeuronAI\Providers\ZAI;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
-use NeuronAI\HandleContent;
+use NeuronAI\Providers\ProviderResponse;
 
 use function array_replace_recursive;
 use function is_array;
@@ -17,8 +17,6 @@ use const JSON_PRETTY_PRINT;
 
 trait HandleStructured
 {
-    use HandleContent;
-
     /**
      * @throws ProviderException
      * @throws HttpException
@@ -27,7 +25,7 @@ trait HandleStructured
         array|Message $messages,
         string $class,
         array $response_format,
-    ): Message {
+    ): ProviderResponse {
         $originalParameters = $this->parameters;
         $originalSystem = $this->system;
 
@@ -36,7 +34,7 @@ trait HandleStructured
                 'response_format' => ['type' => 'json_object'],
             ]);
 
-            $this->system .= "\n\n<outout-constraints>Generate a JSON with the following schema: \n\n".json_encode($response_format, JSON_PRETTY_PRINT)."</outout-constraints>";
+            $this->system .= "\n\n---\n\nGenerate a JSON with the following schema: \n\n".json_encode($response_format, JSON_PRETTY_PRINT);
 
             return $this->chat(...(is_array($messages) ? $messages : [$messages]));
         } finally {

@@ -4,195 +4,96 @@ declare(strict_types=1);
 
 namespace NeuronAI\Workflow;
 
+use NeuronAI\Workflow\Interrupt\InterruptRequest;
+use NeuronAI\Workflow\Middleware\WorkflowMiddleware;
+use Closure;
 use Generator;
+use NeuronAI\Exceptions\InputTranslationException;
 use NeuronAI\Exceptions\WorkflowException;
-use NeuronAI\Observability\EventBus;
-use NeuronAI\Observability\ObserverInterface;
-use NeuronAI\StaticConstructor;
+use NeuronAI\Observability\ListenerRegistry;
 use NeuronAI\Workflow\Events\Event;
 use NeuronAI\Workflow\Events\StartEvent;
-use NeuronAI\Workflow\Executor\WorkflowExecutor;
-use NeuronAI\Workflow\Executor\WorkflowExecutorInterface;
+use NeuronAI\Workflow\Executor\ExecutionRequest;
 use NeuronAI\Workflow\Exporter\ConsoleExporter;
-use NeuronAI\Workflow\Exporter\ExporterInterface;
-use NeuronAI\Workflow\Interrupt\InterruptRequest;
-use NeuronAI\Workflow\Persistence\InMemoryPersistence;
-use NeuronAI\Workflow\Persistence\PersistenceInterface;
-use ReflectionClass;
-use ReflectionException;
-use ReflectionIntersectionType;
-use ReflectionNamedType;
-use ReflectionType;
-use ReflectionUnionType;
-use Throwable;
+use NeuronAI\Workflow\Interrupt\InputTranslatorInterface;
 
 use function array_merge;
-use function count;
-use function is_a;
 use function is_array;
-use function is_null;
-use function uniqid;
-use function array_filter;
-use function reset;
+use function array_map;
 
 /**
- * @method static static make(?PersistenceInterface $persistence = null, ?string $resumeToken = null, ?WorkflowState $state = null)
+ * @template TState of WorkflowState = WorkflowState
+ * @implements WorkflowInterface<TState>
  */
 class Workflow implements WorkflowInterface
 {
-    use StaticConstructor;
     use HandleMiddleware;
+    /** @use ResolveState<TState> */
     use ResolveState;
+    use HandleComponents;
+    use HandleDispatcher;
 
     /**
-     * @var NodeInterface[]
+     * @var array<NodeInterface|Closure(): NodeInterface>
      */
     protected array $nodes = [];
 
-    /**
-     * @var array<class-string, NodeInterface>
-     */
-    protected array $eventNodeMap = [];
+    protected ?Event $startEvent = null;
 
-    protected ExporterInterface $exporter;
+    protected ?ListenerRegistry $listeners = null;
 
-    protected string $workflowId;
-
-    protected Event $startEvent;
-
-    protected WorkflowExecutorInterface $executor;
+    /** @var TState|null */
+    protected ?WorkflowState $initialState = null;
 
     /**
-     * @throws WorkflowException
+     * @param TState|null $state
      */
     public function __construct(
-        ?PersistenceInterface $persistence = null,
-        ?string $resumeToken = null,
-        protected ?WorkflowState $state = null,
+        protected ?string $workflowId = null,
+        ?WorkflowState $state = null,
     ) {
+        $this->initialState = $state;
         $this->exporter = new ConsoleExporter();
 
-        if (is_null($persistence) && !is_null($resumeToken)) {
-            throw new WorkflowException('Persistence must be defined when resumeToken is defined');
-        }
-
-        $this->workflowId = $resumeToken ?? uniqid('workflow_');
-        $this->executor = new WorkflowExecutor();
-        $this->executor->setPersistence($persistence ?? new InMemoryPersistence());
-
-        // Register the node middleware
-        $this->addGlobalMiddleware($this->globalMiddleware());
-        foreach ($this->middleware() as $node => $middleware) {
-            $middleware = is_array($middleware) ? $middleware : [$middleware];
-            $this->addMiddleware($node, $middleware);
-        }
     }
 
-    /**
-     * Register an observer to receive events for this workflow.
-     *
-     * Observers are scoped to the workflow instance, ensuring proper
-     * isolation when running multiple workflows concurrently.
-     */
-    public function observe(ObserverInterface $observer): WorkflowInterface
+    public static function make(...$arguments): static
     {
-        EventBus::observe($observer, $this->workflowId);
-        return $this;
+        $class = static::class;
+        return new $class(...$arguments);
     }
 
-    /**
-     * Configure workflow persistence.
-     */
-    public function setPersistence(PersistenceInterface $persistence, ?string $resumeToken = null): WorkflowInterface
+    final public function getStartEvent(): Event
     {
-        $this->executor()->setPersistence($persistence);
-
-        if ($resumeToken !== null) {
-            $this->workflowId = $resumeToken;
-        }
-
-        return $this;
+        return $this->startEvent ?? $this->startEvent();
     }
 
-    /**
-     * Bootstrap the workflow (load event-node map, validate).
-     *
-     * @throws WorkflowException
-     */
-    public function bootstrap(): static
-    {
-        $this->loadEventNodeMap();
-        $this->validate();
-        return $this;
-    }
-
-    /**
-     * Get the resolved start event for the workflow.
-     */
-    public function getStartEvent(): Event
-    {
-        return $this->resolveStartEvent();
-    }
-
-    /**
-     * @deprecated Use init() instead.
-     */
-    public function start(?InterruptRequest $resumeRequest = null): WorkflowHandlerInterface
-    {
-        return new WorkflowHandler($this, $resumeRequest);
-    }
-
-    /**
-     * Set a custom start event with initial data.
-     */
-    public function setStartEvent(Event $event): WorkflowInterface
+    public function setStartEvent(Event $event): static
     {
         $this->startEvent = $event;
         return $this;
     }
 
-    /**
-     * Create the default start event for the workflow.
-     */
     protected function startEvent(): Event
     {
         return new StartEvent();
     }
 
-    /**
-     * Resolve the start event for the workflow.
-     */
-    protected function resolveStartEvent(): Event
+    public function addNode(NodeInterface|Closure $node): static
     {
-        return $this->startEvent ??= $this->startEvent();
+        $this->nodes[] = $node;
+        return $this;
     }
 
     /**
-     * Initialize the workflow handler.
+     * @param array<NodeInterface|Closure(): NodeInterface> $nodes
      */
-    public function init(?InterruptRequest $resumeRequest = null): WorkflowHandlerInterface
+    public function addNodes(array $nodes): static
     {
-        return new WorkflowHandler($this, $resumeRequest);
-    }
-
-    /**
-     * @throws Throwable
-     */
-    public function run(): Generator
-    {
-        yield from $this->executor()->run($this);
-
-        return $this->resolveState();
-    }
-
-    /**
-     * @throws Throwable
-     */
-    public function resume(InterruptRequest $resumeRequest): Generator
-    {
-        yield from $this->executor()->resume($this, $resumeRequest);
-
-        return $this->resolveState();
+        foreach ($nodes as $node) {
+            $this->addNode($node);
+        }
+        return $this;
     }
 
     /**
@@ -203,250 +104,338 @@ class Workflow implements WorkflowInterface
         return [];
     }
 
-    public function addNode(NodeInterface $node): Workflow
-    {
-        $this->nodes[] = $node;
-
-        return $this;
-    }
-
     /**
-     * @param NodeInterface[] $nodes
+     * The workflow address, resolved without initializing a run or services:
+     * null until one is bound or declared.
      */
-    public function addNodes(array $nodes): Workflow
+    public function getWorkflowId(): ?string
     {
-        foreach ($nodes as $node) {
-            $this->addNode($node);
+        $declared = $this->workflowId();
+        if ($declared !== null && $this->workflowId !== null && $declared !== $this->workflowId) {
+            throw new WorkflowException("Misidentified run: the workflow declares workflow ID '{$declared}' but was given '{$this->workflowId}'.");
         }
-
-        return $this;
+        return $this->workflowId ?? $declared;
     }
 
     /**
-     * @return NodeInterface[]
-     */
-    protected function getNodes(): array
-    {
-        return array_merge($this->nodes(), $this->nodes);
-    }
-
-    /**
-     * @throws WorkflowException
-     */
-    protected function loadEventNodeMap(): void
-    {
-        $this->eventNodeMap = [];
-
-        foreach ($this->getNodes() as $node) {
-            if (!$node instanceof NodeInterface) {
-                throw new WorkflowException('All nodes must implement ' . NodeInterface::class);
-            }
-
-            $this->validateInvokeMethodSignature($node);
-
-            try {
-                $reflection = new ReflectionClass($node);
-                $method = $reflection->getMethod('__invoke');
-                $parameters = $method->getParameters();
-                $firstParam = $parameters[0];
-                $firstParamType = $firstParam->getType();
-
-                $eventClass = null;
-
-                if ($firstParamType instanceof ReflectionNamedType) {
-                    $eventClass = $firstParamType->getName();
-                } elseif ($firstParamType instanceof ReflectionIntersectionType) {
-                    $eventTypes = array_filter(
-                        $firstParamType->getTypes(),
-                        fn (ReflectionType $type): bool => $type instanceof ReflectionNamedType && is_a($type->getName(), Event::class, true)
-                    );
-                    $firstEventType = reset($eventTypes);
-                    $eventClass = $firstEventType instanceof ReflectionNamedType ? $firstEventType->getName() : null;
-                }
-
-                if (isset($eventClass)) {
-                    if (isset($this->eventNodeMap[$eventClass])) {
-                        throw new WorkflowException("Node for event {$eventClass} already exists");
-                    }
-
-                    $this->eventNodeMap[$eventClass] = $node;
-                }
-            } catch (ReflectionException $e) {
-                throw new WorkflowException('Failed to load event-node map for '.$node::class.': ' . $e->getMessage(), $e->getCode(), $e);
-            }
-        }
-    }
-
-    public function getEventNodeMap(): array
-    {
-        return $this->eventNodeMap;
-    }
-
-    /**
-     * Get the node that handles a specific event type.
+     * A copy bound to $workflowId; the receiver is never modified. The copy
+     * shares the collaborators the definition holds, set or already resolved,
+     * and runs its own hooks for the rest.
      *
-     * @throws WorkflowException if no node is registered for the given event class
+     * @throws WorkflowException when the workflow declares another workflow ID
      */
-    public function getNodeForEvent(string $eventClass): NodeInterface
+    public function for(string $workflowId): static
     {
-        if (!isset($this->eventNodeMap[$eventClass])) {
-            throw new WorkflowException(
-                "No node found that handle event: " . $eventClass
-            );
-        }
+        $copy = clone $this;
+        $copy->workflowId = null;
 
-        return $this->eventNodeMap[$eventClass];
+        return $copy->setWorkflowId($workflowId);
+    }
+
+    /** Bind the instance address; a bound instance cannot change its address. */
+    public function setWorkflowId(string $workflowId): static
+    {
+        $current = $this->getWorkflowId();
+        if ($current !== null && $current !== $workflowId) {
+            throw new WorkflowException("This workflow is bound to '{$current}' and cannot be re-pointed to '{$workflowId}'.");
+        }
+        $this->workflowId = $workflowId;
+        return $this;
+    }
+
+    /** The business key declared by a subclass, if any. */
+    public function workflowId(): ?string
+    {
+        return null;
     }
 
     /**
-     * Set a custom executor for workflow execution.
+     * Opt into the execution lease: while a run is executing, the engine
+     * renews the lease deadline inside __control with every step commit, and an inputless continuation
+     * arriving while the lease is fresh is refused — it would
+     * probably duplicate a live process, not revive a dead one. Suspension,
+     * failure, and completion all clear the deadline, so only a process killed
+     * with no chance to commit (memory limit, timeout, OOM kill) leaves it
+     * held, and the next ignition supersedes it once it expires. Pick $seconds
+     * well above the longest silent stretch between step boundaries (a
+     * slow provider or tool call): a too-short lease revives runs that are merely
+     * slow. Null disables the lease; the default comes from leaseTimeout():
+     * null for a plain Workflow, ten minutes for an Agent.
+     *
+     * @throws WorkflowException
      */
-    public function setExecutor(WorkflowExecutorInterface $executor): WorkflowInterface
+    public function setLeaseTimeout(?int $seconds): static
     {
-        // Transfer persistence from the current executor to the new one
-        $persistence = $this->executor->getPersistence();
-        if ($persistence instanceof \NeuronAI\Workflow\Persistence\PersistenceInterface) {
-            $executor->setPersistence($persistence);
-        }
-
-        $this->executor = $executor;
+        $this->leaseTimeout = $this->validateLeaseTimeout($seconds);
+        $this->leaseTimeoutConfigured = true;
         return $this;
     }
 
     /**
-     * Get the executor instance.
+     * @throws WorkflowException
      */
-    protected function executor(): WorkflowExecutorInterface
+    final protected function getLeaseTimeout(): ?int
     {
-        return $this->executor;
+        if (!$this->leaseTimeoutConfigured) {
+            return $this->validateLeaseTimeout($this->leaseTimeout());
+        }
+
+        return $this->leaseTimeout;
     }
 
-    /**
-     * Get the workflow ID.
-     */
-    public function getWorkflowId(): string
+    protected function leaseTimeout(): ?int
     {
-        return $this->workflowId;
+        return null;
     }
 
     /**
      * @throws WorkflowException
      */
-    protected function validate(): void
+    protected function validateLeaseTimeout(?int $seconds): ?int
     {
-        $startEvent = $this->resolveStartEvent();
-        $startEventClass = $startEvent::class;
-
-        if (!isset($this->eventNodeMap[$startEventClass])) {
-            throw new WorkflowException('No nodes found that handle '.$startEventClass);
+        if ($seconds !== null && $seconds < 1) {
+            throw new WorkflowException('Lease timeout must be a positive number of seconds or null.');
         }
+
+        return $seconds;
     }
 
     /**
+     * Fail the run once one of its paths, the main one or a parallel branch,
+     * goes past $steps node steps, so a routing cycle that never stops cannot
+     * run and persist forever. Replayed steps count, so suspending does not
+     * reset the budget. Null sets no limit; the default comes from maxSteps(),
+     * null for a plain Workflow.
+     *
      * @throws WorkflowException
      */
-    protected function validateInvokeMethodSignature(NodeInterface $node): void
+    public function setMaxSteps(?int $steps): static
     {
-        try {
-            $reflection = new ReflectionClass($node);
-
-            if (!$reflection->hasMethod('__invoke')) {
-                throw new WorkflowException('Failed to validate '.$node::class.': Missing __invoke method');
-            }
-
-            $method = $reflection->getMethod('__invoke');
-            $parameters = $method->getParameters();
-
-            if (count($parameters) !== 2) {
-                throw new WorkflowException('Failed to validate '.$node::class.': __invoke method must have exactly 2 parameters');
-            }
-
-            $firstParam = $parameters[0];
-            $secondParam = $parameters[1];
-
-            if (!$firstParam->hasType() || !$firstParam->getType() instanceof ReflectionType) {
-                throw new WorkflowException('Failed to validate '.$node::class.': First parameter of __invoke method must have a type declaration');
-            }
-
-            if (!$secondParam->hasType() || !$secondParam->getType() instanceof ReflectionType) {
-                throw new WorkflowException('Failed to validate '.$node::class.': Second parameter of __invoke method must have a type declaration');
-            }
-
-            $firstParamType = $firstParam->getType();
-            $secondParamType = $secondParam->getType();
-
-            if ($firstParamType instanceof ReflectionUnionType) {
-                throw new WorkflowException('Failed to validate '.$node::class.': Nodes can handle only one event type.');
-            }
-
-            if ($firstParamType instanceof ReflectionIntersectionType) {
-                $eventTypes = array_filter(
-                    $firstParamType->getTypes(),
-                    fn (ReflectionType $type): bool => $type instanceof ReflectionNamedType && is_a($type->getName(), Event::class, true)
-                );
-
-                if (count($eventTypes) !== 1) {
-                    throw new WorkflowException('Failed to validate '.$node::class.': Intersection type must contain exactly one type that implements ' . Event::class);
-                }
-            }
-
-            if (!($firstParamType instanceof ReflectionNamedType) || !is_a($firstParamType->getName(), Event::class, true)) {
-                throw new WorkflowException('Failed to validate '.$node::class.': First parameter of __invoke method must be a type that implements ' . Event::class);
-            }
-
-            if (!($secondParamType instanceof ReflectionNamedType) || !is_a($secondParamType->getName(), WorkflowState::class, true)) {
-                throw new WorkflowException('Failed to validate '.$node::class.': Second parameter of __invoke method must be ' . WorkflowState::class);
-            }
-
-            $returnType = $method->getReturnType();
-
-            if ($returnType instanceof ReflectionNamedType) {
-                // Handle single return types
-                if (!is_a($returnType->getName(), Event::class, true) && !is_a($returnType->getName(), Generator::class, true)) {
-                    throw new WorkflowException('Failed to validate '.$node::class.': __invoke method must return a type that implements ' . Event::class);
-                }
-            } elseif ($returnType instanceof ReflectionUnionType) {
-                // Handle union return type - all types must implement Event interface or be a Generator
-                foreach ($returnType->getTypes() as $type) {
-                    if (
-                        !($type instanceof ReflectionNamedType) ||
-                        (!is_a($type->getName(), Event::class, true) && !is_a($type->getName(), Generator::class, true))
-                    ) {
-                        throw new WorkflowException('Failed to validate '.$node::class.': All return types in union must implement ' . Event::class);
-                    }
-                }
-            } else {
-                throw new WorkflowException('Failed to validate '.$node::class.': __invoke method must return a type that implements ' . Event::class);
-            }
-
-        } catch (ReflectionException $e) {
-            throw new WorkflowException('Failed to validate '.$node::class.': ' . $e->getMessage(), $e->getCode(), $e);
-        }
-    }
-
-    /**
-     * @deprecated Use getWorkflowId() instead.
-     */
-    public function getResumeToken(): string
-    {
-        return $this->workflowId;
-    }
-
-    /**
-     * @throws WorkflowException
-     */
-    public function export(): string
-    {
-        if ($this->eventNodeMap === []) {
-            $this->bootstrap();
-        }
-
-        return $this->exporter->export($this->eventNodeMap);
-    }
-
-    public function setExporter(ExporterInterface $exporter): Workflow
-    {
-        $this->exporter = $exporter;
+        $this->maxSteps = $this->validateMaxSteps($steps);
+        $this->maxStepsConfigured = true;
         return $this;
+    }
+
+    /**
+     * @throws WorkflowException
+     */
+    final protected function getMaxSteps(): ?int
+    {
+        if (!$this->maxStepsConfigured) {
+            return $this->validateMaxSteps($this->maxSteps());
+        }
+
+        return $this->maxSteps;
+    }
+
+    protected function maxSteps(): ?int
+    {
+        return null;
+    }
+
+    /**
+     * @throws WorkflowException
+     */
+    protected function validateMaxSteps(?int $steps): ?int
+    {
+        if ($steps !== null && $steps < 1) {
+            throw new WorkflowException('Max steps must be a positive number of steps or null.');
+        }
+
+        return $steps;
+    }
+
+    /**
+     * Opt into replayable completion for a platform-managed invocation. The
+     * default remains immediate cleanup for manually driven workflows.
+     */
+    public function retainCompletionUntilAcknowledged(bool $retain = true): static
+    {
+        $this->retainCompletion = $retain;
+        return $this;
+    }
+
+    final protected function shouldRetainCompletionUntilAcknowledged(): bool
+    {
+        return $this->retainCompletion;
+    }
+
+    /**
+     * Execute one request eagerly, including delivery to a configured channel.
+     *
+     * @return TState
+     * @throws WorkflowException
+     */
+    public function run(?ExecutionRequest $request = null): WorkflowState
+    {
+        return $this->consume($this->events($request));
+    }
+
+    /**
+     * @phpstan-impure Every call reads the run as persistence holds it now.
+     * @throws WorkflowException
+     */
+    public function inspect(): ?WorkflowRunSnapshot
+    {
+        return $this->getEngine()->inspect($this->requireWorkflowId());
+    }
+
+    /**
+     * Prepare a fenced continuation, optionally translating an external payload.
+     *
+     * @param array<array-key, mixed> $payload
+     * @return PendingExecution<TState>
+     * @throws InputTranslationException
+     * @throws WorkflowException
+     */
+    public function submitInputs(array $payload, ?InputTranslatorInterface $translator = null): PendingExecution
+    {
+        $run = $this->inspect();
+
+        if (!$run instanceof WorkflowRunSnapshot) {
+            throw new InputTranslationException('There is no persisted run to continue.');
+        }
+
+        if (!$run->interrupt instanceof InterruptRequest) {
+            throw new InputTranslationException('There is no current interruption to answer.');
+        }
+
+        $response = $translator?->translate($payload, $run->interrupt) ?? $payload;
+
+        // Capture the run and attempt: another continuation may advance the run
+        // between submission and execution, making these inputs stale.
+        return new PendingExecution(
+            $this,
+            ExecutionRequest::resume($response, $run->runId, $run->executionAttempt),
+        );
+    }
+
+    /**
+     * Lazily execute one request. Iteration also delivers to a configured channel.
+     *
+     * @return Generator<int, object, mixed, TState>
+     * @throws WorkflowException
+     */
+    public function events(?ExecutionRequest $request = null): Generator
+    {
+        // Checked before the lazy part, so a streaming endpoint learns it before sending headers.
+        return $this->execute($this->requireWorkflowId(), $request);
+    }
+
+    /**
+     * @return Generator<int, object, mixed, TState>
+     * @throws WorkflowException
+     */
+    protected function execute(string $workflowId, ?ExecutionRequest $request): Generator
+    {
+        $request ??= ExecutionRequest::start($this->getStartEvent(), recoverFailed: true);
+
+        if ($request->starting && !$request->event() instanceof \NeuronAI\Workflow\Events\Event) {
+            $request = ExecutionRequest::start($this->getStartEvent(), $request->runId, $request->recoverFailed, $request->tag);
+        }
+
+        $maxSteps = $this->getMaxSteps();
+
+        $segment = $this->getEngine()->admit(
+            $workflowId,
+            $request,
+            $this->newState(),
+            $this->getLeaseTimeout(),
+            $this->shouldRetainCompletionUntilAcknowledged(),
+        );
+        if ($segment instanceof WorkflowState) {
+            return $segment;
+        }
+
+        // Resolved now, so a setter called while the segment runs applies to
+        // the next call; the graph and the output are built after admission.
+        return yield from $segment->run(
+            graph: $this->graph(...),
+            adapter: $this->resolveStreamAdapter(...),
+            channel: $this->resolveChannel(...),
+            branches: $this->getBranchRunner(),
+            dispatcher: $this->getEventDispatcher(),
+            source: $this,
+            maxSteps: $maxSteps,
+        );
+    }
+
+    /**
+     * The graph of one segment: fresh nodes and middleware, and the resources
+     * they share, checked against the run's start event and state.
+     *
+     * @throws WorkflowException
+     */
+    final protected function graph(Event $start, WorkflowState $state): Graph
+    {
+        return new Graph(
+            $start,
+            $state,
+            $this->resolveResources(),
+            array_merge($this->nodes(), array_map(static fn (NodeInterface|Closure $node): NodeInterface => $node instanceof Closure ? $node() : clone $node, $this->nodes)),
+            $this->getMiddleware(),
+            $this->getGlobalMiddleware(),
+        );
+    }
+
+    /** @return array<class-string<NodeInterface>, array<WorkflowMiddleware>> */
+    final protected function getMiddleware(): array
+    {
+        $configured = array_map($this->instantiateMiddleware(...), $this->nodeMiddleware);
+        foreach ($this->middleware() as $class => $list) {
+            $configured[$class] = array_merge(is_array($list) ? $list : [$list], $configured[$class] ?? []);
+        }
+        return $configured;
+    }
+
+    /** @return array<WorkflowMiddleware> */
+    final protected function getGlobalMiddleware(): array
+    {
+        return array_merge($this->globalMiddleware(), $this->instantiateMiddleware($this->globalMiddleware));
+    }
+
+    /** @param array<WorkflowMiddleware|Closure> $list
+     * @return array<WorkflowMiddleware> */
+    protected function instantiateMiddleware(array $list): array
+    {
+        return array_map(static fn (WorkflowMiddleware|Closure $item): WorkflowMiddleware => $item instanceof Closure ? $item() : clone $item, $list);
+    }
+
+    public function acknowledge(string $expectedRunId): void
+    {
+        $this->getEngine()->acknowledge($this->requireWorkflowId(), $expectedRunId);
+    }
+
+    public function abandon(?string $expectedRunId = null, ?int $expectedExecutionAttempt = null): bool
+    {
+        return $this->getEngine()->abandon($this->requireWorkflowId(), $expectedRunId, $expectedExecutionAttempt);
+    }
+
+    /**
+     * The framework never makes up an address: the workflow ID selects whose
+     * run is read and written, so executing without one is a programming error.
+     *
+     * @throws WorkflowException
+     */
+    protected function requireWorkflowId(): string
+    {
+        return $this->getWorkflowId() ?? throw new WorkflowException(
+            'This workflow has no workflow ID: bind one with setWorkflowId() first.'
+        );
+    }
+
+    /**
+     * The traversal body is lazy — it does not execute until iterated.
+     *
+     * @param Generator<int, object, mixed, TState> $generator
+     * @return TState
+     */
+    protected function consume(Generator $generator): WorkflowState
+    {
+        // empty foreach is more memory efficient than iterator_to_array()
+        foreach ($generator as $event) {
+        }
+
+        return $generator->getReturn();
     }
 }

@@ -4,31 +4,31 @@ declare(strict_types=1);
 
 namespace NeuronAI\Tools\Toolkits\Zep;
 
-use GuzzleHttp\RequestOptions;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 
-use function json_decode;
-
 /**
- * @method static static make(string $key, string $user_id)
+ * @method static static make(string $key, string $user_id, ?HttpClientInterface $httpClient = null)
+ * @deprecated The Zep toolkit will be removed in the next major version.
  */
 class ZepAddToGraphTool extends Tool
 {
     use HandleZepClient;
 
+    protected string $name = 'add_knowledge_graph_data';
+
+    protected ?string $description = 'Add relevant information to the knowledge graph for long term memory.
+	Look for facts, news or any relevant information in the conversation that you think is important to store for future use.';
+
     public function __construct(
         protected string $key,
-        protected string $user_id
+        protected string $user_id,
+        ?HttpClientInterface $httpClient = null,
     ) {
-        parent::__construct(
-            'add_knowledge_graph_data',
-            'Add relevant information to the knowledge graph for long term memory.
-Look for facts, news or any relevant information in the conversation that you think is important to store for future use.'
-        );
-
-        $this->createUser();
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
     }
 
     protected function properties(): array
@@ -37,13 +37,13 @@ Look for facts, news or any relevant information in the conversation that you th
             new ToolProperty(
                 'data',
                 PropertyType::STRING,
-                'The search term to find relevant facts or nodes',
+                'The information to store in the knowledge graph',
                 true
             ),
             new ToolProperty(
                 'type',
                 PropertyType::STRING,
-                'The scope of the search to perform. Can be "facts" or "nodes"',
+                'The format of the data. Can be "text", "json" or "message"',
                 true,
                 ['text', 'json', 'message']
             ),
@@ -52,15 +52,15 @@ Look for facts, news or any relevant information in the conversation that you th
 
     public function __invoke(string $data, string $type): string
     {
-        $response = $this->getClient()->post('graph', [
-            RequestOptions::JSON => [
-                'user_id' => $this->user_id,
-                'data' => $data,
-                'type' => $type,
-            ],
+        $this->createUser();
+
+        $response = $this->post('graph', [
+            'user_id' => $this->user_id,
+            'data' => $data,
+            'type' => $type,
         ]);
 
-        $response = json_decode((string) $response->getBody(), true);
+        $response = $response->json();
 
         return $response['content'];
     }

@@ -16,13 +16,9 @@ use function json_encode;
 
 class IsWeekendTool extends Tool
 {
-    public function __construct()
-    {
-        parent::__construct(
-            name: 'is_weekend',
-            description: 'Check if a given date falls on a weekend (Saturday or Sunday)',
-        );
-    }
+    protected string $name = 'is_weekend';
+
+    protected ?string $description = 'Check if a given date falls on a weekend (Saturday or Sunday)';
 
     protected function properties(): array
     {
@@ -48,14 +44,11 @@ class IsWeekendTool extends Tool
         try {
             $tz = new DateTimeZone($timezone);
 
-            if (is_numeric($date)) {
-                // Handle timestamp
-                $dateTime = (new DateTime())->setTimestamp((int) $date)->setTimezone($tz);
-            } else {
-                // Handle date string - always parse as UTC first, then convert to the target timezone
-                $dateTime = new DateTime($date, new DateTimeZone('UTC'));
-                $dateTime->setTimezone($tz);
-            }
+            // A date string without an offset is read in the requested zone; one with an offset is converted to it
+            $dateTime = is_numeric($date)
+                ? (new DateTime())->setTimestamp((int) $date)
+                : new DateTime($date, $tz);
+            $dateTime->setTimezone($tz);
 
             $dayOfWeek = (int) $dateTime->format('N');
             $isWeekend = $dayOfWeek >= 6;

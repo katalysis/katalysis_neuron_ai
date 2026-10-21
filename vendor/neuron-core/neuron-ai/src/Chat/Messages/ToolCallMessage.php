@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace NeuronAI\Chat\Messages;
 
 use NeuronAI\Chat\Messages\ContentBlocks\ContentBlockInterface;
-use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolCall;
 use Stringable;
 
 use function array_map;
@@ -13,12 +13,12 @@ use function array_merge;
 use function json_encode;
 
 /**
- * @method static static make(string|ContentBlockInterface|array<int, ContentBlockInterface>|null $content, ToolInterface[] $tools)
+ * @method static static make(string|ContentBlockInterface|array<int, ContentBlockInterface>|null $content, ToolCall[] $tools)
  */
 class ToolCallMessage extends AssistantMessage implements Stringable
 {
     /**
-     * @param ToolInterface[] $tools
+     * @param ToolCall[] $tools
      */
     public function __construct(
         string|ContentBlockInterface|array|null $content = null,
@@ -28,9 +28,12 @@ class ToolCallMessage extends AssistantMessage implements Stringable
     }
 
     /**
-     * @return ToolInterface[]
+     * The calls carried by this message — pure conversation data.
+     * Execution capability lives on the agent's live tool registry, never here.
+     *
+     * @return ToolCall[]
      */
-    public function getTools(): array
+    public function getToolCalls(): array
     {
         return $this->tools;
     }
@@ -41,13 +44,13 @@ class ToolCallMessage extends AssistantMessage implements Stringable
             parent::jsonSerialize(),
             [
                 'type' => 'tool_call',
-                'tools' => array_map(fn (ToolInterface $tool): array => $tool->jsonSerialize(), $this->tools),
+                'tools' => array_map(fn (ToolCall $tool): array => $tool->jsonSerialize(), $this->tools),
             ]
         );
     }
 
     public function __toString(): string
     {
-        return (string) json_encode($this->getTools());
+        return (string) json_encode($this->getToolCalls());
     }
 }

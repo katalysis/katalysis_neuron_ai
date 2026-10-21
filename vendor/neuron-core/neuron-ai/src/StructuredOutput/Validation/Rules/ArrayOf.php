@@ -68,7 +68,7 @@ class ArrayOf extends AbstractValidationRule
         }
 
         if (!is_array($value)) {
-            $violations[] = $this->buildMessage($name, $this->message);
+            $violations[] = $this->buildMessage($name, $this->message, ['types' => implode(', ', $this->types)]);
             return;
         }
 
@@ -85,10 +85,11 @@ class ArrayOf extends AbstractValidationRule
                 if (is_object($item) && in_array($item::class, $this->types) && Validator::validate($item) === []) {
                     continue 2;
                 }
-
-                $error = true;
-                break;
             }
+
+            // No listed type matched this item
+            $error = true;
+            break;
         }
 
         if ($error) {

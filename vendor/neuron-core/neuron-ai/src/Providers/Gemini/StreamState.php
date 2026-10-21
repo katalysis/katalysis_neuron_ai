@@ -11,34 +11,41 @@ use NeuronAI\Providers\BasicStreamState;
 
 class StreamState extends BasicStreamState
 {
-    public function addContentBlock(string $type, ContentBlockInterface $block): void
+    /**
+     * A complete block such as an image: each one is kept, in arrival order.
+     */
+    public function addContentBlock(ContentBlockInterface $block): void
     {
-        $this->blocks[$type] = $block;
+        $this->blocks[] = $block;
     }
 
     public function updateContentBlock(string $type, string $content): void
     {
-        if (!isset($this->blocks[$type])) {
-            $this->blocks[$type] = $type === 'text' ? new TextContent('') : new ReasoningContent('');
-        }
+        $this->blocks[$type] ??= $type === 'text' ? new TextContent('') : new ReasoningContent('');
 
         $this->blocks[$type]->accumulateContent($content);
     }
 
     /**
      * Recreate the tool_calls format from streaming Gemini API.
+     *
+     * Function calls arrive as complete parts but may be split across stream
+     * chunks (each at part index 0), so calls are accumulated by appending —
+     * keying by the per-chunk part index would overwrite earlier calls.
      */
     public function composeToolCalls(array $event): void
     {
         $parts = $event['candidates'][0]['content']['parts'] ?? [];
 
-        foreach ($parts as $index => $part) {
+        foreach ($parts as $part) {
             if (isset($part['functionCall'])) {
-                $this->toolCalls[$index]['functionCall'] = $part['functionCall'];
+                $call = ['functionCall' => $part['functionCall']];
 
-                if ($index === 0 && $signature = $part['thoughtSignature'] ?? null) {
-                    $this->toolCalls[$index]['thoughtSignature'] = $signature;
+                if ($this->toolCalls === [] && $signature = $part['thoughtSignature'] ?? null) {
+                    $call['thoughtSignature'] = $signature;
                 }
+
+                $this->toolCalls[] = $call;
             }
         }
     }

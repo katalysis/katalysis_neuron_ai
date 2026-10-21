@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NeuronAI\Testing;
 
+use NeuronAI\MCP\McpException;
 use NeuronAI\MCP\McpTransportInterface;
 use PHPUnit\Framework\Assert;
 
@@ -13,7 +14,7 @@ use function count;
 class FakeMcpTransport implements McpTransportInterface
 {
     /** @var array<string, mixed>[] */
-    protected array $responseQueue = [];
+    protected array $responseQueue;
 
     /** @var array<string, mixed>[] */
     protected array $sent = [];
@@ -23,9 +24,7 @@ class FakeMcpTransport implements McpTransportInterface
 
     protected bool $connected = false;
 
-    protected int $receiveCallCount = 0;
-
-    protected int $sendCallCount = 0;
+    protected ?string $protocolVersion = null;
 
     /**
      * @param  array<string, mixed>  ...$responses  Predetermined responses to return sequentially from receive()
@@ -40,41 +39,24 @@ class FakeMcpTransport implements McpTransportInterface
         $this->connected = true;
     }
 
-    public function __serialize(): array
-    {
-        return [
-            'queue' => [
-                ...$this->sent,
-                ...$this->responseQueue,
-            ],
-            'connected' => $this->connected,
-        ];
-    }
-
-    public function __unserialize(array $data): void
-    {
-        $this->responseQueue = $data['queue'];
-        $this->connected = $data['connected'];
-    }
-
     /**
      * @param  array<string, mixed>  $data
      */
     public function send(array $data): void
     {
         $this->sent[] = $data;
-        $this->sendCallCount++;
     }
 
     /**
      * @return array<string, mixed>
+     * @throws McpException
      */
     public function receive(): array
     {
-        $this->receiveCallCount++;
-
         if ($this->responseQueue === []) {
-            Assert::fail('FakeMcpTransport response queue is empty. Add more responses with addResponses() or pass them to the constructor.');
+            throw new McpException(
+                'FakeMcpTransport response queue is empty. Add more responses with addResponses() or pass them to the constructor.'
+            );
         }
 
         $response = array_shift($this->responseQueue);
@@ -84,14 +66,17 @@ class FakeMcpTransport implements McpTransportInterface
         return $response;
     }
 
+    public function setProtocolVersion(string $version): void
+    {
+        $this->protocolVersion = $version;
+    }
+
     public function disconnect(): void
     {
         $this->connected = false;
     }
 
     /**
-     * Add more responses to the queue.
-     *
      * @param  array<string, mixed>  ...$responses
      */
     public function addResponses(array ...$responses): self
@@ -104,8 +89,6 @@ class FakeMcpTransport implements McpTransportInterface
     }
 
     /**
-     * Get all sent data.
-     *
      * @return array<string, mixed>[]
      */
     public function getSent(): array
@@ -114,8 +97,6 @@ class FakeMcpTransport implements McpTransportInterface
     }
 
     /**
-     * Get all received data.
-     *
      * @return array<string, mixed>[]
      */
     public function getReceived(): array
@@ -126,16 +107,6 @@ class FakeMcpTransport implements McpTransportInterface
     public function isConnected(): bool
     {
         return $this->connected;
-    }
-
-    public function getSendCallCount(): int
-    {
-        return $this->sendCallCount;
-    }
-
-    public function getReceiveCallCount(): int
-    {
-        return $this->receiveCallCount;
     }
 
     // ----------------------------------------------------------------
@@ -150,6 +121,15 @@ class FakeMcpTransport implements McpTransportInterface
     public function assertDisconnected(): void
     {
         Assert::assertFalse($this->connected, 'Transport should be disconnected.');
+    }
+
+    public function assertProtocolVersion(string $expected): void
+    {
+        Assert::assertSame(
+            $expected,
+            $this->protocolVersion,
+            "Expected negotiated protocol version {$expected}, got ".($this->protocolVersion ?? 'none').'.'
+        );
     }
 
     public function assertSendCount(int $expected): void
@@ -187,7 +167,7 @@ class FakeMcpTransport implements McpTransportInterface
     }
 
     /**
-     * Assert that at least one sent request matches the given callback.
+     * Assert at least one sent request matches the callback.
      *
      * @param  callable(array<string, mixed>): bool  $callback
      */
@@ -205,9 +185,6 @@ class FakeMcpTransport implements McpTransportInterface
         Assert::assertTrue($matched, 'No sent data matched the given assertion callback.');
     }
 
-    /**
-     * Assert that a specific method was sent.
-     */
     public function assertMethodSent(string $method, int $expectedCount = 1): void
     {
         $count = 0;
@@ -225,46 +202,17 @@ class FakeMcpTransport implements McpTransportInterface
         );
     }
 
-    /**
-     * Assert that a specific method was received.
-     */
-    public function assertMethodReceived(string $method, int $expectedCount = 1): void
-    {
-        $count = 0;
-
-        foreach ($this->received as $data) {
-            if (($data['result']['method'] ?? null) === $method || ($data['method'] ?? null) === $method) {
-                $count++;
-            }
-        }
-
-        Assert::assertSame(
-            $expectedCount,
-            $count,
-            "Expected {$expectedCount} receives with method '{$method}', got {$count}."
-        );
-    }
-
-    /**
-     * Assert that the initialize sequence was called correctly.
-     */
     public function assertInitialized(): void
     {
         $this->assertMethodSent('initialize', 1);
         $this->assertMethodSent('notifications/initialized', 1);
     }
 
-    /**
-     * Assert that tools/list was called.
-     */
     public function assertToolsListCalled(int $expectedCount = 1): void
     {
         $this->assertMethodSent('tools/list', $expectedCount);
     }
 
-    /**
-     * Assert that a specific tool was called.
-     */
     public function assertToolCalled(string $toolName, int $expectedCount = 1): void
     {
         $count = 0;

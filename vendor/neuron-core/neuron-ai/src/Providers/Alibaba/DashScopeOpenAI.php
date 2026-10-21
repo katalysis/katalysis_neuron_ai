@@ -26,7 +26,7 @@ class DashScopeOpenAI extends OpenAI
 
     protected function enrichMessage(AssistantMessage $message, ?array $response = null): AssistantMessage
     {
-        // First apply parent enrichMessage (handles streaming metadata)
+        // First, apply parent enrichMessage
         $message = parent::enrichMessage($message);
 
         // For chat context: extract reasoning_content from API response
@@ -46,7 +46,9 @@ class DashScopeOpenAI extends OpenAI
                 -1,
                 new ReasoningContent($reasoningContent)
             );
-            yield new ReasoningChunk($this->streamState->messageId(), $reasoningContent);
+            if ($reasoningContent !== '') {
+                yield new ReasoningChunk($this->streamState->messageId(), $reasoningContent);
+            }
         } else {
             yield from parent::processContentDelta($choice);
         }

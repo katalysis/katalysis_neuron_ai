@@ -30,4 +30,5 @@ interface ToolkitInterface
      */
     public function with(string $class, callable $callback): ToolkitInterface;
 
+    public function add(ToolInterface ...$tools): ToolkitInterface;
 }

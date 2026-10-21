@@ -5,37 +5,49 @@ declare(strict_types=1);
 namespace NeuronAI\RAG\VectorStore;
 
 use Http\Client\Exception;
+use JsonException;
+use NeuronAI\Exceptions\VectorStoreException;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentFieldType;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
 use NeuronAI\RAG\VectorSimilarity;
+use NeuronAI\RAG\VectorStore\Compilers\TypesenseFilterCompiler;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 use Typesense\Client;
 use Typesense\Exceptions\ObjectNotFound;
 use Typesense\Exceptions\TypesenseClientError;
-use JsonException;
 
+use function array_chunk;
 use function array_key_exists;
 use function array_map;
 use function count;
-use function gettype;
+use function explode;
 use function implode;
-use function in_array;
-use function intval;
+use function json_decode;
 use function json_encode;
 use function max;
-use function array_chunk;
+
+use const JSON_THROW_ON_ERROR;
 
 class TypesenseVectorStore implements VectorStoreInterface
 {
+    use HasDocumentSchema;
+
     public function __construct(
         protected Client $client,
         protected string $collection,
         protected int $vectorDimension,
         protected string $topK = '4',
+        ?DocumentSchema $schema = null,
     ) {
+        $this->initializeSchema($schema);
     }
 
     /**
      * @throws Exception
      * @throws TypesenseClientError
+     * @throws \Exception
      */
     public function checkIndexStatus(Document $document): void
     {
@@ -64,14 +76,29 @@ class TypesenseVectorStore implements VectorStoreInterface
                     'type' => 'float[]',
                     'num_dim' => $this->vectorDimension,
                 ],
+                [
+                    'name' => MetadataMapper::PAYLOAD_FIELD,
+                    'type' => 'string',
+                    'optional' => true,
+                    'index' => false,
+                ],
             ];
 
-            // Map custom fields
-            foreach ($document->metadata as $name => $value) {
+            foreach ($this->schema->fields() as $field) {
                 $fields[] = [
-                    'name' => $name,
-                    'type' => gettype($value),
-                    'facet' => true,
+                    'name' => $field->getName(),
+                    'type' => match ($field->getType()) {
+                        DocumentFieldType::String => 'string',
+                        DocumentFieldType::Integer => 'int64',
+                        DocumentFieldType::Float => 'float',
+                        DocumentFieldType::Boolean => 'bool',
+                        DocumentFieldType::StringArray => 'string[]',
+                        DocumentFieldType::IntegerArray => 'int64[]',
+                        DocumentFieldType::FloatArray => 'float[]',
+                        DocumentFieldType::BooleanArray => 'bool[]',
+                    },
+                    'optional' => !$field->isRequired(),
+                    'facet' => $field->isFilterable(),
                 ];
             }
 
@@ -85,55 +112,35 @@ class TypesenseVectorStore implements VectorStoreInterface
     /**
      * @throws Exception
      * @throws TypesenseClientError
+     * @throws VectorStoreException
      */
     public function addDocument(Document $document): VectorStoreInterface
     {
-        if ($document->getEmbedding() === []) {
-            throw new \Exception('document embedding must be set before adding a document');
-        }
-
-        $this->checkIndexStatus($document);
-
-        $this->client->collections[$this->collection]->documents->create([
-            'id' => (string) $document->getId(), // Unique ID is required
-            'content' => $document->getContent(),
-            'embedding' => $document->getEmbedding(),
-            'sourceType' => $document->getSourceType(),
-            'sourceName' => $document->getSourceName(),
-            ...$document->metadata,
-        ]);
-
-        return $this;
+        return $this->addDocuments([$document]);
     }
 
     /**
-     * @deprecated Use deleteBy() instead.
+     * @throws Exception
+     * @throws TypesenseClientError
+     * @throws DocumentSchemaException
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        return $this->deleteBy($sourceType, $sourceName);
-    }
-
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
-    {
-        $filter = $sourceName !== null
-            ? "sourceType:={$sourceType} && sourceName:={$sourceName}"
-            : "sourceType:={$sourceType}";
-
+        $this->validateFilters($filters);
         $this->client->collections[$this->collection]->documents->delete([
-            "filter_by" => $filter,
+            "filter_by" => (new TypesenseFilterCompiler())->compile($filters),
         ]);
 
         return $this;
     }
 
     /**
-     * Bulk save.
+     * Bulk save. A document whose ID is already stored replaces it.
      *
      * @param Document[] $documents
      * @throws Exception
-     * @throws JsonException
      * @throws TypesenseClientError
+     * @throws VectorStoreException
      */
     public function addDocuments(array $documents): VectorStoreInterface
     {
@@ -141,40 +148,94 @@ class TypesenseVectorStore implements VectorStoreInterface
             return $this;
         }
 
+        $this->validateDocuments($documents);
+
+        // Every line is encoded before any request: a document that cannot be stored refuses the whole batch
+        $lines = array_map($this->encodeLine(...), $documents);
+
         $this->checkIndexStatus($documents[0]);
 
-        $lines = [];
-        foreach ($documents as $document) {
-            $lines[] = json_encode([
-                'id' => (string) $document->getId(), // Unique ID is required
-                'embedding' => $document->getEmbedding(),
-                'content' => $document->getContent(),
-                'sourceType' => $document->getSourceType(),
-                'sourceName' => $document->getSourceName(),
-                ...$document->metadata,
-            ]);
-        }
+        $documentChunks = array_chunk($documents, 100);
 
-        $chunks = array_chunk($lines, 100);
-
-        foreach ($chunks as $chunk) {
-            $ndjson = implode("\n", $chunk);
-            $this->client->collections[$this->collection]->documents->import($ndjson);
+        foreach (array_chunk($lines, 100) as $index => $chunk) {
+            $answer = $this->client->collections[$this->collection]->documents->import(
+                implode("\n", $chunk),
+                ['action' => 'upsert']
+            );
+            $this->assertImported($documentChunks[$index], (string) $answer);
         }
 
         return $this;
     }
 
-    public function similaritySearch(array $embedding): array
+    /**
+     * @throws VectorStoreException
+     */
+    protected function encodeLine(Document $document): string
     {
+        try {
+            return json_encode([
+                'id' => (string) $document->getId(), // Unique ID is required
+                'embedding' => $document->getEmbedding(),
+                'content' => $document->getContent(),
+                'sourceType' => $document->getSourceType(),
+                'sourceName' => $document->getSourceName(),
+                ...MetadataMapper::toStorage($document, $this->schema),
+            ], JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new VectorStoreException("Document {$document->getId()} is not JSON serializable: {$exception->getMessage()}", $exception->getCode(), $exception);
+        }
+    }
+
+    /**
+     * Typesense answers an import with HTTP 200 and one result line per document, in order.
+     *
+     * @param Document[] $documents
+     * @throws VectorStoreException
+     */
+    protected function assertImported(array $documents, string $answer): void
+    {
+        $rejections = [];
+        foreach (explode("\n", $answer) as $position => $line) {
+            $result = json_decode($line, true);
+            if (($result['success'] ?? false) !== true) {
+                $rejections[] = "[{$documents[$position]->getId()}] ".($result['error'] ?? $line);
+            }
+        }
+
+        if ($rejections !== []) {
+            throw new VectorStoreException(
+                'Typesense rejected '.count($rejections).' of '.count($documents).' documents: '.implode('; ', $rejections)
+            );
+        }
+    }
+
+    /**
+     * @throws Exception
+     * @throws TypesenseClientError
+     * @throws VectorStoreException
+     * @throws DocumentSchemaException
+     */
+    public function search(SearchRequest $request): array
+    {
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+        }
+
+        $topK = $request->topK ?? (int) $this->topK;
+
         $params = [
             'collection' => $this->collection,
             'q' => '*',
-            'vector_query' => 'embedding:(' . json_encode($embedding) . ')',
+            'vector_query' => 'embedding:(' . json_encode($request->embedding) . ')',
             'exclude_fields' => 'embedding',
-            'per_page' => $this->topK,
-            'num_candidates' => max(50, intval($this->topK) * 4),
+            'per_page' => $topK,
+            'num_candidates' => max(50, $topK * 4),
         ];
+
+        if ($request->filters instanceof FilterExpression) {
+            $params['filter_by'] = (new TypesenseFilterCompiler())->compile($request->filters);
+        }
 
         $searchRequests = ['searches' => [$params]];
 
@@ -182,21 +243,21 @@ class TypesenseVectorStore implements VectorStoreInterface
         return array_map(function (array $hit): Document {
             $item = $hit['document'];
             $document = new Document($item['content']);
-            //$document->embedding = $item['embedding']; // avoid carrying large data
-            $document->sourceType = $item['sourceType'];
-            $document->sourceName = $item['sourceName'];
-            $document->score = VectorSimilarity::similarityFromDistance($hit['vector_distance']);
+            $document->setId($item['id'])
+                ->setSourceType($item['sourceType'])
+                ->setSourceName($item['sourceName'])
+                ->setScore(VectorSimilarity::similarityFromDistance($hit['vector_distance']));
 
-            foreach ($item as $name => $value) {
-                if (!in_array($name, ['content', 'sourceType', 'sourceName', 'score', 'embedding', 'id', 'vector_distance'])) {
-                    $document->addMetadata($name, $value);
-                }
-            }
+            MetadataMapper::hydrate($document, $item);
 
             return $document;
         }, $response['results'][0]['hits']);
     }
 
+    /**
+     * @throws Exception
+     * @throws TypesenseClientError
+     */
     private function checkVectorDimension(int $dimension): void
     {
         $schema = $this->client->collections[$this->collection]->retrieve();

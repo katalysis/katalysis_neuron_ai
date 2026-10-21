@@ -9,6 +9,7 @@ use NeuronAI\StaticConstructor;
 use NeuronAI\Workflow\Events\Event;
 use NeuronAI\Workflow\Middleware\WorkflowMiddleware;
 use NeuronAI\Workflow\NodeInterface;
+use NeuronAI\Workflow\WorkflowResources;
 use NeuronAI\Workflow\WorkflowState;
 use PHPUnit\Framework\Assert;
 use Throwable;
@@ -32,18 +33,12 @@ class FakeMiddleware implements WorkflowMiddleware
 
     protected ?Closure $afterHandler = null;
 
-    /**
-     * Configure an exception to throw when before() is called.
-     */
     public function setThrowOnBefore(Throwable $exception): self
     {
         $this->throwOnBefore = $exception;
         return $this;
     }
 
-    /**
-     * Configure an exception to throw when after() is called.
-     */
     public function setThrowOnAfter(Throwable $exception): self
     {
         $this->throwOnAfter = $exception;
@@ -51,9 +46,7 @@ class FakeMiddleware implements WorkflowMiddleware
     }
 
     /**
-     * Set a custom handler for before().
-     *
-     * @param Closure(NodeInterface, Event, WorkflowState): void $handler
+     * @param Closure(NodeInterface, Event, WorkflowState, WorkflowResources): void $handler
      */
     public function setBeforeHandler(Closure $handler): self
     {
@@ -62,9 +55,7 @@ class FakeMiddleware implements WorkflowMiddleware
     }
 
     /**
-     * Set a custom handler for after().
-     *
-     * @param Closure(NodeInterface, Event, WorkflowState): void $handler
+     * @param Closure(NodeInterface, Event, WorkflowState, WorkflowResources): void $handler
      */
     public function setAfterHandler(Closure $handler): self
     {
@@ -72,12 +63,12 @@ class FakeMiddleware implements WorkflowMiddleware
         return $this;
     }
 
-    public function before(NodeInterface $node, Event $event, WorkflowState $state): void
+    public function before(NodeInterface $node, Event $event, WorkflowState $state, WorkflowResources $resources): void
     {
         $this->recorded[] = new MiddlewareRecord('before', $node, $event, $state);
 
         if ($this->beforeHandler instanceof Closure) {
-            ($this->beforeHandler)($node, $event, $state);
+            ($this->beforeHandler)($node, $event, $state, $resources);
         }
 
         if ($this->throwOnBefore instanceof Throwable) {
@@ -85,12 +76,12 @@ class FakeMiddleware implements WorkflowMiddleware
         }
     }
 
-    public function after(NodeInterface $node, Event $result, WorkflowState $state): void
+    public function after(NodeInterface $node, Event $result, WorkflowState $state, WorkflowResources $resources): void
     {
         $this->recorded[] = new MiddlewareRecord('after', $node, $result, $state);
 
         if ($this->afterHandler instanceof Closure) {
-            ($this->afterHandler)($node, $result, $state);
+            ($this->afterHandler)($node, $result, $state, $resources);
         }
 
         if ($this->throwOnAfter instanceof Throwable) {
@@ -187,8 +178,6 @@ class FakeMiddleware implements WorkflowMiddleware
     }
 
     /**
-     * Assert before() was called at least once for a specific node class.
-     *
      * @param class-string<NodeInterface> $nodeClass
      */
     public function assertBeforeCalledForNode(string $nodeClass): void
@@ -206,8 +195,6 @@ class FakeMiddleware implements WorkflowMiddleware
     }
 
     /**
-     * Assert after() was called at least once for a specific node class.
-     *
      * @param class-string<NodeInterface> $nodeClass
      */
     public function assertAfterCalledForNode(string $nodeClass): void

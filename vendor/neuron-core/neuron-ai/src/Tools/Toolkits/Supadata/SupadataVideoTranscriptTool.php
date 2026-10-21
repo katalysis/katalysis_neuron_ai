@@ -4,25 +4,27 @@ declare(strict_types=1);
 
 namespace NeuronAI\Tools\Toolkits\Supadata;
 
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 
-use function json_decode;
-
 /**
- * @method static static make(string $key)
+ * @method static static make(string $key, ?HttpClientInterface $httpClient = null)
+ * @deprecated The Supadata toolkit will be removed in the next major version.
  */
 class SupadataVideoTranscriptTool extends Tool
 {
     use HttpClient;
 
-    public function __construct(protected string $key)
+    protected string $name = 'get_transcription';
+
+    protected ?string $description = 'Retrieve the transcription of a youtube video.';
+
+    public function __construct(protected string $key, ?HttpClientInterface $httpClient = null)
     {
-        parent::__construct(
-            'get_transcription',
-            'Retrieve the transcription of a youtube video.',
-        );
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
     }
 
     protected function properties(): array
@@ -39,10 +41,9 @@ class SupadataVideoTranscriptTool extends Tool
 
     public function __invoke(string $video_url): string
     {
-        $response = $this->getClient($this->key)
-            ->get('youtube/transcript?url=' . $video_url.'&text=true');
+        $response = $this->get('youtube/transcript', ['url' => $video_url, 'text' => 'true']);
 
-        $response = json_decode((string) $response->getBody(), true);
+        $response = $response->json();
 
         return $response['content'];
     }

@@ -6,14 +6,6 @@ namespace NeuronAI\Evaluation;
 
 use NeuronAI\Evaluation\Contracts\AssertionInterface;
 
-use function debug_backtrace;
-use function array_sum;
-use function count;
-use function max;
-use function min;
-
-use const DEBUG_BACKTRACE_IGNORE_ARGS;
-
 class RuleExecutor
 {
     protected int $passedCount = 0;
@@ -23,61 +15,49 @@ class RuleExecutor
     /** @var array<AssertionFailure> */
     protected array $failures = [];
 
-    /** @var array<float> */
+    /** @var array<Score> */
     protected array $scores = [];
 
     /**
-     * Execute an evaluation rule and track the result
+     * @param string $evaluatorClass The evaluator failures are attributed to.
      */
-    public function execute(AssertionInterface $rule, mixed $actual): bool
+    public function __construct(protected readonly string $evaluatorClass)
+    {
+    }
+
+    /**
+     * Execute an evaluation rule and track the result
+     *
+     * @param int $line Where the evaluator asserted, reported with a failure.
+     */
+    public function execute(AssertionInterface $rule, mixed $actual, int $line, ?string $label = null): bool
     {
         $result = $rule->evaluate($actual);
 
         // Track the score regardless of pass/fail
-        $this->scores[] = $result->score;
+        $this->scores[] = new Score($label ?? $rule->getName(), $result->score, $result->passed);
 
         if ($result->passed) {
             $this->passedCount++;
         } else {
             $this->failedCount++;
-            $this->recordFailure($rule, $result);
+            $this->recordFailure($rule, $result, $line);
         }
 
         return $result->passed;
     }
 
     /**
-     * Get the number of passed assertions
+     * The accumulated outcomes as an immutable value object.
      */
-    public function getPassedCount(): int
+    public function snapshot(): AssertionOutcomes
     {
-        return $this->passedCount;
-    }
-
-    /**
-     * Get the number of failed assertions
-     */
-    public function getFailedCount(): int
-    {
-        return $this->failedCount;
-    }
-
-    /**
-     * Get the total number of assertions
-     */
-    public function getTotalCount(): int
-    {
-        return $this->passedCount + $this->failedCount;
-    }
-
-    /**
-     * Get all assertion failures
-     *
-     * @return array<AssertionFailure>
-     */
-    public function getFailures(): array
-    {
-        return $this->failures;
+        return new AssertionOutcomes(
+            $this->passedCount,
+            $this->failedCount,
+            $this->failures,
+            $this->scores,
+        );
     }
 
     /**
@@ -91,64 +71,13 @@ class RuleExecutor
         $this->scores = [];
     }
 
-    /**
-     * Get all assertion scores
-     *
-     * @return array<float>
-     */
-    public function getScores(): array
+    protected function recordFailure(AssertionInterface $rule, AssertionResult $result, int $line): void
     {
-        return $this->scores;
-    }
-
-    /**
-     * Get the average assertion score
-     */
-    public function getAverageScore(): float
-    {
-        if ($this->scores === []) {
-            return 0.0;
-        }
-        return array_sum($this->scores) / count($this->scores);
-    }
-
-    /**
-     * Get the minimum assertion score
-     */
-    public function getMinScore(): float
-    {
-        if ($this->scores === []) {
-            return 0.0;
-        }
-        return min($this->scores);
-    }
-
-    /**
-     * Get the maximum assertion score
-     */
-    public function getMaxScore(): float
-    {
-        if ($this->scores === []) {
-            return 0.0;
-        }
-        return max($this->scores);
-    }
-
-    /**
-     * Record a failure with proper backtrace information
-     */
-    protected function recordFailure(AssertionInterface $rule, AssertionResult $result): void
-    {
-        // Get the calling line from backtrace (skip execute() and recordFailure())
-        $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 4);
-        $lineNumber = $backtrace[3]['line'] ?? 0;
-        $evaluatorClass = $backtrace[3]['class'] ?? 'Unknown';
-
         $this->failures[] = new AssertionFailure(
-            $evaluatorClass,
+            $this->evaluatorClass,
             $rule->getName(),
             $result->message !== '' ? $result->message : 'Evaluation rule failed',
-            $lineNumber,
+            $line,
             $result->context
         );
     }
