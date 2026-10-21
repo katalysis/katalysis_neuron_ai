@@ -190,6 +190,17 @@ final class ChecksTest extends TestCase
         $this->assertAnyFails(StateChecks::run(['page_unchanged' => '/p'], $this->ctx($before, S::make([S::page(1, '/p', ['isTrash' => true])]))));
     }
 
+    public function testPageNotPublished(): void
+    {
+        $before = S::make([S::page(1, '/p')]);
+        $draft = S::make([S::page(1, '/p'), S::page(2, '/n', ['approvedVersion' => null])]);
+        $live = S::make([S::page(1, '/p'), S::page(2, '/n', ['approvedVersion' => 1])]);
+
+        $this->assertAllPass(StateChecks::run(['page_not_published' => '/n'], $this->ctx($before, $draft)));
+        $this->assertAnyFails(StateChecks::run(['page_not_published' => '/n'], $this->ctx($before, $live)), 'approved');
+        $this->assertAnyFails(StateChecks::run(['page_not_published' => '/missing'], $this->ctx($before, $draft)), 'no page');
+    }
+
     public function testAttributeChecks(): void
     {
         $start = S::make([S::page(10, '/parent', ['children' => [11, 12]]), S::page(11, '/parent/a'), S::page(12, '/parent/b')]);

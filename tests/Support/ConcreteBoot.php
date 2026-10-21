@@ -75,6 +75,15 @@ final class ConcreteBoot
         // As the package controller does in on_start(), after Concrete's own autoloaders.
         self::loadPackageAutoload();
 
+        // Concrete's booter registers every installed package's autoloaders only for web requests
+        // (DefaultBooter::bootHttpSapi), and its CLI runner does it itself (CLIRunner::run()). A PHPUnit
+        // run is CLI but goes through neither, so without this a class from another package, such as a
+        // theme's PageTheme controller that Page::add() loads, does not exist. setupPackages() is not
+        // called: that is each package's on_start(), which tests don't need.
+        if ($app->isInstalled()) {
+            $app->setupPackageAutoloaders();
+        }
+
         return self::$app = $app;
     }
 

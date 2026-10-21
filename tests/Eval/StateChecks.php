@@ -34,6 +34,14 @@ final class StateChecks
                 case 'page_exists':
                     $results[] = self::result("page_exists: {$spec}", $c->after->pageByPath((string) $spec) !== null, 'no page at that path');
                     break;
+                case 'page_not_published':
+                    $page = $c->after->pageByPath((string) $spec);
+                    $results[] = self::result(
+                        "page_not_published: {$spec}",
+                        $page !== null && $page['approvedVersion'] === null,
+                        $page === null ? 'no page at that path' : 'the page has an approved version, so visitors can see it'
+                    );
+                    break;
                 case 'page_absent':
                     $results[] = self::result("page_absent: {$spec}", $c->after->pageByPath((string) $spec) === null, 'a page is still at that path');
                     break;

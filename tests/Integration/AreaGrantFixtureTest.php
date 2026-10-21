@@ -11,7 +11,6 @@ use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Tests\Support\AreaGrantFixture;
-use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 
 /**
@@ -26,12 +25,6 @@ final class AreaGrantFixtureTest extends ConcreteTestCase
         'PermissionAccessList', 'PermissionAccessEntities', 'PermissionAccessEntityUsers',
         'AreaPermissionBlockTypeAccessList', 'AreaPermissionBlockTypeAccessListCustom',
     ];
-
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-        ConcreteBoot::boot()->setupPackageAutoloaders();
-    }
 
     /** @var int[] */
     private array $pages = [];

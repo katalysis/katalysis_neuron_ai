@@ -68,6 +68,7 @@ Primary. Pages are named by path. Versions: `latest` is the newest version (what
 |---|---|
 | `nothing_changed: true` | A snapshot of the fixture (pages, versions, blocks, attributes, files, people) is identical to the one taken before this turn. |
 | `page_exists: /path` / `page_absent: /path` | The page is there, or is not. |
+| `page_not_published: /path` | The page is there and has no approved version, so visitors cannot see it until a person approves it. |
 | `page_unchanged: /path` | Same parent, same trash status, same number of versions, same latest content. |
 | `page_type: {page: /path, handle: page}` | The page's type. |
 | `attribute: {page: /path, handle: meta_title, equals: "..."}` | A page attribute on the latest version. |

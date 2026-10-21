@@ -16,7 +16,6 @@ use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
-use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use NeuronAI\Tools\ToolInterface;
@@ -40,12 +39,6 @@ final class GetPageContentTest extends ConcreteTestCase
 
     /** @var array<int, array{cID: int, cvID: int, bID: int, area: string}> block permission overrides to revert */
     private array $blockOverrides = [];
-
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-        ConcreteBoot::boot()->setupPackageAutoloaders();
-    }
 
     protected function tearDown(): void
     {

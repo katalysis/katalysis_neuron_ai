@@ -60,22 +60,44 @@ final class DisabledToolsTest extends TestCase
 
     public function testTheListHoldsTheToolsDisabledForSafetyEachWithAReason(): void
     {
-        // P1.6 (people deletes), P1.7 (file delete, user attribute write, publishing)
-        // and P1.8 (EPRA sync writes to the live version).
+        // P1.6 (people deletes), P1.7 (file delete, user attribute write, publishing),
+        // P1.8 (EPRA sync writes to the live version) and P1.13 (everything else that changes the live site outside a draft).
         $this->assertSame(
             [
+                'add_person',
                 'approve_page_version',
                 'delete_all_people',
+                'delete_attribute_set',
                 'delete_file',
+                'delete_page',
                 'delete_person',
+                'delete_topic',
+                'move_file_to_folder',
+                'move_page',
                 'set_user_attribute_value',
                 'sync_multi_links_to_epra_resources_list',
+                'update_file_select_attribute_options',
+                'update_page_select_attribute_options',
+                'update_person',
+                'update_person_specialisms',
+                'update_person_topics',
+                'update_user_select_attribute_options',
             ],
             DisabledTools::names()
         );
         foreach (DisabledTools::all() as $name => $reason) {
             $this->assertMatchesRegularExpression('/P3\.[456]/', $reason, $name);
         }
+    }
+
+    public function testEveryToolDisabledInP113SaysWhenItComesBack(): void
+    {
+        $reasons = DisabledTools::all();
+        foreach (['delete_page', 'move_page'] as $name) {
+            $this->assertStringContainsString('P3.6', $reasons[$name], $name);
+            $this->assertStringContainsString('only behind approval', $reasons[$name], $name);
+        }
+        $this->assertStringContainsString('P3.5', $reasons['move_file_to_folder']);
     }
 
     public function testEveryToolOnTheRealListIsRemovedFromToolkitsAndSingleTools(): void

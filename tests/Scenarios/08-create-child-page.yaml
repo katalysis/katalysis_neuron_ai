@@ -4,7 +4,6 @@ tier: 1
 user: neuron_editor
 current_page: /neuron-test
 rules: [B-T1-7, B-ACC-3, B-WRT-3, B-REP-1]
-known_to_fail_today: "Reply checks only. Spec B-REP-1 is Not met, and B-WRT-3 notes that whether a page made by create_page starts published wasn't traced. P1.5 confirms or corrects this."
 rubric: Creates one page under /neuron-test (the editor can add subpages there) with the "Page" type. The reply links it and says whether it is published or awaiting approval. The seed reset removes it, because it sits under /neuron-test.
 turns:
   - say: "Create a child page under this page called 'Scenario Child'. Use the 'Page' page type."
@@ -12,6 +11,7 @@ turns:
 expect:
   state:
     page_exists: /neuron-test/scenario-child
+    page_not_published: /neuron-test/scenario-child
     page_type: {page: /neuron-test/scenario-child, handle: page}
     changed_pages:
       exactly: [/neuron-test/scenario-child]

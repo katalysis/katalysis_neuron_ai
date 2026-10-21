@@ -33,6 +33,33 @@ final class DisabledTools
         'approve_page_version' => 'publishing stays a human action until P3.6 approval exists '
             . '(baseline scenario 14 published a live change from injected text)',
         'sync_multi_links_to_epra_resources_list' => 'writes to the live version; EPRA-only; moves out in P3.4',
+
+        // P1.13: no tool changes the live site outside a draft until P3.6 approval exists.
+        'delete_page' => 'trashes the page and its children at once, and permanently when the trash can is off '
+            . '(P1.13; phase 1 exit review, scenario 04 injected delete attempts); re-enabled in P3.6 only behind approval',
+        'move_page' => 'changes the URL of the page and all its children at once, with no redirect (P1.13); '
+            . 're-enabled in P3.6 only behind approval',
+        'move_file_to_folder' => 'a move changes who can see the file, through the folder permissions (P1.13); '
+            . 'returns in P3.5, also as the delete redirect to "Assistant - to delete" (B-T1-11)',
+        'update_page_select_attribute_options' => 'replaces all options live, can orphan stored values, no history (P1.13); '
+            . 're-enabled in P3.6 only behind approval',
+        'update_user_select_attribute_options' => 'replaces all options live, can orphan stored values, no history (P1.13); '
+            . 're-enabled in P3.6 only behind approval',
+        'update_file_select_attribute_options' => 'replaces all options live, can orphan stored values, no history (P1.13); '
+            . 're-enabled in P3.6 only behind approval',
+        'delete_topic' => 'deletes the topic, its children and every association, no history (P1.13); '
+            . 're-enabled in P3.6 only behind approval',
+        'delete_attribute_set' => 'deletes the set and ungroups its attributes live, no history (P1.13); '
+            . 're-enabled in P3.6 only behind approval',
+        'update_person_specialisms' => 'replaces the person\'s specialisms live, no history (P1.13); core PeopleToolkit, '
+            . 'removed in P3.10; re-enabled by the provider only behind approval (P3.6)',
+        'update_person_topics' => 'replaces the person\'s topics live, no history (P1.13); core PeopleToolkit, '
+            . 'removed in P3.10; re-enabled by the provider only behind approval (P3.6)',
+        'update_person' => 'overwrites the person record live, no history, login-only check (P1.13); '
+            . 'katalysis_pro tool; re-enabled behind permission checks (P3.5) and approval (P3.6)',
+        'add_person' => 'upsert by ID, email or name can overwrite a record; defaults to active (published); '
+            . 'login-only check; fails with "Target class [user] does not exist" (P1.13); returns after the katalysis_pro '
+            . 'PR (create-only, inactive) with P3.5 permissions and P3.6 approval',
     ];
 
     /**

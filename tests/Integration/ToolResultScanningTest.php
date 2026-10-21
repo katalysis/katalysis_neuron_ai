@@ -13,7 +13,6 @@ use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Security\InjectionNotice;
-use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use NeuronAI\Tools\ToolInterface;
@@ -39,12 +38,6 @@ final class ToolResultScanningTest extends ConcreteTestCase
     private array $people = [];
     /** @var array<string, callable>|null the registry as it was, when a test replaced it */
     private ?array $originalFactories = null;
-
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-        ConcreteBoot::boot()->setupPackageAutoloaders();
-    }
 
     protected function tearDown(): void
     {
