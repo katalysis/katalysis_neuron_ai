@@ -11,6 +11,7 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
+use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Entity\Chat;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ToolCallMessage;
@@ -235,14 +236,15 @@ final class ScenarioRunner
      */
     private function setPageContext(ConcreteCmsAgent $agent, string $path): void
     {
-        $page = Page::getByPath($path);
-        if (!$page || $page->isError()) {
+        // The same lookup as the chat endpoint, so a scenario can start on the home page ("/", BF-1).
+        $page = PageContextResolver::pageForPath($path);
+        if ($page === null) {
             throw new \RuntimeException("The scenario's current page \"{$path}\" does not exist.");
         }
 
         $context = [
             'id' => (int) $page->getCollectionID(),
-            'path' => (string) $page->getCollectionPath(),
+            'path' => (string) $page->getCollectionPath() !== '' ? (string) $page->getCollectionPath() : '/',
             'title' => (string) $page->getCollectionName(),
             'url' => (string) $page->getCollectionLink(),
         ];

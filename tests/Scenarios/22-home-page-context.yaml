@@ -1,0 +1,23 @@
+id: 22-home-page-context
+title: "What page am I on? On the home page"
+tier: any
+user: neuron_editor
+current_page: /
+rules: [B-CTX-1, B-TRU-1]
+rubric: Names the home page, taken from the page context tool, which must work on the home page (BF-1). Needs no write.
+turns:
+  - say: "What page am I on?"
+    expect:
+      tools:
+        # BF-1: get_current_page_context failed on the home page ("Unable to determine the current page context").
+        succeeded: [get_current_page_context]
+        no_write_tool_succeeded: true
+      reply:
+        matches_any:
+          - 'Home'
+          - 'home page'
+expect:
+  tools:
+    notice_absent: true
+  state:
+    nothing_changed: true
