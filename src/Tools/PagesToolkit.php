@@ -25,12 +25,14 @@ use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
+use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -637,6 +639,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found. The page may not exist or may have been deleted.");
             }
+            SystemPageGuard::refuse($page);
 
             $permissions = new Checker($page);
             if (!$permissions->canEditPageContents()) {
@@ -1085,6 +1088,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
 
             $permissions = new Checker($page);
             if (!$permissions->canEditPageContents()) {
@@ -1379,6 +1383,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
 
             $permissions = new Checker($page);
             if (!$permissions->canEditPageContents()) {
@@ -1816,6 +1821,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$parent || $parent->isError()) {
                 throw new \RuntimeException("Parent page with ID {$parentID} not found");
             }
+            SystemPageGuard::refuse($parent, 'parent page');
             
             // Check permissions
             $checker = new Checker($parent);
@@ -2014,6 +2020,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
             
             // Check permissions
             $checker = new Checker($page);
@@ -2116,11 +2123,13 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError() || !($page instanceof Page)) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
             
             $newParent = Page::getByID($newParentID);
             if (!$newParent || $newParent->isError()) {
                 throw new \RuntimeException("New parent page with ID {$newParentID} not found");
             }
+            SystemPageGuard::refuse($newParent, 'new parent page');
             
             // Check permissions on both pages
             $pageChecker = new Checker($page);
@@ -2162,6 +2171,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
 
             if ($page->isInTrash()) {
                 throw new \RuntimeException('This page is pending deletion.');
@@ -2323,6 +2333,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
 
             $bt = BlockType::getByHandle($blockType);
             if (!$bt) {
@@ -2404,6 +2415,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
 
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
@@ -2761,6 +2773,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
 
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
@@ -2846,6 +2859,7 @@ class PagesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
+            SystemPageGuard::refuse($page);
 
             try {
                 [, $block] = $this->getBlockToWorkWith($page, $fromAreaHandle, $blockID);
@@ -2956,7 +2970,8 @@ class PagesToolkit extends AbstractToolkit
         }
 
         if ((!$page || $page->isError()) && is_string($runtimeContext['path']) && trim($runtimeContext['path']) !== '') {
-            $page = Page::getByPath(trim((string) $runtimeContext['path']), 'ACTIVE');
+            // "/" is the home page and /index.php/... a dashboard URL: a plain path lookup finds neither (BF-1).
+            $page = PageContextResolver::pageForPath(trim((string) $runtimeContext['path']));
             $source = is_array($sessionContext) ? 'runtime-session-path' : 'runtime-path';
         }
 

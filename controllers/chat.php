@@ -10,6 +10,7 @@ use Katalysis\NeuronAi\Access\ChatAccess;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
+use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\PageContextTag;
 use Katalysis\NeuronAi\Security\InjectionNotice;
 use Katalysis\NeuronAi\Security\SecretRedactor;
@@ -228,98 +229,16 @@ class Chat extends AbstractController
         return $chat->getId();
     }
 
+    /**
+     * The page the user is on, from the panel's pageContext (BF-1). PageContextResolver treats it as untrusted: only a
+     * page the user can view is used.
+     */
     private function extractFrontendPageContext($data): array
     {
-        if (!is_array($data) || !isset($data['pageContext']) || !is_array($data['pageContext'])) {
-            $data = ['pageContext' => []];
-        }
+        $payload = is_array($data) && isset($data['pageContext']) && is_array($data['pageContext']) ? $data['pageContext'] : [];
+        $referrerPath = PageContextResolver::referrerPath($_SERVER['HTTP_REFERER'] ?? null, $_SERVER['HTTP_HOST'] ?? null);
 
-        $context = $data['pageContext'];
-
-        $candidatePath = null;
-        if (!empty($context['path']) && is_string($context['path'])) {
-            $candidatePath = parse_url($context['path'], PHP_URL_PATH) ?: $context['path'];
-        } elseif (!empty($context['url']) && is_string($context['url'])) {
-            $candidatePath = parse_url($context['url'], PHP_URL_PATH) ?: null;
-        } else {
-            $candidatePath = $this->getReferrerPath();
-        }
-
-        $cleanPath = $this->normalizePagePath($candidatePath);
-        $pathResolvedId = null;
-        if ($cleanPath !== null) {
-            $pageByPath = Page::getByPath($cleanPath, 'ACTIVE');
-            if ($pageByPath && !$pageByPath->isError()) {
-                $pathResolvedId = (int) $pageByPath->getCollectionID();
-            }
-        }
-
-        $idResolvedId = null;
-        if (isset($context['id']) && is_numeric($context['id'])) {
-            $pageById = Page::getByID((int) $context['id'], 'ACTIVE');
-            if ($pageById && !$pageById->isError()) {
-                $idResolvedId = (int) $pageById->getCollectionID();
-            }
-        }
-
-        // Prefer path-derived context when available because it reflects current navigation.
-        $resolvedId = $pathResolvedId ?? $idResolvedId;
-
-        if ($resolvedId !== null) {
-            $page = Page::getByID($resolvedId, 'ACTIVE');
-            if ($page && !$page->isError()) {
-                $cleanPath = $page->getCollectionPath();
-            }
-        }
-
-        return [
-            'id' => $resolvedId,
-            'path' => $cleanPath,
-            'url' => isset($context['url']) && is_string($context['url']) ? $context['url'] : null,
-            'title' => isset($context['title']) && is_string($context['title']) ? trim($context['title']) : null,
-        ];
-    }
-
-    private function getReferrerPath(): ?string
-    {
-        $referrer = $_SERVER['HTTP_REFERER'] ?? null;
-        if (!is_string($referrer) || $referrer === '') {
-            return null;
-        }
-
-        $host = $_SERVER['HTTP_HOST'] ?? null;
-        $refHost = parse_url($referrer, PHP_URL_HOST);
-        if ($host && $refHost && !hash_equals((string) $host, (string) $refHost)) {
-            return null;
-        }
-
-        $path = parse_url($referrer, PHP_URL_PATH);
-        return is_string($path) ? $path : null;
-    }
-
-    private function normalizePagePath(?string $path): ?string
-    {
-        if (!is_string($path)) {
-            return null;
-        }
-
-        $path = trim($path);
-        if ($path === '') {
-            return null;
-        }
-
-        if ($path[0] !== '/') {
-            $path = '/' . $path;
-        }
-
-        // Collapse duplicate slashes, but keep root slash.
-        $path = preg_replace('#/+#', '/', $path) ?: '/';
-
-        // Strip query-like fragments if they slipped in.
-        $path = explode('?', $path, 2)[0];
-        $path = explode('#', $path, 2)[0];
-
-        return $path === '' ? '/' : $path;
+        return (new PageContextResolver())->fromBrowser($payload, $referrerPath);
     }
 
     private function updateChatLocationFromContext(array $pageContext): void
