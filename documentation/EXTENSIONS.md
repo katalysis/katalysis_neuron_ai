@@ -172,6 +172,7 @@ class NeuronProvider implements CapabilityProvider
 - Descriptors are checked against a JSON Schema when packages are installed or updated, and the results show on that page.
 - Version handling: a provider declares the `apiVersion` it targets. The core supports the current and previous major version, and warns on mismatch rather than crashing.
 - Dependency safety: listeners only run when Neuron dispatches the event, and descriptors are plain JSON, so a package never fails to load without Neuron.
+- A toolkit that fails to build is skipped, not fatal (since P2.2, decided after P2.1): its tools are built once per agent inside a try; one that throws is left out, logged with secrets redacted, and listed on the settings page (later the Extensions page), so the rest of the assistant keeps working and the loss is visible.
 
 ## Applied to what we have
 
