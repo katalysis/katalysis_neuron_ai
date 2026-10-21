@@ -8,6 +8,7 @@ use Katalysis\NeuronAi\Tests\Support\ToolListChecks;
 use NeuronAI\Tools\ArrayProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use PHPUnit\Framework\TestCase;
 
@@ -20,9 +21,9 @@ final class ToolListChecksTest extends TestCase
     public function testDuplicateNamesAreReported(): void
     {
         $tools = [
-            new Tool('list_people', 'core'),
-            new Tool('get_page', 'unique'),
-            new Tool('list_people', 'external'),
+            new CallableTool('list_people', 'core'),
+            new CallableTool('get_page', 'unique'),
+            new CallableTool('list_people', 'external'),
         ];
 
         $this->assertSame(['list_people'], ToolListChecks::duplicateNames($tools));
@@ -30,14 +31,14 @@ final class ToolListChecksTest extends TestCase
 
     public function testADuplicateIsReportedOnceEvenWhenRepeated(): void
     {
-        $tools = [new Tool('a', 'x'), new Tool('a', 'y'), new Tool('a', 'z'), new Tool('b', 'x'), new Tool('b', 'y')];
+        $tools = [new CallableTool('a', 'x'), new CallableTool('a', 'y'), new CallableTool('a', 'z'), new CallableTool('b', 'x'), new CallableTool('b', 'y')];
 
         $this->assertSame(['a', 'b'], ToolListChecks::duplicateNames($tools));
     }
 
     public function testUniqueNamesReportNothing(): void
     {
-        $this->assertSame([], ToolListChecks::duplicateNames([new Tool('a', 'x'), new Tool('b', 'x')]));
+        $this->assertSame([], ToolListChecks::duplicateNames([new CallableTool('a', 'x'), new CallableTool('b', 'x')]));
         $this->assertSame([], ToolListChecks::duplicateNames([]));
     }
 
