@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace NeuronAI\Tools;
 
 use NeuronAI\Exceptions\ArrayPropertyException;
+use NeuronAI\Exceptions\InvalidToolInput;
 use NeuronAI\StaticConstructor;
 
+use function get_debug_type;
+use function is_array;
 use function is_null;
 
 /**
- * @method static static make(string $name, string $description, bool $required = false, ?ToolPropertyInterface $items = null, ?int $minItems = null, ?int $maxItems = null)
+ * @method static static make(string $name, string $description, bool $required = false, ?ToolPropertyInterface $items = null, ?int $minItems = null, ?int $maxItems = null, bool $nullable = false)
  */
 class ArrayProperty implements ToolPropertyInterface
 {
@@ -28,6 +31,7 @@ class ArrayProperty implements ToolPropertyInterface
         protected ?ToolPropertyInterface $items = null,
         protected ?int $minItems = null,
         protected ?int $maxItems = null,
+        protected bool $nullable = false,
     ) {
         $this->validateConstraints();
     }
@@ -38,13 +42,16 @@ class ArrayProperty implements ToolPropertyInterface
             'name' => $this->name,
             ...$this->getJsonSchema(),
             'required' => $this->required,
+            'nullable' => $this->nullable,
         ];
     }
 
     public function getJsonSchema(): array
     {
         $schema = [
-            'type' => $this->type->value,
+            'type' => $this->nullable
+                ? [$this->type->value, 'null']
+                : $this->type->value,
         ];
 
         if (!is_null($this->description)) {
@@ -61,7 +68,7 @@ class ArrayProperty implements ToolPropertyInterface
             $schema['minItems'] = $this->minItems;
         }
 
-        if ($this->maxItems !== null && $this->maxItems !== 0) {
+        if ($this->maxItems !== null) {
             $schema['maxItems'] = $this->maxItems;
         }
 
@@ -71,6 +78,11 @@ class ArrayProperty implements ToolPropertyInterface
     public function isRequired(): bool
     {
         return $this->required;
+    }
+
+    public function isNullable(): bool
+    {
+        return $this->nullable;
     }
 
     public function getName(): string
@@ -91,6 +103,31 @@ class ArrayProperty implements ToolPropertyInterface
     public function getItems(): ?ToolPropertyInterface
     {
         return $this->items;
+    }
+
+    public function cast(mixed $input): mixed
+    {
+        if ($input === null) {
+            return null;
+        }
+
+        if (!is_array($input)) {
+            throw new InvalidToolInput('must be of type array, ' . get_debug_type($input) . ' given');
+        }
+
+        if (!$this->items instanceof ToolPropertyInterface) {
+            return $input;
+        }
+
+        foreach ($input as $index => $item) {
+            try {
+                $input[$index] = $this->items->cast($item);
+            } catch (InvalidToolInput $exception) {
+                throw new InvalidToolInput("element {$index} {$exception->getMessage()}", $exception->getCode(), $exception);
+            }
+        }
+
+        return $input;
     }
 
     /**

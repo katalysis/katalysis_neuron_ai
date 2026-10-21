@@ -4,60 +4,82 @@ declare(strict_types=1);
 
 namespace NeuronAI\RAG\VectorStore;
 
+use Exception;
+use JsonException;
 use NeuronAI\Exceptions\HttpException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\Exceptions\VectorStoreException;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\RAG\Document;
-use Exception;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
+use NeuronAI\RAG\VectorStore\Compilers\MeilisearchFilterCompiler;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 
+use function rtrim;
+use function array_chunk;
 use function array_map;
 use function in_array;
 use function is_null;
-use function min;
 use function range;
-use function usleep;
 use function uniqid;
-use function array_chunk;
+use function usleep;
 
 class MeilisearchVectorStore implements VectorStoreInterface
 {
     use HasHttpClient;
+    use HasDocumentSchema;
 
-    /**
-     * Native Meilisearch filter expressions applied to similaritySearch().
-     *
-     * https://www.meilisearch.com/docs/reference/api/search#filter
-     *
-     * @var array<int, mixed>
-     */
-    protected array $filters = [];
+    protected string $baseUri;
 
-    /**
-     * @throws HttpException
-     */
+    protected bool $initialized = false;
+
     public function __construct(
         protected string $indexUid,
-        protected string $host = 'http://localhost:7700',
+        string $host = 'http://localhost:7700',
         ?string $key = null,
         protected string $embedder = 'default',
         protected int $topK = 5,
         protected int $dimension = 1024,
         ?HttpClientInterface $httpClient = null,
+        ?DocumentSchema $schema = null,
     ) {
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($host)
-            ->withHeaders([
-                'Content-Type' => 'application/json',
-                ...(is_null($key) ? [] : ['Authorization' => "Bearer {$key}"]),
-            ]);
+        $this->initializeSchema($schema);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->baseUri = $host;
+        $this->httpHeaders = [
+            'Content-Type' => 'application/json',
+            ...(is_null($key) ? [] : ['Authorization' => "Bearer {$key}"]),
+        ];
+    }
+
+    /**
+     * Create the index if it doesn't exist and configure it, the first time an operation needs it
+     *
+     * @throws HttpException
+     * @throws VectorStoreException
+     */
+    protected function initialize(): void
+    {
+        if ($this->initialized) {
+            return;
+        }
 
         try {
-            $this->httpClient->request(HttpRequest::get(uri: "indexes/{$this->indexUid}"));
-        } catch (Exception) {
+            $this->httpClient->request(HttpRequest::get(uri: rtrim($this->baseUri, '/') . "/indexes/{$this->indexUid}", headers: $this->httpHeaders));
+        } catch (HttpException $exception) {
+            if ($exception->response?->statusCode !== 404) {
+                throw $exception;
+            }
+
             $this->createIndex();
         }
+
+        $this->configureIndex();
+
+        $this->initialized = true;
     }
 
     /**
@@ -70,21 +92,25 @@ class MeilisearchVectorStore implements VectorStoreInterface
 
     /**
      * @throws HttpException
+     * @throws VectorStoreException
+     * @throws JsonException
      */
     public function addDocuments(array $documents): VectorStoreInterface
     {
+        $this->validateDocuments($documents);
+        $this->initialize();
         $chunks = array_chunk($documents, 100);
 
         foreach ($chunks as $chunk) {
             $this->httpClient->request(
                 HttpRequest::put(
-                    uri: "indexes/{$this->indexUid}/documents",
+                    uri: rtrim($this->baseUri, '/') . "/indexes/{$this->indexUid}/documents",
                     body: array_map(fn (Document $document): array => [
                         'id' => $document->getId(),
                         'content' => $document->getContent(),
                         'sourceType' => $document->getSourceType(),
                         'sourceName' => $document->getSourceName(),
-                        ...$document->metadata,
+                        ...MetadataMapper::toStorage($document, $this->schema),
                         '_vectors' => [
                             'default' => [
                                 'embeddings' => $document->getEmbedding(),
@@ -92,6 +118,7 @@ class MeilisearchVectorStore implements VectorStoreInterface
                             ],
                         ],
                     ], $chunk),
+                    headers: $this->httpHeaders,
                 )
             );
         }
@@ -100,27 +127,19 @@ class MeilisearchVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @deprecated Use deleteBy() instead.
      * @throws HttpException
+     * @throws DocumentSchemaException
+     * @throws VectorStoreException
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        return $this->deleteBy($sourceType, $sourceName);
-    }
-
-    /**
-     * @throws HttpException
-     */
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
-    {
-        $filter = $sourceName !== null
-            ? "sourceType = '{$sourceType}' AND sourceName = '{$sourceName}'"
-            : "sourceType = '{$sourceType}'";
-
+        $this->validateFilters($filters);
+        $this->initialize();
         $this->httpClient->request(
             HttpRequest::post(
-                uri: "/indexes/{$this->indexUid}/documents/delete",
-                body: ['filter' => $filter]
+                uri: rtrim($this->baseUri, '/') . "/indexes/{$this->indexUid}/documents/delete",
+                body: ['filter' => (new MeilisearchFilterCompiler())->compile($filters)],
+                headers: $this->httpHeaders,
             )
         );
 
@@ -128,22 +147,19 @@ class MeilisearchVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @param  array<int, mixed>  $filters  Native Meilisearch filter expressions.
-     */
-    public function withFilters(array $filters): self
-    {
-        $this->filters = $filters;
-        return $this;
-    }
-
-    /**
      * @throws HttpException
+     * @throws DocumentSchemaException
+     * @throws VectorStoreException
      */
-    public function similaritySearch(array $embedding): iterable
+    public function search(SearchRequest $request): iterable
     {
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+        }
+
         $body = [
-            'vector' => $embedding,
-            'limit' => min($this->topK, 20),
+            'vector' => $request->embedding,
+            'limit' => $request->topK ?? $this->topK,
             'retrieveVectors' => true,
             'showRankingScore' => true,
             'hybrid' => [
@@ -152,30 +168,29 @@ class MeilisearchVectorStore implements VectorStoreInterface
             ],
         ];
 
-        if ($this->filters !== []) {
-            $body['filter'] = $this->filters;
+        if ($request->filters instanceof FilterExpression) {
+            $body['filter'] = (new MeilisearchFilterCompiler())->compile($request->filters);
         }
 
+        $this->initialize();
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: "/indexes/{$this->indexUid}/search",
-                body: $body
+                uri: rtrim($this->baseUri, '/') . "/indexes/{$this->indexUid}/search",
+                body: $body,
+                headers: $this->httpHeaders,
             )
         )->json();
 
         return array_map(function (array $item): Document {
             $document = new Document($item['content']);
-            $document->id = $item['id'] ?? uniqid();
-            $document->sourceType = $item['sourceType'] ?? null;
-            $document->sourceName = $item['sourceName'] ?? null;
-            $document->embedding = $item['_vectors']['default']['embeddings'];
-            $document->score = $item['_rankingScore'];
+            $document->setId($item['id'] ?? uniqid())
+                ->setSourceType($item['sourceType'] ?? 'manual')
+                ->setSourceName($item['sourceName'] ?? 'manual')
+                // Meilisearch returns the embedder's vectors as a list of embeddings.
+                ->setEmbedding($item['_vectors']['default']['embeddings'][0])
+                ->setScore($item['_rankingScore']);
 
-            foreach ($item as $name => $value) {
-                if (!in_array($name, ['_vectors', '_rankingScore', 'content', 'sourceType', 'sourceName', 'score', 'embedding', 'id'])) {
-                    $document->addMetadata($name, $value);
-                }
-            }
+            MetadataMapper::hydrate($document, $item);
 
             return $document;
         }, $response['hits']);
@@ -183,58 +198,90 @@ class MeilisearchVectorStore implements VectorStoreInterface
 
     /**
      * @throws HttpException
+     * @throws VectorStoreException
      */
     protected function createIndex(): void
     {
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'indexes',
+                uri: rtrim($this->baseUri, '/') . '/indexes',
                 body: [
                     'uid' => $this->indexUid,
                     'primaryKey' => 'id',
-                ]
+                ],
+                headers: $this->httpHeaders,
             )
         )->json();
 
         $this->waitForTask($response['taskUid']);
 
+    }
+
+    /**
+     * @throws HttpException
+     * @throws VectorStoreException
+     */
+    protected function configureIndex(): void
+    {
         $response = $this->httpClient->request(
             HttpRequest::patch(
-                uri: "indexes/{$this->indexUid}/settings/embedders",
+                uri: rtrim($this->baseUri, '/') . "/indexes/{$this->indexUid}/settings/embedders",
                 body: [
                     $this->embedder => [
                         'dimensions' => $this->dimension,
                         'source' => 'userProvided',
                         'binaryQuantized' => false,
                     ],
-                ]
+                ],
+                headers: $this->httpHeaders,
             )
         )->json();
 
         $this->waitForTask($response['taskUid']);
 
-        $this->httpClient->request(
+        $filterableAttributes = ['sourceType', 'sourceName'];
+        foreach ($this->schema->fields() as $field) {
+            if ($field->isFilterable()) {
+                $filterableAttributes[] = $field->getName();
+            }
+        }
+
+        $response = $this->httpClient->request(
             HttpRequest::put(
-                uri: "indexes/{$this->indexUid}/settings/filterable-attributes",
-                body: ['sourceType', 'sourceName']
+                uri: rtrim($this->baseUri, '/') . "/indexes/{$this->indexUid}/settings/filterable-attributes",
+                body: $filterableAttributes,
+                headers: $this->httpHeaders,
             )
-        );
+        )->json();
+
+        $this->waitForTask($response['taskUid']);
     }
 
+    /**
+     * @throws VectorStoreException
+     */
     protected function waitForTask(int $taskUid): void
     {
         foreach (range(1, 10) as $i) {
             try {
                 $task = $this->httpClient->request(
-                    HttpRequest::get('tasks/' . $taskUid)
+                    HttpRequest::get(rtrim($this->baseUri, '/') . '/tasks/' . $taskUid, headers: $this->httpHeaders)
                 )->json();
-                if ($task['status'] === 'succeeded') {
-                    return;
-                }
-                usleep(500 * 1000);
             } catch (Exception) {
                 usleep(500 * 1000);
+                continue;
             }
+
+            if ($task['status'] === 'succeeded') {
+                return;
+            }
+
+            if (in_array($task['status'], ['failed', 'canceled'], true)) {
+                $reason = isset($task['error']['message']) ? ": {$task['error']['message']}" : '.';
+                throw new VectorStoreException("Meilisearch task {$taskUid} {$task['status']}{$reason}");
+            }
+
+            usleep(500 * 1000);
         }
     }
 }

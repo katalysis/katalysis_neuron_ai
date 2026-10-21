@@ -34,6 +34,23 @@ if (!$canConfigure) {
     <?php
     return;
 }
+// External toolkits that failed to build (P2.2): the assistant runs without their tools until the package is fixed.
+$externalToolkitSkips = isset($external_toolkit_skips) && is_array($external_toolkit_skips) ? $external_toolkit_skips : [];
+if ($externalToolkitSkips !== []) {
+    ?>
+    <div class="alert alert-warning" id="neuron-external-toolkit-skips">
+        <p><?= t('These toolkits from other packages could not be loaded. The assistant is running without their tools.') ?></p>
+        <ul class="mb-0">
+            <?php foreach ($externalToolkitSkips as $skip) { ?>
+                <li>
+                    <?= h($skip['toolkit'] ?? t('(the package\'s toolkit provider)')) ?>
+                    (<?= h(t('package key: %s', $skip['provider'])) ?>): <?= h($skip['reason']) ?>
+                </li>
+            <?php } ?>
+        </ul>
+    </div>
+    <?php
+}
 $renderKeyField = static function (string $field, string $label) use ($keyStatus): void {
     $isSet = !empty($keyStatus[$field]);
     ?>

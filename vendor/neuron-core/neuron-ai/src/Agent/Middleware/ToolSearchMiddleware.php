@@ -4,19 +4,29 @@ declare(strict_types=1);
 
 namespace NeuronAI\Agent\Middleware;
 
+use NeuronAI\Agent\AgentResources;
+use NeuronAI\Agent\AgentState;
 use NeuronAI\Agent\Events\AIInferenceEvent;
+use NeuronAI\Agent\Nodes\AgentNodeInterface;
+use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
+use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\ToolResultMessage;
+use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Workflow\Events\Event;
-use NeuronAI\Workflow\Middleware\WorkflowMiddleware;
-use NeuronAI\Workflow\NodeInterface;
-use NeuronAI\Workflow\WorkflowState;
 
-use function in_array;
-use function str_contains;
+use function array_slice;
+use function count;
+use function is_string;
 use function max;
 
-class ToolSearchMiddleware implements WorkflowMiddleware
+/**
+ * Lets the model find tools in a pool through the tool_search tool. Register it
+ * globally: it runs before every agent node of every execution segment, so the
+ * tools found during the current turn are registered again after a pause. The
+ * next user message starts a turn without them.
+ */
+class ToolSearchMiddleware extends AgentMiddleware
 {
     protected const DEFAULT_SYSTEM_PROMPT = <<<'PROMPT'
         ---
@@ -32,97 +42,83 @@ class ToolSearchMiddleware implements WorkflowMiddleware
 
     /**
      * @param ToolInterface[] $toolPool
+     * @param int<1,max> $topN Maximum number of matching tools the search returns
      */
     public function __construct(
         protected array $toolPool,
-        protected int $topN = 10,
+        protected int $topN = 5,
         protected string $systemPrompt = self::DEFAULT_SYSTEM_PROMPT,
     ) {
         $this->topN = max(1, $this->topN);
     }
 
-    public function before(NodeInterface $node, Event $event, WorkflowState $state): void
+    protected function beforeAgentNode(AgentNodeInterface $node, Event $event, AgentState $state, AgentResources $resources): void
     {
-        if (!$event instanceof AIInferenceEvent) {
+        $resources->tools->add(new ToolSearchTool($this->toolPool, $this->topN));
+
+        if (!isset($state->request)) {
             return;
         }
 
-        if (!str_contains($event->instructions, 'tool_search')) {
-            $event->instructions .= "\n\n" . $this->systemPrompt;
+        if ($event instanceof AIInferenceEvent && !$state->request->instructions->contains($this->systemPrompt)) {
+            $state->request->instructions->addContent(new TextContent($this->systemPrompt));
         }
 
-        if (!$this->hasToolSearchTool($event->tools)) {
-            $event->tools[] = new ToolSearchTool($this->toolPool, $this->topN);
-        }
-    }
-
-    public function after(NodeInterface $node, Event $result, WorkflowState $state): void
-    {
-        if (!$result instanceof AIInferenceEvent) {
-            return;
-        }
-
-        $discovered = $this->extractDiscoveredTools($result);
-
-        if ($discovered === []) {
-            return;
-        }
-
-        $existingNames = $this->getToolNames($result->tools);
-
-        foreach ($discovered as $tool) {
-            if (!in_array($tool->getName(), $existingNames, true)) {
-                $result->tools[] = $tool;
-                $existingNames[] = $tool->getName();
-            }
+        $conversation = [...$resources->history->getMessages(), ...$state->request->messages];
+        foreach ($this->discoverFromMessages($this->currentTurn($conversation)) as $tool) {
+            $resources->tools->add($tool);
         }
     }
 
     /**
+     * The messages after the last user message.
+     *
+     * @param Message[] $messages
+     * @return Message[]
+     */
+    protected function currentTurn(array $messages): array
+    {
+        for ($index = count($messages) - 1; $index >= 0; $index--) {
+            if ($messages[$index] instanceof UserMessage && !$messages[$index] instanceof ToolResultMessage) {
+                return array_slice($messages, $index + 1);
+            }
+        }
+
+        return $messages;
+    }
+
+    /**
+     * Re-derive discovered tools from recorded tool_search calls: the search is
+     * deterministic for a given pool, and message entries carry no side-channel
+     * objects.
+     *
+     * @param Message[] $messages
      * @return ToolInterface[]
      */
-    protected function extractDiscoveredTools(AIInferenceEvent $event): array
+    protected function discoverFromMessages(array $messages): array
     {
+        $finder = null;
         $discovered = [];
 
-        foreach ($event->getMessages() as $message) {
+        foreach ($messages as $message) {
             if (!$message instanceof ToolResultMessage) {
                 continue;
             }
 
-            foreach ($message->getTools() as $tool) {
-                if ($tool instanceof ToolSearchTool) {
-                    $discovered = [...$discovered, ...$tool->discoveredTools()];
+            foreach ($message->getToolCalls() as $call) {
+                $finder ??= new ToolSearchTool($this->toolPool, $this->topN);
+
+                if ($call->getName() !== $finder->getName()) {
+                    continue;
+                }
+
+                $query = $call->getInput('query');
+                if (is_string($query)) {
+                    $discovered = [...$discovered, ...$finder->search($query)];
                 }
             }
         }
 
         return $discovered;
-    }
-
-    /**
-     * @param ToolInterface[] $tools
-     * @return string[]
-     */
-    protected function getToolNames(array $tools): array
-    {
-        $names = [];
-        foreach ($tools as $tool) {
-            $names[] = $tool->getName();
-        }
-        return $names;
-    }
-
-    /**
-     * @param ToolInterface[] $tools
-     */
-    protected function hasToolSearchTool(array $tools): bool
-    {
-        foreach ($tools as $tool) {
-            if ($tool instanceof ToolSearchTool) {
-                return true;
-            }
-        }
-        return false;
     }
 }

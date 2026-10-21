@@ -15,17 +15,19 @@ use NeuronAI\Chat\Messages\Stream\Chunks\TextChunk;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\HttpClient\HttpRequest;
-use NeuronAI\HttpClient\StreamInterface;
+use NeuronAI\Providers\HandleEarlyStreamEnd;
+use NeuronAI\Providers\ProviderResponse;
+use NeuronAI\Providers\SSEParser;
 use NeuronAI\Tools\ToolInterface;
 
 use function array_key_exists;
-use function json_decode;
 use function json_encode;
-use function mb_strlen;
 use function rtrim;
 
 trait HandleStream
 {
+    use HandleEarlyStreamEnd;
+
     protected StreamState $streamState;
 
     /**
@@ -72,8 +74,10 @@ trait HandleStream
 
         $stream = $this->httpClient->stream(
             HttpRequest::post(
-                uri: "{$this->model}:streamGenerateContent",
-                body: $body
+                // SSE frames one element per line; the default JSON array has no line to split on
+                uri: rtrim($this->baseUri, '/') . "/{$this->model}:streamGenerateContent?alt=sse",
+                body: $body,
+                headers: $this->requestHeaders(),
             )
         );
 
@@ -81,9 +85,7 @@ trait HandleStream
         $lastFinishReason = null;
 
         while (! $stream->eof()) {
-            $line = $this->readLine($stream);
-
-            if (($line = json_decode((string) $line, true)) === null) {
+            if (!$line = SSEParser::parseNextSSEEvent($stream)) {
                 continue;
             }
 
@@ -100,6 +102,15 @@ trait HandleStream
                 $this->streamState->getUsage()->outputTokens = $line['usageMetadata']['candidatesTokenCount'] ?? 0;
                 $this->streamState->getUsage()->cachedInputTokens = $line['usageMetadata']['cachedContentTokenCount'] ?? 0;
                 $this->streamState->getUsage()->reasoningTokens = $line['usageMetadata']['thoughtsTokenCount'] ?? 0;
+            }
+
+            if (isset($line['promptFeedback']['blockReason'])) {
+                throw new ProviderException($this->describeBlockedPrompt($line['promptFeedback']));
+            }
+
+            // A usage-only element carries no candidate
+            if (!isset($line['candidates'][0])) {
+                continue;
             }
 
             // Track finishReason — the last value seen is authoritative
@@ -125,56 +136,70 @@ trait HandleStream
                 $this->streamState->hasToolCalls()
             ) {
                 toolcall:
-                return $this->createToolCallMessage(
+                $message = $this->createToolCallMessage(
                     $this->streamState->getContentBlocks(),
                     $this->streamState->getToolCalls()
-                )->setUsage($this->streamState->getUsage());
+                )->setId($this->streamState->messageId())->setUsage($this->streamState->getUsage());
+                return new ProviderResponse(message: $message);
             }
 
             if (array_key_exists('groundingMetadata', $line['candidates'][0])) {
                 $citations = $this->extractCitations($line['candidates'][0]['groundingMetadata']);
             }
 
-            // Process content
-            if (! ($part = $line['candidates'][0]['content']['parts'][0] ?? null)) {
-                continue;
+            // An element can carry several parts, e.g. reasoning then the answer
+            foreach ($line['candidates'][0]['content']['parts'] ?? [] as $part) {
+                yield from $this->handlePart($part);
             }
+        }
 
-            if (isset($part['text'])) {
-                yield from $this->handleTextData($part);
-                continue;
-            }
-
-            if (isset($part['inlineData'])) {
-                $this->streamState->addContentBlock('image', new ImageContent(
-                    $part['inlineData']['data'],
-                    SourceType::BASE64,
-                    $part['inlineData']['mimeType']
-                ));
-                continue;
-            }
-
-            if (isset($part['fileData'])) {
-                $this->streamState->addContentBlock('file', new FileContent(
-                    $part['fileData']['fileUri'],
-                    SourceType::URL,
-                    $part['fileData']['mimeType']
-                ));
-            }
+        // The last candidate carries the finish reason: without it the stream ended early
+        if ($lastFinishReason === null) {
+            return $this->earlyEndResponse($stream, $this->streamState->getContentBlocks(), $this->streamState->messageId(), $this->streamState->getUsage());
         }
 
         $message = new AssistantMessage($this->streamState->getContentBlocks());
-        $message->setUsage($this->streamState->getUsage());
+        $message->setId($this->streamState->messageId())->setUsage($this->streamState->getUsage());
 
-        if ($lastFinishReason !== null) {
-            $message->setStopReason($lastFinishReason);
-        }
+        $message->setStopReason($lastFinishReason);
 
         if (isset($citations)) {
             $message->addMetadata('citations', $citations);
         }
 
-        return $message;
+        return new ProviderResponse(message: $message);
+    }
+
+    /**
+     * @param array<string, mixed> $part
+     */
+    protected function handlePart(array $part): Generator
+    {
+        if (isset($part['text'])) {
+            yield from $this->handleTextData($part);
+        } elseif (isset($part['inlineData'])) {
+            $this->streamState->addContentBlock(new ImageContent(
+                $part['inlineData']['data'],
+                SourceType::BASE64,
+                $part['inlineData']['mimeType']
+            ));
+        } elseif (isset($part['fileData'])) {
+            $this->streamState->addContentBlock(new FileContent(
+                $part['fileData']['fileUri'],
+                SourceType::URL,
+                $part['fileData']['mimeType']
+            ));
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $feedback
+     */
+    protected function describeBlockedPrompt(array $feedback): string
+    {
+        $description = "Gemini blocked the prompt: {$feedback['blockReason']}";
+
+        return isset($feedback['blockReasonMessage']) ? "{$description} ({$feedback['blockReasonMessage']})" : $description;
     }
 
     protected function handleTextData(array $part): Generator
@@ -182,7 +207,9 @@ trait HandleStream
         if ($part['thought'] ?? false) {
             // Accumulate the reasoning text
             $this->streamState->updateContentBlock('reasoning', $part['text']);
-            yield new ReasoningChunk($this->streamState->messageId(), $part['text']);
+            if ($part['text'] !== '') {
+                yield new ReasoningChunk($this->streamState->messageId(), $part['text']);
+            }
         } else {
             // Accumulate simple text output
             $this->streamState->updateContentBlock('text', $part['text']);
@@ -207,24 +234,5 @@ trait HandleStream
         }
 
         return false;
-    }
-
-    protected function readLine(StreamInterface $stream): string
-    {
-        $buffer = '';
-
-        while (! $stream->eof()) {
-            $buffer .= $stream->read(1);
-
-            if (mb_strlen($buffer) === 1 && $buffer !== '{') {
-                $buffer = '';
-            }
-
-            if (json_decode($buffer) !== null) {
-                return $buffer;
-            }
-        }
-
-        return rtrim($buffer, ']');
     }
 }

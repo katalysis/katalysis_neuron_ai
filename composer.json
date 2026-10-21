@@ -4,7 +4,9 @@
     "description": "AI Assistant for Concrete CMS using Neuron AI (Dependencies bundled in vendor/)",
     "type": "concrete5-package",
     "require": {
-        "php": "^8.1"
+        "php": "^8.1",
+        "ext-curl": "*",
+        "neuron-core/neuron-ai": "4.1.12"
     },
     "autoload": {
         "psr-4": {
@@ -12,12 +14,12 @@
         }
     },
     "config": {
-        "vendor-dir": "vendor"
+        "vendor-dir": "vendor",
+        "platform": {
+            "php": "8.1.0"
+        }
     },
     "extra": {
-        "bundled-dependencies": {
-            "neuron-core/neuron-ai": "^3.15"
-        },
-        "build-note": "Run './build.sh' to update bundled dependencies. All dependencies are pre-packaged in vendor/ directory."
+        "build-note": "All dependencies are pre-packaged in vendor/. To change a version, see documentation/SETUP.md, 'Updating the bundled dependencies'."
     }
 }

@@ -12,10 +12,13 @@ use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\Stream\Chunks\ReasoningChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\TextChunk;
+use NeuronAI\Chat\Messages\Stream\Chunks\ToolArgumentChunk;
 use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Exceptions\ProviderException;
+use NeuronAI\Providers\ProviderResponse;
 
-use function count;
+use function array_map;
+use function base64_encode;
 
 trait HandleStream
 {
@@ -34,7 +37,9 @@ trait HandleStream
 
         $this->streamState = new StreamState();
 
-        $tools = [];
+        $toolContents = [];
+        $toolPositions = [];
+        $redactedReasoning = [];
         $stopReason = null;
 
         foreach ($result as $eventParserIterator) {
@@ -46,7 +51,12 @@ trait HandleStream
             foreach ($eventParserIterator as $event) {
 
                 if (isset($event['metadata'])) {
-                    $this->streamState->addInputTokens($event['metadata']['usage']['inputTokens'] ?? 0);
+                    // Bedrock reports cache reads and writes apart from inputTokens: the whole prompt adds them back
+                    $this->streamState->addInputTokens(
+                        ($event['metadata']['usage']['inputTokens'] ?? 0)
+                        + ($event['metadata']['usage']['cacheReadInputTokens'] ?? 0)
+                        + ($event['metadata']['usage']['cacheWriteInputTokens'] ?? 0)
+                    );
                     $this->streamState->addOutputTokens($event['metadata']['usage']['outputTokens'] ?? 0);
                     $this->streamState->addCachedInputTokens(
                         $event['metadata']['usage']['cacheReadInputTokens'] ?? 0
@@ -58,6 +68,7 @@ trait HandleStream
                 }
 
                 if (isset($event['contentBlockStart']['start']['toolUse'])) {
+                    $toolPositions[] = $event['contentBlockStart']['contentBlockIndex'];
                     $toolContent = $event['contentBlockStart']['start'];
                     $toolContent['toolUse']['input'] = '';
                     continue;
@@ -73,34 +84,80 @@ trait HandleStream
                 }
 
                 if (isset($event['contentBlockDelta']['delta']['reasoningContent'])) {
-                    $reasoningChunk = $event['contentBlockDelta']['delta']['reasoningContent']['text'];
-                    $this->streamState->updateContentBlock(
-                        $event['contentBlockDelta']['contentBlockIndex'],
-                        new ReasoningContent($reasoningChunk, $event['contentBlockDelta']['delta']['reasoningContent']['signature'])
-                    );
-                    yield new ReasoningChunk($this->streamState->messageId(), $reasoningChunk);
+                    $reasoningContent = $event['contentBlockDelta']['delta']['reasoningContent'];
+                    $contentBlockIndex = $event['contentBlockDelta']['contentBlockIndex'];
+
+                    if (isset($reasoningContent['text'])) {
+                        $this->streamState->updateContentBlock(
+                            $contentBlockIndex,
+                            new ReasoningContent($reasoningContent['text'])
+                        );
+                        if ($reasoningContent['text'] !== '') {
+                            yield new ReasoningChunk($this->streamState->messageId(), $reasoningContent['text']);
+                        }
+                    }
+
+                    if (isset($reasoningContent['redactedContent'])) {
+                        $redactedReasoning[$contentBlockIndex] ??= '';
+                        $redactedReasoning[$contentBlockIndex] .= $reasoningContent['redactedContent'];
+                    }
+
+                    if (isset($reasoningContent['signature'])) {
+                        $this->streamState->signReasoningContentBlock($contentBlockIndex, $reasoningContent['signature']);
+                    }
+
                     continue;
                 }
 
+                if ($toolContent !== null && isset($event['contentBlockStop'])) {
+                    $toolContents[] = $toolContent;
+                    $toolContent = null;
+                }
+
                 if ($toolContent !== null && isset($event['contentBlockDelta']['delta']['toolUse'])) {
-                    $toolContent['toolUse']['input'] .= $event['contentBlockDelta']['delta']['toolUse']['input'];
+                    $input = $event['contentBlockDelta']['delta']['toolUse']['input'];
+                    $toolContent['toolUse']['input'] .= $input;
+
+                    if ($input !== '') {
+                        yield new ToolArgumentChunk(
+                            $this->streamState->messageId(),
+                            $toolContent['toolUse']['name'],
+                            $input,
+                            $toolContent['toolUse']['toolUseId'] ?? null,
+                        );
+                    }
                 }
             }
 
             if ($toolContent !== null) {
-                $tools[] = $this->createTool($toolContent);
+                $toolContents[] = $toolContent;
             }
         }
 
-        // Build final message
-        if ($stopReason === 'tool_use' && count($tools) > 0) {
+        // messageStop carries the stop reason: without it the stream ended early
+        if ($stopReason === null) {
+            throw new ProviderException('The stream ended before the answer was complete.');
+        }
+
+        // Build final message. Tool calls are built only for a tool_use stop:
+        // a call cut off by max_tokens has incomplete arguments and is dropped
+        if ($stopReason === 'tool_use' && $toolContents !== []) {
+            $tools = array_map($this->createTool(...), $toolContents);
             $message = new ToolCallMessage($this->streamState->getContentBlocks(), $tools);
         } else {
             $message = new AssistantMessage($this->streamState->getContentBlocks());
         }
 
-        $message->setUsage($this->streamState->getUsage());
+        if ($redactedReasoning !== []) {
+            $message->addMetadata('aws_redacted_reasoning', array_map(base64_encode(...), $redactedReasoning));
+        }
+        if ($toolPositions !== []) {
+            $message->addMetadata('aws_tool_positions', $toolPositions);
+        }
+        $message->setId($this->streamState->messageId())->setUsage($this->streamState->getUsage());
 
-        return $message;
+        $message->setStopReason($stopReason);
+
+        return new ProviderResponse(message: $message);
     }
 }

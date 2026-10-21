@@ -4,19 +4,21 @@ declare(strict_types=1);
 
 namespace NeuronAI\Providers\Gemini;
 
-use Google\Auth\Credentials\ServiceAccountCredentials;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
+use NeuronAI\Providers\HandleGoogleServiceAccount;
 
 class GeminiVertex extends Gemini
 {
+    use HandleGoogleServiceAccount;
+
     protected string $key = ''; // Not used for Vertex AI, but required by the parent
 
     /**
      * @param array<string, mixed> $parameters
      */
     public function __construct(
-        string $pathJsonCredentials,
+        protected string $pathJsonCredentials,
         ?string $location,
         string $projectId,
         protected string $model,
@@ -28,20 +30,11 @@ class GeminiVertex extends Gemini
             ? "https://{$location}-aiplatform.googleapis.com/v1/projects/{$projectId}/locations/{$location}/publishers/google/models"
             : "https://aiplatform.googleapis.com/v1/projects/{$projectId}/locations/global/publishers/google/models";
 
-        $credentials = new ServiceAccountCredentials(
-            'https://www.googleapis.com/auth/cloud-platform',
-            $pathJsonCredentials
-        );
-
-        $token = $credentials->fetchAuthToken();
-
-        // Configure the HTTP client with Bearer token authentication (no x-goog-api-key)
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->baseUri)
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer ' . $token['access_token'],
-            ]);
+        // Bearer token authentication (see requestHeaders()), no x-goog-api-key
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+        ];
     }
 }

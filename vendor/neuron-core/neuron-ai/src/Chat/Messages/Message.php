@@ -14,8 +14,9 @@ use NeuronAI\StaticConstructor;
 use JsonSerializable;
 use NeuronAI\UniqueIdGenerator;
 
+use function array_diff_key;
 use function array_map;
-use function array_merge;
+use function array_replace;
 use function is_string;
 use function array_filter;
 use function implode;
@@ -46,7 +47,39 @@ class Message implements JsonSerializable
             $this->setContents($content);
         }
 
-        $this->addMetadata('__id', UniqueIdGenerator::generateId('msg_'));
+        $this->setId(UniqueIdGenerator::generateId('msg_'));
+    }
+
+    // A copy owns its blocks, so in-place edits (cache flags, content)
+    // never reach the message it was cloned from.
+    public function __clone(): void
+    {
+        $this->contents = array_map(
+            static fn (ContentBlockInterface $block): ContentBlockInterface => clone $block,
+            $this->contents
+        );
+    }
+
+    public function getId(): string
+    {
+        return $this->meta['__id'];
+    }
+
+    public function setId(string $id): static
+    {
+        $this->meta['__id'] = $id;
+        return $this;
+    }
+
+    /**
+     * The identity lives in the metadata, so a replacement without one keeps it.
+     *
+     * @param array<string, mixed> $meta
+     */
+    public function setMetadata(array $meta): self
+    {
+        $this->meta = array_replace(['__id' => $this->getId()], $meta);
+        return $this;
     }
 
     public function getRole(): string
@@ -83,6 +116,7 @@ class Message implements JsonSerializable
             $this->contents = [$content];
         } else {
             // Assume it's an array
+            $this->contents = [];
             foreach ($content as $block) {
                 $this->addContent($block);
             }
@@ -169,6 +203,7 @@ class Message implements JsonSerializable
     public function jsonSerialize(): array
     {
         $data = [
+            '__id' => $this->getId(),
             'role' => $this->getRole(),
             'content' => array_map(fn (ContentBlockInterface $block): array => $block->toArray(), $this->contents),
         ];
@@ -177,6 +212,9 @@ class Message implements JsonSerializable
             $data['usage'] = $this->getUsage()->jsonSerialize();
         }
 
-        return array_merge($this->meta, $data);
+        // The identity lives in the metadata, but stores address it as a message field.
+        $data['__meta'] = array_diff_key($this->meta, ['__id' => true]);
+
+        return $data;
     }
 }

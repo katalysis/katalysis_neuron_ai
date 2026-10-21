@@ -10,7 +10,9 @@ use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\HttpClient\HttpRequest;
+use NeuronAI\Providers\ProviderResponse;
 
+use function rtrim;
 use function array_filter;
 use function array_key_exists;
 use function json_encode;
@@ -25,32 +27,23 @@ trait HandleChat
      * @throws ProviderException
      * @throws HttpException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
-        $body = [
-            'model' => $this->model,
-            'input' => $this->messageMapper()->map($messages),
-            ...$this->parameters,
-        ];
-
-        // Attach the system prompt
-        if (isset($this->system)) {
-            $body['instructions'] = $this->system;
-        }
-
-        // Attach tools
-        if (!empty($this->tools)) {
-            $body['tools'] = $this->toolPayloadMapper()->map($this->tools);
-        }
+        $body = $this->requestBody($messages);
 
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'responses',
-                body: $body
+                uri: rtrim($this->baseUri, '/') . '/responses',
+                body: $body,
+                headers: $this->httpHeaders,
             )
         );
 
-        return $this->processChatResult($response->json());
+        return new ProviderResponse(
+            message: $this->processChatResult($response->json()),
+            body: $response->body,
+            headers: $response->headers,
+        );
     }
 
     /**
@@ -75,11 +68,20 @@ trait HandleChat
             $result['usage']['output_tokens_details']['reasoning_tokens'] ?? 0,
         );
 
+        // The same output parsing for both: text, reasoning and citations can accompany tool calls
+        $answer = $this->createAssistantMessage($result);
+
         if ($toolCalls !== []) {
-            $message = $this->createToolCallMessage($toolCalls)->setUsage($usage);
+            $message = $this->createToolCallMessage($toolCalls, $answer->getContentBlocks());
+
+            if ($answer->getMetadata('citations') !== null) {
+                $message->addMetadata('citations', $answer->getMetadata('citations'));
+            }
         } else {
-            $message = $this->createAssistantMessage($result)->setUsage($usage);
+            $message = $answer;
         }
+
+        $message->setUsage($usage);
 
         if (isset($result['status'])) {
             $message->setStopReason($result['status']);

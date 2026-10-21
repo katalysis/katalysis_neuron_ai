@@ -4,26 +4,18 @@ declare(strict_types=1);
 
 namespace NeuronAI\Agent\Events;
 
+use NeuronAI\Agent\AgentRunOptions;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Workflow\Events\Event;
 
 class AgentStartEvent implements Event
 {
     /**
-     * @var Message[]
+     * @param Message[] $messages
      */
-    protected array $messages = [];
-
-    public function setMessages(Message ...$messages): void
-    {
-        $this->messages = $messages;
-    }
-
-    /**
-     * @return Message[]
-     */
-    public function getMessages(): array
-    {
-        return $this->messages;
+    public function __construct(
+        public array $messages = [],
+        public AgentRunOptions $options = new AgentRunOptions(),
+    ) {
     }
 }

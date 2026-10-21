@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace NeuronAI\RAG\VectorStore;
 
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 
-interface VectorStoreInterface extends DeleteByInterface
+interface VectorStoreInterface
 {
+    public function getSchema(): DocumentSchema;
+
     public function addDocument(Document $document): VectorStoreInterface;
 
     /**
@@ -16,15 +20,14 @@ interface VectorStoreInterface extends DeleteByInterface
     public function addDocuments(array $documents): VectorStoreInterface;
 
     /**
-     * @deprecated Use deleteBy() instead.
+     * Delete every document matching the filters.
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface;
+    public function delete(FilterExpression $filters): VectorStoreInterface;
 
     /**
-     * Return docs most similar to the embedding.
+     * Return the documents most similar to the request's embedding.
      *
-     * @param  float[]  $embedding
-     * @return Document[]
+     * @return iterable<Document>
      */
-    public function similaritySearch(array $embedding): iterable;
+    public function search(SearchRequest $request): iterable;
 }

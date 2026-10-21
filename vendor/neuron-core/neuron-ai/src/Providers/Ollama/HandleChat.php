@@ -6,12 +6,17 @@ namespace NeuronAI\Providers\Ollama;
 
 use NeuronAI\Chat\Enums\MessageRole;
 use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\ContentBlocks\ContentBlockInterface;
+use NeuronAI\Chat\Messages\ContentBlocks\ReasoningContent;
+use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\HttpClient\HttpRequest;
+use NeuronAI\Providers\ProviderResponse;
 
+use function rtrim;
 use function array_unshift;
 
 trait HandleChat
@@ -20,7 +25,7 @@ trait HandleChat
      * @throws ProviderException
      * @throws HttpException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
         // Include the system prompt
         if (isset($this->system)) {
@@ -40,8 +45,9 @@ trait HandleChat
 
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'chat',
-                body: $body
+                uri: rtrim($this->baseUri, '/') . '/chat',
+                body: $body,
+                headers: $this->httpHeaders,
             )
         );
 
@@ -49,7 +55,11 @@ trait HandleChat
             throw new ProviderException("Ollama chat error: {$response->body}");
         }
 
-        return $this->processResponse($response->json());
+        return new ProviderResponse(
+            message: $this->processResponse($response->json()),
+            body: $response->body,
+            headers: $response->headers,
+        );
     }
 
     /**
@@ -57,15 +67,15 @@ trait HandleChat
      */
     protected function processResponse(array $response): AssistantMessage
     {
-        $message = $response['message'];
+        $blocks = $this->contentBlocks($response['message']);
 
-        if (isset($message['tool_calls'])) {
-            $message = $this->createToolCallMessage($message['tool_calls'], $message['content'] ?? null);
+        if (isset($response['message']['tool_calls'])) {
+            $message = $this->createToolCallMessage($response['message']['tool_calls'], $blocks);
         } else {
-            $message = new AssistantMessage($message['content']);
+            $message = new AssistantMessage($blocks);
         }
 
-        if (isset($response['prompt_eval_count']) && isset($response['eval_count'])) {
+        if (isset($response['prompt_eval_count'], $response['eval_count'])) {
             $message->setUsage(
                 new Usage($response['prompt_eval_count'], $response['eval_count'])
             );
@@ -76,5 +86,26 @@ trait HandleChat
         }
 
         return $message;
+    }
+
+    /**
+     * The same blocks, in the same order, as the stream builds.
+     *
+     * @param array<string, mixed> $message
+     * @return ContentBlockInterface[]
+     */
+    protected function contentBlocks(array $message): array
+    {
+        $blocks = [];
+
+        if (($message['content'] ?? '') !== '') {
+            $blocks[] = new TextContent($message['content']);
+        }
+
+        if (($message['thinking'] ?? '') !== '') {
+            $blocks[] = new ReasoningContent($message['thinking']);
+        }
+
+        return $blocks;
     }
 }

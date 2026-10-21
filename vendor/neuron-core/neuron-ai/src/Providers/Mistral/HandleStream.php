@@ -6,31 +6,29 @@ namespace NeuronAI\Providers\Mistral;
 
 use Generator;
 use NeuronAI\Chat\Enums\MessageRole;
-use NeuronAI\Chat\Enums\SourceType;
 use NeuronAI\Chat\Messages\AssistantMessage;
-use NeuronAI\Chat\Messages\ContentBlocks\AudioContent;
-use NeuronAI\Chat\Messages\ContentBlocks\FileContent;
-use NeuronAI\Chat\Messages\ContentBlocks\ImageContent;
 use NeuronAI\Chat\Messages\ContentBlocks\ReasoningContent;
 use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\Stream\Chunks\ReasoningChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\TextChunk;
+use NeuronAI\Chat\Messages\Stream\Chunks\ToolArgumentChunk;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\Providers\OpenAI\StreamState;
+use NeuronAI\Providers\HandleEarlyStreamEnd;
+use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\Providers\SSEParser;
 
-use function array_filter;
-use function array_reduce;
+use function rtrim;
 use function array_unshift;
-use function is_array;
-use function array_key_exists;
 use function array_merge;
 
 trait HandleStream
 {
+    use HandleEarlyStreamEnd;
+
     protected StreamState $streamState;
 
     /**
@@ -61,8 +59,9 @@ trait HandleStream
 
         $stream = $this->httpClient->stream(
             HttpRequest::post(
-                uri: 'chat/completions',
-                body: $body
+                uri: rtrim($this->baseUri, '/') . '/chat/completions',
+                body: $body,
+                headers: $this->httpHeaders,
             )
         );
 
@@ -85,71 +84,66 @@ trait HandleStream
             }
 
             $choice = $line['choices'][0];
+            $lastFinishReason = $choice['finish_reason'] ?? $lastFinishReason;
 
             // Compile tool calls
             if ($this->isToolCallPart($line)) {
                 $this->streamState->composeToolCalls($line);
 
-                // Handle tool calls
-                if ($choice['finish_reason'] === 'tool_calls') {
-                    return $this->createToolCallMessage(
-                        $this->streamState->getToolCalls(),
-                        $this->streamState->getContentBlocks()
-                    )->setUsage($this->streamState->getUsage());
+                foreach ($choice['delta']['tool_calls'] as $call) {
+                    $arguments = $call['function']['arguments'] ?? '';
+                    $toolCall = $this->streamState->getToolCall($call['index']);
+                    if ($arguments !== '' && $toolCall !== null) {
+                        yield new ToolArgumentChunk(
+                            $this->streamState->messageId(),
+                            $toolCall['function']['name'],
+                            $arguments,
+                            $toolCall['id'] ?? null,
+                        );
+                    }
                 }
 
                 continue;
             }
 
-            // Process regular content
+            // The role and finish deltas carry an empty string: a text block opened for them would precede the thinking
             $content = $choice['delta']['content'] ?? '';
+            $blocks = $content === '' ? [] : $this->extractContent($content);
 
-            if (is_array($content)) {
-                $content = $content[0];
-                $block = match ($content['type']) {
-                    'text' => new TextContent($content['text'] ?? ''),
-                    'thinking' => new ReasoningContent(array_reduce(array_filter($content['thinking'], fn (array $item): bool => $item['type'] === 'text'), fn (string $carry, array $item): string => $carry .= $item['text'], '')),
-                    'image_url' => new ImageContent(
-                        $content['image_url']['url'] ?? '',
-                        SourceType::BASE64
-                    ),
-                    'document_url' => new FileContent(
-                        content: $content['document_url'] ?? '',
-                        sourceType: SourceType::BASE64,
-                        filename: $content['document_name'] ?? null
-                    ),
-                    'input_audio' => new AudioContent($content['input_audio'], SourceType::BASE64),
-                    default => new TextContent(''),
+            foreach ($blocks as $block) {
+                // A key of its own keeps the thinking apart from the answer's text block
+                $this->streamState->updateContentBlock($block instanceof ReasoningContent ? -1 : $choice['index'], $block);
+
+                $chunk = match ($block::class) {
+                    TextContent::class => new TextChunk($this->streamState->messageId(), $block->getContent()),
+                    ReasoningContent::class => $block->getContent() !== ''
+                        ? new ReasoningChunk($this->streamState->messageId(), $block->getContent())
+                        : null,
+                    default => null,
                 };
-            } else {
-                $block = new TextContent($content);
-            }
 
-            $this->streamState->updateContentBlock($choice['index'], $block);
-
-            $chunk = match ($block::class) {
-                TextContent::class => new TextChunk($this->streamState->messageId(), $block->getContent()),
-                ReasoningContent::class => new ReasoningChunk($this->streamState->messageId(), $block->getContent()),
-                default => null,
-            };
-
-            if ($chunk !== null) {
-                yield $chunk;
-            }
-
-            if (array_key_exists('finish_reason', $choice)) {
-                $lastFinishReason = $choice['finish_reason'];
+                if ($chunk !== null) {
+                    yield $chunk;
+                }
             }
         }
 
-        $message = new AssistantMessage($this->streamState->getContentBlocks());
-        $message->setUsage($this->streamState->getUsage());
-
-        if ($lastFinishReason !== null) {
-            $message->setStopReason($lastFinishReason);
+        // The last choice carries the finish reason: without it the stream ended early
+        if ($lastFinishReason === null) {
+            return $this->earlyEndResponse($stream, $this->streamState->getContentBlocks(), $this->streamState->messageId(), $this->streamState->getUsage());
         }
 
-        return $message;
+        // Built once the stream ends: the tool_calls finish reason may arrive in a later chunk than the calls
+        $blocks = $this->streamState->getContentBlocks();
+
+        $message = $this->streamState->hasToolCalls()
+            ? $this->createToolCallMessage($this->streamState->getToolCalls(), $blocks)
+            : new AssistantMessage($blocks);
+        $message->setId($this->streamState->messageId())->setUsage($this->streamState->getUsage());
+
+        $message->setStopReason($lastFinishReason);
+
+        return new ProviderResponse(message: $message);
     }
 
     protected function isToolCallPart(array $line): bool

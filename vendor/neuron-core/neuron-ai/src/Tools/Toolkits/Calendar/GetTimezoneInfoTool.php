@@ -11,22 +11,16 @@ use NeuronAI\Tools\ToolProperty;
 use DateTime;
 use Exception;
 
-use function abs;
-use function floor;
 use function is_numeric;
 use function json_encode;
-use function sprintf;
+use function round;
 use function str_contains;
 
 class GetTimezoneInfoTool extends Tool
 {
-    public function __construct()
-    {
-        parent::__construct(
-            name: 'get_timezone_info',
-            description: 'Get detailed information about a timezone including offset and DST rules',
-        );
-    }
+    protected string $name = 'get_timezone_info';
+
+    protected ?string $description = 'Get detailed information about a timezone including offset and DST rules';
 
     protected function properties(): array
     {
@@ -59,8 +53,6 @@ class GetTimezoneInfoTool extends Tool
             }
 
             $offset = $tz->getOffset($date);
-            $offsetHours = $offset / 3600;
-            $offsetFormatted = sprintf('%+03d:%02d', floor($offsetHours), abs($offset % 3600) / 60);
 
             $transitions = $tz->getTransitions($date->getTimestamp(), $date->getTimestamp() + (365 * 24 * 3600));
             $isDst = !empty($transitions) && $transitions[0]['isdst'];
@@ -70,14 +62,15 @@ class GetTimezoneInfoTool extends Tool
             return json_encode([
                 'timezone' => $timezone,
                 'offset_seconds' => $offset,
-                'offset_hours' => $offsetHours,
-                'offset_formatted' => $offsetFormatted,
+                'offset_hours' => $offset / 3600,
+                'offset_formatted' => $date->format('P'),
                 'is_dst' => $isDst,
                 'abbreviation' => $date->format('T'),
                 'location' => ($location !== false && !str_contains($location['country_code'], '?')) ? [
                     'country_code' => $location['country_code'],
-                    'latitude' => $location['latitude'],
-                    'longitude' => $location['longitude'],
+                    // Arc-minute precision of the source data; also hides float noise that differs between timezone databases
+                    'latitude' => round($location['latitude'], 4),
+                    'longitude' => round($location['longitude'], 4),
                 ] : null,
                 'reference_time' => $date->format('Y-m-d H:i:s T'),
             ]);

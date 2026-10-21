@@ -4,26 +4,27 @@ declare(strict_types=1);
 
 namespace NeuronAI\Tools\Toolkits\Tavily;
 
-use GuzzleHttp\Client;
-use GuzzleHttp\RequestOptions;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\Tool;
 
+use function array_filter;
 use function array_map;
 use function array_merge;
 use function implode;
-use function json_decode;
-use function trim;
 
 /**
  * @method static static make(string $key, array $topics = [])
  */
 class TavilySearchTool extends Tool
 {
-    protected Client $client;
+    use HandleTavilyClient;
 
-    protected string $url = 'https://api.tavily.com/';
+    protected string $name = 'web_search';
+
+    protected ?string $description;
 
     protected array $options = [
         'search_depth' => 'basic',
@@ -38,15 +39,13 @@ class TavilySearchTool extends Tool
     public function __construct(
         protected string $key,
         protected array $topics = [],
+        ?HttpClientInterface $httpClient = null,
     ) {
-
-        parent::__construct(
-            'web_search',
-            'Use this tool to search the web for additional information '.
-            ($this->topics === [] ? '' : 'about '.implode(', ', $this->topics).', or ').
-            'if the question is outside the scope of the context you have.'
-        );
-
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->description = 'Search the web and return the most relevant pages, each with its title, URL and a short description of its content. '.
+            'Use it '.($this->topics === [] ? '' : 'for questions about '.implode(', ', $this->topics).', or ').
+            'when the question is outside the scope of the context you have. '.
+            'A result describes its page and does not carry its full content.';
     }
 
     protected function properties(): array
@@ -55,13 +54,13 @@ class TavilySearchTool extends Tool
             new ToolProperty(
                 'search_query',
                 PropertyType::STRING,
-                'The search query to perform web search.',
+                'A concise query about a single subject, written as you would type it in a search engine. Run a separate search for each subject of a complex question.',
                 true
             ),
             new ToolProperty(
                 'topic',
                 PropertyType::STRING,
-                'Explicit the topic you want to perform the web search on.',
+                'The category of sources to search: news for current events covered by mainstream media, finance for financial information, general for anything else. Defaults to general.',
                 false,
                 ['general', 'news', 'finance']
             ),
@@ -81,21 +80,9 @@ class TavilySearchTool extends Tool
         ];
     }
 
-    protected function getClient(): Client
-    {
-        return $this->client ??= new Client([
-            'base_uri' => trim($this->url, '/').'/',
-            'headers' => [
-                'Authorization' => 'Bearer '.$this->key,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ],
-        ]);
-    }
-
     /**
      * @return array<string, mixed>
-     * @throws \GuzzleHttp\Exception\GuzzleException
+     * @throws \NeuronAI\Exceptions\HttpException
      */
     public function __invoke(
         string $search_query,
@@ -103,19 +90,19 @@ class TavilySearchTool extends Tool
         ?string $time_range = null,
         ?int $days = null,
     ): array {
-        $topic ??= 'general';
-        $time_range ??= 'day';
-        $days ??= 7;
+        // Only the filters the model chose: a default range would silently narrow every search
+        $filters = array_filter(
+            ['topic' => $topic ?? 'general', 'time_range' => $time_range, 'days' => $days],
+            fn (string|int|null $filter): bool => $filter !== null
+        );
 
-        $result = $this->getClient()->post('search', [
-            RequestOptions::JSON => array_merge(
-                ['topic' => $topic, 'time_range' => $time_range, 'days' => $days],
-                $this->options,
-                ['query' => $search_query]
-            ),
-        ]);
+        $result = $this->post('search', array_merge(
+            $filters,
+            $this->options,
+            ['query' => $search_query]
+        ));
 
-        $result = json_decode((string) $result->getBody(), true);
+        $result = $result->json();
 
         return [
             'answer' => $result['answer'],

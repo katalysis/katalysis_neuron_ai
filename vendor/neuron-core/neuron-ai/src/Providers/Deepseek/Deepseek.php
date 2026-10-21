@@ -14,6 +14,7 @@ use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\Providers\MessageMapperInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
+use NeuronAI\Providers\ProviderResponse;
 
 use function array_merge;
 use function json_encode;
@@ -25,7 +26,7 @@ class Deepseek extends OpenAI
 {
     protected string $baseUri = "https://api.deepseek.com/v1";
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
         return $this->messageMapper ?? $this->messageMapper = new MessageMapper();
     }
@@ -40,19 +41,27 @@ class Deepseek extends OpenAI
         string $class,
         array $response_format,
         bool $strict = false,
-    ): Message {
-        $this->parameters = array_merge($this->parameters, [
-            'response_format' => [
-                'type' => 'json_object',
-            ],
-        ]);
+    ): ProviderResponse {
+        $originalParameters = $this->parameters;
+        $originalSystem = $this->system;
 
-        $this->system .= PHP_EOL."# OUTPUT FORMAT CONSTRAINTS".PHP_EOL
-            .'Generate a json respecting this schema: '.json_encode($response_format);
+        try {
+            $this->parameters = array_merge($this->parameters, [
+                'response_format' => [
+                    'type' => 'json_object',
+                ],
+            ]);
 
-        $messages = is_array($messages) ? $messages : [$messages];
+            $this->system .= PHP_EOL."# OUTPUT FORMAT CONSTRAINTS".PHP_EOL
+                .'Generate a json respecting this schema: '.json_encode($response_format);
 
-        return $this->chat(...$messages);
+            $messages = is_array($messages) ? $messages : [$messages];
+
+            return $this->chat(...$messages);
+        } finally {
+            $this->parameters = $originalParameters;
+            $this->system = $originalSystem;
+        }
     }
 
     /**
@@ -61,7 +70,7 @@ class Deepseek extends OpenAI
      */
     protected function enrichMessage(AssistantMessage $message, ?array $response = null): AssistantMessage
     {
-        // First apply parent enrichMessage (handles streaming metadata)
+        // First, apply parent enrichMessage
         $message = parent::enrichMessage($message);
 
         // For chat context: extract reasoning_content from API response
@@ -84,6 +93,8 @@ class Deepseek extends OpenAI
      */
     protected function processToolCallDelta(array $choice): Generator
     {
+        yield from parent::processToolCallDelta($choice);
+
         if (isset($choice['delta']['reasoning_content'])) {
             $reasoningContent = $choice['delta']['reasoning_content'];
 
@@ -91,7 +102,9 @@ class Deepseek extends OpenAI
             $this->streamState->accumulateMetadata('reasoning_content', $reasoningContent);
 
             // Yield chunk for real-time streaming
-            yield new ReasoningChunk($this->streamState->messageId(), $reasoningContent);
+            if ($reasoningContent !== '') {
+                yield new ReasoningChunk($this->streamState->messageId(), $reasoningContent);
+            }
         }
     }
 
@@ -115,7 +128,9 @@ class Deepseek extends OpenAI
                 new ReasoningContent($reasoningContent)
             );
             // Yield chunk for real-time streaming
-            yield new ReasoningChunk($this->streamState->messageId(), $reasoningContent);
+            if ($reasoningContent !== '') {
+                yield new ReasoningChunk($this->streamState->messageId(), $reasoningContent);
+            }
         }
     }
 }

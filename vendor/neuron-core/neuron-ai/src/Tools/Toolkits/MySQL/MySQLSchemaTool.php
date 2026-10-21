@@ -21,17 +21,17 @@ use function strtolower;
  */
 class MySQLSchemaTool extends Tool
 {
+    protected string $name = 'analyze_mysql_database_schema';
+
+    protected ?string $description = 'Retrieves MySQL database schema information including tables, columns, relationships, and indexes.
+            Use this tool first to understand the database structure before writing any SQL queries.
+            Essential for generating accurate queries with proper table/column names, JOIN conditions,
+            and performance optimization. DO NOT call this tool if you already have database schema information in the context.';
+
     public function __construct(
         protected PDO $pdo,
         protected ?array $tables = null,
     ) {
-        parent::__construct(
-            'analyze_mysql_database_schema',
-            'Retrieves MySQL database schema information including tables, columns, relationships, and indexes.
-            Use this tool first to understand the database structure before writing any SQL queries.
-            Essential for generating accurate queries with proper table/column names, JOIN conditions,
-            and performance optimization. DO NOT call this tool if you already have database schema information in the context.'
-        );
     }
 
     public function __invoke(): string
@@ -40,7 +40,6 @@ class MySQLSchemaTool extends Tool
             'tables' => $this->getTables(),
             'relationships' => $this->getRelationships(),
             'indexes' => $this->getIndexes(),
-            'constraints' => $this->getConstraints(),
         ]);
     }
 
@@ -179,18 +178,16 @@ class MySQLSchemaTool extends Tool
         foreach ($results as $row) {
             $tableName = $row['TABLE_NAME'];
 
-            if (!isset($tables[$tableName])) {
-                $tables[$tableName] = [
-                    'name' => $tableName,
-                    'engine' => $row['ENGINE'],
-                    'estimated_rows' => $row['TABLE_ROWS'],
-                    'comment' => $row['TABLE_COMMENT'],
-                    'columns' => [],
-                    'primary_key' => [],
-                    'unique_keys' => [],
-                    'indexes' => [],
-                ];
-            }
+            $tables[$tableName] ??= [
+                'name' => $tableName,
+                'engine' => $row['ENGINE'],
+                'estimated_rows' => $row['TABLE_ROWS'],
+                'comment' => $row['TABLE_COMMENT'],
+                'columns' => [],
+                'primary_key' => [],
+                'unique_keys' => [],
+                'indexes' => [],
+            ];
 
             if ($row['COLUMN_NAME']) {
                 $column = [
@@ -240,6 +237,8 @@ class MySQLSchemaTool extends Tool
             $params = array_merge($this->tables, $this->tables);
         }
 
+        // ORDINAL_POSITION must appear in the SELECT list: MySQL/MariaDB with
+        // ONLY_FULL_GROUP_BY reject DISTINCT + ORDER BY on non-selected columns.
         $stmt = $this->pdo->prepare("
             SELECT DISTINCT
                 kcu.CONSTRAINT_NAME,
@@ -248,7 +247,8 @@ class MySQLSchemaTool extends Tool
                 kcu.REFERENCED_TABLE_NAME as target_table,
                 kcu.REFERENCED_COLUMN_NAME as target_column,
                 rc.UPDATE_RULE,
-                rc.DELETE_RULE
+                rc.DELETE_RULE,
+                kcu.ORDINAL_POSITION
             FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
             JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
                 ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
@@ -263,45 +263,7 @@ class MySQLSchemaTool extends Tool
 
     protected function getIndexes(): array
     {
-        $stmt = $this->pdo->prepare("
-            SELECT
-                TABLE_NAME,
-                INDEX_NAME,
-                COLUMN_NAME,
-                SEQ_IN_INDEX,
-                NON_UNIQUE,
-                INDEX_TYPE,
-                CARDINALITY
-            FROM INFORMATION_SCHEMA.STATISTICS
-            WHERE TABLE_SCHEMA = DATABASE()
-                AND INDEX_NAME != 'PRIMARY'
-            ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX
-        ");
-
-        $stmt->execute();
-        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $indexes = [];
-        foreach ($results as $row) {
-            $key = $row['TABLE_NAME'] . '.' . $row['INDEX_NAME'];
-            if (!isset($indexes[$key])) {
-                $indexes[$key] = [
-                    'table' => $row['TABLE_NAME'],
-                    'name' => $row['INDEX_NAME'],
-                    'unique' => $row['NON_UNIQUE'] == 0,
-                    'type' => $row['INDEX_TYPE'],
-                    'columns' => [],
-                ];
-            }
-            $indexes[$key]['columns'][] = $row['COLUMN_NAME'];
-        }
-
-        return array_values($indexes);
-    }
-
-    protected function getConstraints(): array
-    {
-        $whereClause = "WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_TYPE IN ('UNIQUE')";
+        $whereClause = "WHERE TABLE_SCHEMA = DATABASE() AND INDEX_NAME != 'PRIMARY'";
         $params = [];
 
         // Add table filtering if specific tables are requested
@@ -313,15 +275,35 @@ class MySQLSchemaTool extends Tool
 
         $stmt = $this->pdo->prepare("
             SELECT
-                CONSTRAINT_NAME,
                 TABLE_NAME,
-                CONSTRAINT_TYPE
-            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+                INDEX_NAME,
+                COLUMN_NAME,
+                SEQ_IN_INDEX,
+                NON_UNIQUE,
+                INDEX_TYPE,
+                CARDINALITY
+            FROM INFORMATION_SCHEMA.STATISTICS
             $whereClause
+            ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX
         ");
 
         $stmt->execute($params);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $indexes = [];
+        foreach ($results as $row) {
+            $key = $row['TABLE_NAME'] . '.' . $row['INDEX_NAME'];
+            $indexes[$key] ??= [
+                'table' => $row['TABLE_NAME'],
+                'name' => $row['INDEX_NAME'],
+                'unique' => $row['NON_UNIQUE'] == 0,
+                'type' => $row['INDEX_TYPE'],
+                'columns' => [],
+            ];
+            $indexes[$key]['columns'][] = $row['COLUMN_NAME'];
+        }
+
+        return array_values($indexes);
     }
 
     protected function addCommonPatterns(string &$output, array $tables): void

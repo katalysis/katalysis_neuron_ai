@@ -4,75 +4,96 @@ declare(strict_types=1);
 
 namespace NeuronAI\Agent\Nodes;
 
-use Inspector\Exceptions\InspectorException;
+use Generator;
+use NeuronAI\Agent\AgentResources;
 use NeuronAI\Agent\AgentState;
-use NeuronAI\Agent\ChatHistoryHelper;
+use NeuronAI\Agent\Events\AgentOutputEvent;
 use NeuronAI\Agent\Events\AIInferenceEvent;
 use NeuronAI\Agent\Events\ToolCallEvent;
+use NeuronAI\Agent\InferenceRequest;
+use NeuronAI\Agent\Observability\InferenceStart;
+use NeuronAI\Agent\Observability\InferenceStop;
 use NeuronAI\Chat\Messages\Message;
+use NeuronAI\Chat\Messages\Stream\Chunks\StreamChunk;
 use NeuronAI\Chat\Messages\ToolCallMessage;
-use NeuronAI\Observability\Events\InferenceStart;
-use NeuronAI\Observability\Events\InferenceStop;
-use NeuronAI\Providers\AIProviderInterface;
-use NeuronAI\Workflow\Events\StopEvent;
-use NeuronAI\Workflow\Node;
+use NeuronAI\Exceptions\ChatHistoryException;
+use NeuronAI\Providers\ProviderResponse;
+use Throwable;
+
+use function end;
 
 /**
- * Receives an AIInferenceEvent containing instructions and tools that middleware can
- * modify before the actual inference call is made.
+ * Reads the working request from AgentState after middleware has applied its changes.
+ *
+ * Chat and streaming are the same inference with different transport: the
+ * request's stream intent selects between a buffered provider call and a live
+ * chunk stream. Both paths record the same ProviderResponse under the same
+ * memo, so the intent flag can never invalidate a replay.
  */
-class ChatNode extends Node
+class ChatNode extends InferenceNode
 {
-    use ChatHistoryHelper;
-
-    public function __construct(
-        protected AIProviderInterface $provider,
-    ) {
-    }
-
     /**
-     * @throws InspectorException
+     * @throws ChatHistoryException
+     * @throws Throwable
      */
-    public function __invoke(AIInferenceEvent $event, AgentState $state): StopEvent|ToolCallEvent
+    public function __invoke(AIInferenceEvent $event, AgentState $state, AgentResources $resources): Generator|AgentOutputEvent|ToolCallEvent
     {
-        $this->addToChatHistory($state, $event->getMessages());
+        $inbound = $state->request->messages;
+        $messages = $this->withContext($this->pendingConversation($resources->history, $inbound), $state->request->context);
+        $lastMessage = end($messages);
 
-        $chatHistory = $state->getChatHistory();
-        $lastMessage = $chatHistory->getLastMessage();
+        $this->emit(new InferenceStart($lastMessage));
+        $providerResponse = $this->recallMemo('inference');
 
-        $this->emit('inference-start', new InferenceStart($lastMessage));
-        $response = $this->inference($event, $chatHistory->getMessages());
-        $this->emit('inference-stop', new InferenceStop($lastMessage, $response));
+        if (!$providerResponse instanceof ProviderResponse) {
+            $providerResponse = $state->request->options->stream
+                ? yield from $this->stream($resources, $state->request, $messages)
+                : $this->chat($resources, $state->request, $messages);
 
-        // If the response is a tool call, route to the tool node.
-        // It will be responsible to add the tool call message to the chat history.
-        if ($response instanceof ToolCallMessage) {
-            return new ToolCallEvent($response, $event);
+            // Only the terminal response is durable; a live stream cannot be replayed.
+            $providerResponse = $this->memoize('inference', fn (): ProviderResponse => $providerResponse);
         }
 
-        // Add the final response to chat history (after tool loop)
-        $this->addToChatHistory($state, $response);
+        $this->emit(new InferenceStop($lastMessage, $providerResponse));
 
-        return new StopEvent();
+        $this->addToChatHistory($resources->history, $state, $inbound);
+        $state->setResponse($providerResponse);
+        $message = $providerResponse->message();
+
+        // The tool node owns writing the tool call message to chat history.
+        if ($message instanceof ToolCallMessage) {
+            return new ToolCallEvent($message);
+        }
+
+        $this->addToChatHistory($resources->history, $state, $message);
+
+        return new AgentOutputEvent();
     }
 
     /**
-     * Perform the actual inference call to the AI provider.
-     *
-     * This method is extracted to allow easy customization of the inference behavior.
-     * Subclasses can override this method to:
-     * - Use async operations (chatAsync with Amp, ReactPHP, etc.)
-     * - Add custom retry logic
-     * - Implement caching
-     * - Add custom error handling
+     * @param Message[] $messages
+     * @return Generator<int, StreamChunk, mixed, ProviderResponse>
+     * @throws Throwable
+     */
+    protected function stream(AgentResources $resources, InferenceRequest $request, array $messages): Generator
+    {
+        return yield from $resources->provider
+            ->systemPrompt($request->instructions)
+            ->setTools($resources->tools->all())
+            ->stream(...$messages);
+    }
+
+    /**
+     * Extracted so subclasses can customize the provider call (async
+     * operations, retries, caching).
      *
      * @param Message[] $messages
      */
-    protected function inference(AIInferenceEvent $event, array $messages): Message
+    protected function chat(AgentResources $resources, InferenceRequest $request, array $messages): ProviderResponse
     {
-        return $this->provider
-            ->systemPrompt($event->instructions)
-            ->setTools($event->tools)
+        return $resources->provider
+            ->systemPrompt($request->instructions)
+            ->setTools($resources->tools->all())
             ->chat(...$messages);
     }
 }

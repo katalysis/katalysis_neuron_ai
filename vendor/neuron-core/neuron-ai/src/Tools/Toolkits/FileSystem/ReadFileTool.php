@@ -5,23 +5,19 @@ declare(strict_types=1);
 namespace NeuronAI\Tools\Toolkits\FileSystem;
 
 use NeuronAI\Tools\PropertyType;
-use NeuronAI\Tools\Tool;
+use NeuronAI\Tools\ToolOutput;
 use NeuronAI\Tools\ToolProperty;
 
 use function file_get_contents;
 use function is_file;
 use function is_readable;
+use function mb_check_encoding;
 use function mb_strlen;
 
-class ReadFileTool extends Tool
+class ReadFileTool extends FileSystemTool
 {
-    public function __construct()
-    {
-        parent::__construct(
-            name: 'read_file',
-            description: 'Read the contents of a text file.',
-        );
-    }
+    protected string $name = 'read_file';
+    protected ?string $description = 'Read the contents of a text file.';
 
     protected function properties(): array
     {
@@ -34,19 +30,29 @@ class ReadFileTool extends Tool
         ];
     }
 
-    public function __invoke(string $file_path): string
+    public function __invoke(string $file_path): string|ToolOutput
     {
-        if (!is_file($file_path)) {
-            return "Error: File '{$file_path}' does not exist.";
+        $path = $this->resolve($file_path);
+        if ($path instanceof ToolOutput) {
+            return $path;
         }
 
-        if (!is_readable($file_path)) {
-            return "Error: File '{$file_path}' is not readable.";
+        if (!is_file($path)) {
+            return ToolOutput::error("File '{$file_path}' does not exist.");
         }
 
-        $content = file_get_contents($file_path);
+        if (!is_readable($path)) {
+            return ToolOutput::error("File '{$file_path}' is not readable.");
+        }
+
+        $content = file_get_contents($path);
         if ($content === false) {
-            return "Error: Unable to read file '{$file_path}'.";
+            return ToolOutput::error("Unable to read file '{$file_path}'.");
+        }
+
+        // Invalid UTF-8 in the conversation would make the next provider request impossible to encode
+        if (!mb_check_encoding($content, 'UTF-8')) {
+            return ToolOutput::error("'{$file_path}' is not a UTF-8 text file. Use parse_file for PDF or HTML documents.");
         }
 
         $length = mb_strlen($content);

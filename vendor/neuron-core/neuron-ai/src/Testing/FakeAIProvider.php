@@ -5,14 +5,20 @@ declare(strict_types=1);
 namespace NeuronAI\Testing;
 
 use Generator;
+use NeuronAI\Chat\Messages\ContentBlocks\ReasoningContent;
+use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
 use NeuronAI\Chat\Messages\Message;
+use NeuronAI\Chat\Messages\Stream\Chunks\ReasoningChunk;
+use NeuronAI\Chat\Messages\Stream\Chunks\StreamChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\TextChunk;
+use NeuronAI\Chat\Messages\Stream\Chunks\ToolArgumentChunk;
+use NeuronAI\Chat\Messages\SystemMessage;
+use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\HandleWithTools;
-use NeuronAI\Providers\MessageMapperInterface;
-use NeuronAI\Providers\ToolMapperInterface;
+use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\StaticConstructor;
 use NeuronAI\Tools\ProviderToolInterface;
 use NeuronAI\Tools\ToolInterface;
@@ -24,19 +30,23 @@ use function array_values;
 use function count;
 use function implode;
 use function is_array;
-use function mb_strlen;
-use function mb_substr;
-use function uniqid;
+use function is_string;
+use function json_encode;
+use function mb_str_split;
+
+use const JSON_THROW_ON_ERROR;
 
 class FakeAIProvider implements AIProviderInterface
 {
     use StaticConstructor;
     use HandleWithTools;
 
-    protected ?string $systemPrompt = null;
+    protected string $model = 'fake';
+
+    protected ?SystemMessage $systemPrompt = null;
 
     /** @var Message[] */
-    protected array $responseQueue = [];
+    protected array $responseQueue;
 
     /** @var RequestRecord[] */
     protected array $recorded = [];
@@ -51,16 +61,21 @@ class FakeAIProvider implements AIProviderInterface
         $this->responseQueue = $responses;
     }
 
-    public function systemPrompt(?string $prompt): AIProviderInterface
+    public function getModel(): string
     {
-        $this->systemPrompt = $prompt;
+        return $this->model;
+    }
+
+    public function systemPrompt(SystemMessage|string|null $prompt): AIProviderInterface
+    {
+        $this->systemPrompt = is_string($prompt) ? new SystemMessage($prompt) : $prompt;
         return $this;
     }
 
     /**
      * @throws ProviderException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
         $response = $this->nextResponse();
 
@@ -71,11 +86,11 @@ class FakeAIProvider implements AIProviderInterface
             tools: $this->tools,
         );
 
-        return $response;
+        return new ProviderResponse(message: $response);
     }
 
     /**
-     * @return Generator<int, TextChunk, mixed, Message>
+     * @return Generator<int, StreamChunk, mixed, ProviderResponse>
      * @throws ProviderException
      */
     public function stream(Message ...$messages): Generator
@@ -95,22 +110,47 @@ class FakeAIProvider implements AIProviderInterface
     }
 
     /**
-     * @return Generator<int, TextChunk, mixed, Message>
+     * Chunks are derived from the queued message the way a real provider
+     * streams it: reasoning and text blocks in content order, then the JSON
+     * inputs of every tool call.
+     *
+     * @return Generator<int, StreamChunk, mixed, ProviderResponse>
      */
     protected function streamChunks(Message $response): Generator
     {
-        $text = $response->getContent() ?? '';
-        $messageId = uniqid('fake_msg_');
-        $offset = 0;
-        $length = mb_strlen($text);
+        $messageId = $response->getId();
 
-        while ($offset < $length) {
-            $chunk = mb_substr($text, $offset, $this->streamChunkSize);
-            yield new TextChunk($messageId, $chunk);
-            $offset += $this->streamChunkSize;
+        foreach ($response->getContentBlocks() as $block) {
+            if (!$block instanceof TextContent) {
+                continue;
+            }
+
+            foreach ($this->split($block->content) as $piece) {
+                yield $block instanceof ReasoningContent
+                    ? new ReasoningChunk($messageId, $piece)
+                    : new TextChunk($messageId, $piece);
+            }
         }
 
-        return $response;
+        if ($response instanceof ToolCallMessage) {
+            foreach ($response->getToolCalls() as $call) {
+                $arguments = json_encode((object) $call->getInputs(), JSON_THROW_ON_ERROR);
+
+                foreach ($this->split($arguments) as $piece) {
+                    yield new ToolArgumentChunk($messageId, $call->getName(), $piece, $call->getCallId());
+                }
+            }
+        }
+
+        return new ProviderResponse(message: $response);
+    }
+
+    /**
+     * @return string[]
+     */
+    protected function split(string $text): array
+    {
+        return mb_str_split($text, $this->streamChunkSize);
     }
 
     /**
@@ -118,7 +158,7 @@ class FakeAIProvider implements AIProviderInterface
      * @param array<string, mixed> $response_schema
      * @throws ProviderException
      */
-    public function structured(array|Message $messages, string $class, array $response_schema): Message
+    public function structured(array|Message $messages, string $class, array $response_schema): ProviderResponse
     {
         $messages = is_array($messages) ? $messages : [$messages];
 
@@ -133,17 +173,7 @@ class FakeAIProvider implements AIProviderInterface
             structuredSchema: $response_schema,
         );
 
-        return $response;
-    }
-
-    public function messageMapper(): MessageMapperInterface
-    {
-        return new FakeMessageMapper();
-    }
-
-    public function toolPayloadMapper(): ToolMapperInterface
-    {
-        return new FakeToolMapper();
+        return new ProviderResponse(message: $response);
     }
 
     public function setHttpClient(HttpClientInterface $client): AIProviderInterface
@@ -151,9 +181,6 @@ class FakeAIProvider implements AIProviderInterface
         return $this;
     }
 
-    /**
-     * Add more responses to the queue.
-     */
     public function addResponses(Message ...$responses): self
     {
         foreach ($responses as $response) {
@@ -162,9 +189,6 @@ class FakeAIProvider implements AIProviderInterface
         return $this;
     }
 
-    /**
-     * Set the chunk size for stream simulation.
-     */
     public function setStreamChunkSize(int $size): self
     {
         $this->streamChunkSize = $size;
@@ -198,7 +222,7 @@ class FakeAIProvider implements AIProviderInterface
     }
 
     /**
-     * Assert that at least one recorded call matches the given callback.
+     * Assert at least one recorded call matches the callback.
      *
      * @param callable(RequestRecord): bool $callback
      */
@@ -224,9 +248,6 @@ class FakeAIProvider implements AIProviderInterface
         );
     }
 
-    /**
-     * Assert a specific method was called a given number of times.
-     */
     public function assertMethodCallCount(string $method, int $expected): void
     {
         $count = 0;
@@ -244,14 +265,14 @@ class FakeAIProvider implements AIProviderInterface
     }
 
     /**
-     * Assert the system prompt was set to the expected value on at least one call.
+     * Assert the expected system prompt was set on at least one call.
      */
     public function assertSystemPrompt(string $expected): void
     {
         $matched = false;
 
         foreach ($this->recorded as $record) {
-            if ($record->systemPrompt === $expected) {
+            if ($record->systemPrompt?->getContent() === $expected) {
                 $matched = true;
                 break;
             }
@@ -261,7 +282,7 @@ class FakeAIProvider implements AIProviderInterface
     }
 
     /**
-     * Assert that tools were configured by name on at least one call.
+     * Assert the exact tool name list was configured on at least one call.
      *
      * @param string[] $toolNames
      */

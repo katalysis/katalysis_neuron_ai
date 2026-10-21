@@ -20,7 +20,7 @@ class DocumentsProcessedEvent implements Event
      */
     public function __construct(
         public readonly Message $query,
-        public readonly array $documents
+        public readonly array $documents,
     ) {
     }
 }

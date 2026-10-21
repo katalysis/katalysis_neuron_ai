@@ -9,6 +9,7 @@ use NeuronAI\Tools\ToolInterface;
 
 use function array_filter;
 use function array_map;
+use function array_values;
 use function in_array;
 
 abstract class AbstractToolkit implements ToolkitInterface
@@ -18,6 +19,7 @@ abstract class AbstractToolkit implements ToolkitInterface
     protected array $exclude = [];
     protected array $only = [];
     protected array $with = [];
+    protected array $added = [];
 
     public function guidelines(): ?string
     {
@@ -48,6 +50,12 @@ abstract class AbstractToolkit implements ToolkitInterface
         return $this;
     }
 
+    public function add(ToolInterface ...$tools): ToolkitInterface
+    {
+        $this->added = [...$this->added, ...array_values($tools)];
+        return $this;
+    }
+
     /**
      * @return ToolInterface[]
      */
@@ -55,18 +63,14 @@ abstract class AbstractToolkit implements ToolkitInterface
 
     public function tools(): array
     {
-        if ($this->exclude === [] && $this->only === [] && $this->with === []) {
-            return $this->provide();
-        }
-
-        $tools = $this->provide();
+        $tools = [...$this->provide(), ...$this->added];
 
         if ($this->exclude !== [] || $this->only !== []) {
-            $tools = array_filter(
+            $tools = array_values(array_filter(
                 $tools,
-                fn (ToolInterface $tool): bool => !in_array($tool::class, $this->exclude)
-                    && ($this->only === [] || in_array($tool::class, $this->only))
-            );
+                fn (ToolInterface $tool): bool => !in_array($tool::class, $this->exclude, true)
+                    && ($this->only === [] || in_array($tool::class, $this->only, true))
+            ));
         }
 
         if ($this->with !== []) {

@@ -5,20 +5,25 @@ declare(strict_types=1);
 namespace NeuronAI\Evaluation\Runner;
 
 use NeuronAI\Evaluation\AssertionFailure;
+use NeuronAI\Evaluation\Score;
 
-use function array_sum;
-use function count;
-use function max;
-use function min;
+use function array_map;
+use function end;
+use function explode;
 
 class EvaluatorResult
 {
     /**
+     * @param string $evaluatorClass The evaluator that produced this result. Results of
+     *        several evaluators may share one summary (the CLI merges them), so the stamp
+     *        is what lets a consumer attribute or regroup them: the index alone is only
+     *        unique within one evaluator's dataset.
      * @param array<string, mixed> $input
      * @param array<AssertionFailure> $assertionFailures
-     * @param array<float> $assertionScores
+     * @param array<Score> $assertionScores
      */
     public function __construct(
+        private readonly string $evaluatorClass,
         private readonly int $index,
         private readonly bool $passed,
         private readonly array $input,
@@ -28,8 +33,29 @@ class EvaluatorResult
         private readonly int $assertionsFailed,
         private readonly array $assertionFailures = [],
         private readonly array $assertionScores = [],
-        private readonly ?string $error = null
+        private readonly ?string $error = null,
+        private readonly bool $cachedRun = false
     ) {
+    }
+
+    public function getEvaluatorClass(): string
+    {
+        return $this->evaluatorClass;
+    }
+
+    public function getShortEvaluatorClass(): string
+    {
+        $parts = explode('\\', $this->evaluatorClass);
+        return end($parts);
+    }
+
+    /**
+     * Whether run() was skipped and its output served from the evaluation cache.
+     * Assertions always execute fresh, so passed/failed reflects the current evaluate().
+     */
+    public function isCachedRun(): bool
+    {
+        return $this->cachedRun;
     }
 
     public function getIndex(): int
@@ -99,34 +125,20 @@ class EvaluatorResult
     }
 
     /**
-     * @return array<float>
+     * Get all labeled assertion scores
+     *
+     * @return array<Score>
      */
-    public function getAssertionScores(): array
+    public function getScoreRecords(): array
     {
         return $this->assertionScores;
     }
 
-    public function getAverageAssertionScore(): float
+    /**
+     * @return array<float>
+     */
+    public function getAssertionScores(): array
     {
-        if ($this->assertionScores === []) {
-            return 0.0;
-        }
-        return array_sum($this->assertionScores) / count($this->assertionScores);
-    }
-
-    public function getMinAssertionScore(): float
-    {
-        if ($this->assertionScores === []) {
-            return 0.0;
-        }
-        return min($this->assertionScores);
-    }
-
-    public function getMaxAssertionScore(): float
-    {
-        if ($this->assertionScores === []) {
-            return 0.0;
-        }
-        return max($this->assertionScores);
+        return array_map(fn (Score $score): float => $score->value, $this->assertionScores);
     }
 }

@@ -6,20 +6,19 @@ namespace NeuronAI\Providers\Gemini;
 
 use NeuronAI\Chat\Messages\Citation;
 use NeuronAI\Chat\Messages\ContentBlocks\ContentBlockInterface;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Exceptions\ProviderException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\HandleWithTools;
-use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\Providers\MessageMapperInterface;
 use NeuronAI\Providers\ToolMapperInterface;
-use NeuronAI\Tools\ToolInterface;
 
-use function array_map;
-use function uniqid;
 use function array_values;
+use function uniqid;
 
 class Gemini implements AIProviderInterface
 {
@@ -50,27 +49,41 @@ class Gemini implements AIProviderInterface
         // Use provided client or create default Guzzle client
         // Provider always configures authentication headers
         // Note: Gemini doesn't use base_uri due to colon ":" in URL pattern
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->baseUri)
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'x-goog-api-key' => $this->key,
-            ]);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'x-goog-api-key' => $this->key,
+        ];
     }
 
-    public function systemPrompt(?string $prompt): AIProviderInterface
+    public function getModel(): string
     {
-        $this->system = $prompt;
+        return $this->model;
+    }
+
+    /**
+     * Headers of each chat and stream request.
+     *
+     * @return array<string, string>
+     */
+    protected function requestHeaders(): array
+    {
+        return $this->httpHeaders;
+    }
+
+    public function systemPrompt(SystemMessage|string|null $prompt): AIProviderInterface
+    {
+        $this->system = $prompt instanceof SystemMessage ? $prompt->getContent() : $prompt;
         return $this;
     }
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
         return $this->messageMapper ??= new MessageMapper();
     }
 
-    public function toolPayloadMapper(): ToolMapperInterface
+    protected function toolPayloadMapper(): ToolMapperInterface
     {
         return $this->toolPayloadMapper ??= new ToolMapper();
     }
@@ -82,13 +95,24 @@ class Gemini implements AIProviderInterface
      */
     protected function createToolCallMessage(array $blocks, array $toolCalls): ToolCallMessage
     {
-        $tools = array_map(function (array $item): ToolInterface {
-            return $this->findTool($item['functionCall']['name'])
-                ->setInputs($item['functionCall']['args'])
-                ->setCallId($item['functionCall']['name']); // Gemini uses the tool's name as a unique identifier.
-        }, $toolCalls);
+        $toolCalls = array_values($toolCalls);
 
-        $message = new ToolCallMessage($blocks, array_values($tools));
+        $tools = [];
+        foreach ($toolCalls as $index => $item) {
+            // Gemini identifies calls by tool name on the wire and only optionally provides
+            // an id, but the framework treats callId as per-call identity (memoization,
+            // approval decisions, stream protocols) — parallel calls of the same tool must
+            // never share it. Prefer the API id, otherwise synthesize a locally-unique one;
+            // the mapper never echoes callId back to Gemini, so a synthetic id is wire-safe.
+            $tools[] = $this->newToolCall(
+                $item['functionCall']['name'],
+                $item['functionCall']['id'] ?? uniqid($item['functionCall']['name'].'_'.$index.'_'),
+                // A parameterless call has no args
+                $this->decodeToolArguments($item['functionCall']['name'], $item['functionCall']['args'] ?? null),
+            );
+        }
+
+        $message = new ToolCallMessage($blocks, $tools);
 
         if (isset($toolCalls[0]['thoughtSignature'])) {
             $message->addMetadata('thought_signature', $toolCalls[0]['thoughtSignature']);
