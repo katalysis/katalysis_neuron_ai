@@ -254,8 +254,9 @@ final class ToolResultScanner
 
         // A write that succeeded after flagged content was read, in the same turn (not by the same call).
         if ($flaggedBefore && ToolKind::isWrite($toolName)) {
-            $asText = is_string($returned) || $returned instanceof ToolOutput ? (string) $returned : (string) json_encode($returned);
-            if (ToolKind::succeeded($asText)) {
+            // A ToolOutput goes as it is, so its error flag is kept (P2.3).
+            $asResult = is_string($returned) || $returned instanceof ToolOutput ? $returned : (string) json_encode($returned);
+            if (ToolKind::succeeded($asResult)) {
                 $this->writeAfterFlag = true;
             }
         }
