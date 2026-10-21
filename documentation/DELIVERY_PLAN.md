@@ -350,6 +350,13 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
 
 ### Working-practice tasks (WP)
 - [x] WP-1 **Agent tooling and working practice** (its own PR; before Phase 2). Done (PR #28). Glyn and Alex both use the Claude Code VS Code extension with `packages/katalysis_neuron_ai` as the workspace root, so `CLAUDE.md` and `.claude/settings.json` are loaded and enforced. Copilot is retired. `main` and `development` get branch protection (PRs only, no force pushes, no deletion), and `gh` uses a fine-grained token for this repo only: it can push branches and open PRs, but it can't change settings or merge. Once `development` is protected, the plan and PROGRESS ticks go inside the task PR. Committed files work for both developers, with no absolute or Herd-specific paths; personal settings go in `.claude/settings.local.json` (gitignored). Scope: permission rules (allow, ask, deny), a notification hook, tracked git hooks (`.githooks/`), a dev DB backup wrapper, test tiers (fast, full, scenarios), a working agreement in `CLAUDE.md`, and who, tool, model and time taken in each PROGRESS entry. Findings: [plans/WP-1-findings.md](plans/WP-1-findings.md).
+- [x] WP-1a **Widen the allow list** (small; its own PR). Done (PR #29). Found in P2.1's start, where routine reads, git steps and web research prompted. Allow:
+  - read-only commands (`ls`, `cat`, `head`, `grep`, `find`, `wc`, `php -v`, `composer show|why|depends`)
+  - git `status`, `log`, `diff`, `show`, `branch`, `switch`, `config`, `add` and `commit`
+  - `git push` to `task/*` and `spike/*` branches
+  - WebFetch for the Neuron docs, GitHub, Packagist and Concrete's docs, and WebSearch
+
+  `gh pr create`, `mysql`, the scenario runner and `composer require|update` stay on ask, and the deny rules and the Bash guard are unchanged. `/start-task` and `/finish-task` run their steps as separate commands, not `&&` chains.
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
