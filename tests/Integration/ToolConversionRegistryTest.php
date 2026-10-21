@@ -104,9 +104,12 @@ final class ToolConversionRegistryTest extends ConcreteTestCase
             $this->assertNotSame('', trim((string) $property->getDescription()), "{$name}.{$property->getName()} has no description");
         }
 
+        // The provider payload builds. Arrays without "items" have their own known list (ToolRegistryTest).
         $payload = (new ToolMapper())->map([$tool])[0];
         $this->assertSame($name, $payload['function']['name']);
-        $this->assertSame([], ToolListChecks::arraysWithoutItems([$tool]));
+        foreach ($tool->getProperties() as $property) {
+            $this->assertSame($property->getType()->value, $property->getJsonSchema()['type'] ?? null, "{$name}.{$property->getName()}");
+        }
     }
 
     #[DataProvider('definedToolCases')]
