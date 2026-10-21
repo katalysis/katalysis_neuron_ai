@@ -20,7 +20,17 @@
  *
  * Without options, it creates whatever is missing and leaves everything that exists alone.
  * With --reset it first deletes ONLY the content this script creates, then creates it again. --reset-only deletes it
- * and stops (used to check that a reset leaves nothing behind). Every successful run ends by clearing Concrete's cache,
+ * and stops (used to check that a reset leaves nothing behind).
+ *
+ * What "this script created" means (P1.14): the IDs of the page, users, group, Express object, file and people are
+ * stored in one row of the Config table (katalysis_neuron_ai / fixture / ids). An item with a stored ID is ours
+ * whatever its fields now say, so --reset still works after an edit; it also removes the draft versions under
+ * /neuron-test first (the assistant only ever writes drafts). When a stored item had been edited, --reset says what
+ * it discards. Content from before the IDs were stored is found once by its old marker and then recorded. Anything
+ * with neither a stored ID nor its marker is not ours and is never deleted. If the stored root page has been moved
+ * or is in the trash, --reset (and a plain run) refuses and says where it is, rather than delete or duplicate it.
+ *
+ * Every successful run ends by clearing Concrete's cache,
  * as Dashboard > Optimization > Clear Cache does, because the permissions it changed are cached. It also removes the review
  * folder "Assistant – to delete" if a scenario created it, but only when nothing but fixture files is in it.
  * It never reads, changes or depends on any other person, user or Express object.
@@ -51,6 +61,7 @@ use Concrete\Core\Entity\Page\Container;
 use Concrete\Core\File\File;
 use Concrete\Core\File\Import\FileImporter;
 use Concrete\Core\File\Import\ImportException;
+use Concrete\Core\Page\Collection\Version\Version;
 use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Template as PageTemplate;
@@ -134,39 +145,200 @@ $seedStatus = (function () use ($args, $output) {
         $output->writeln('<comment>katalysis_pro People classes not found: people and the People block will be skipped.</comment>');
     }
 
+    // ---- What this script owns (P1.14) -------------------------------------------------------------------------
+    //
+    // The IDs of everything this script created are stored in one row of Concrete's Config table (namespace
+    // katalysis_neuron_ai, group fixture, item ids, a JSON value), so they travel with a dump of the database and
+    // are removed with the package's configuration on uninstall. An item whose ID is stored is ours whatever its
+    // fields say, so an edit by the assistant (or a person) cannot stop --reset. The old markers (the page's approved
+    // description, the users' email, the group's and the file's description, the Express name, the people's name and
+    // email) are used only to find content from before the IDs were stored, once, and to decide whether to store an
+    // ID: an object that has neither a stored ID nor its marker is never ours.
+
+    $readRecord = function () use ($db) {
+        $json = $db->fetchOne(
+            'SELECT configValue FROM Config WHERE configNamespace = ? AND configGroup = ? AND configItem = ?',
+            ['katalysis_neuron_ai', 'fixture', 'ids']
+        );
+        $data = is_string($json) ? json_decode($json, true) : null;
+
+        return is_array($data) ? $data : [];
+    };
+    $clearRecord = function () use ($db, &$record) {
+        $db->executeStatement(
+            'DELETE FROM Config WHERE configNamespace = ? AND configGroup = ? AND configItem = ?',
+            ['katalysis_neuron_ai', 'fixture', 'ids']
+        );
+        $record = [];
+    };
+    $record = $readRecord();
+
     // ---- Lookups -----------------------------------------------------------------------------------------------
 
-    $findPage = function () use ($pagePath) {
+    // The root page. Returns ['page' => ?Page, 'via' => 'stored'|'marker'|null, 'problem' => ?string, 'kind' => ?string].
+    // A stored root that is in the trash or no longer at /neuron-test is a problem (kind 'moved'): the fixture cannot
+    // be found by its path any more, so nothing is deleted and nothing is created. Content at /neuron-test with no
+    // stored ID is ours only if the description of its APPROVED version is the marker (Page::getByPath() reads the
+    // newest version, which may be a draft the assistant wrote), otherwise it is someone else's (kind 'foreign').
+    $inspectRoot = function () use ($db, &$record, $pagePath, $pageMarker) {
+        $storedID = (int) ($record['rootPage'] ?? 0);
+        if ($storedID > 0 && (int) $db->fetchOne('SELECT COUNT(*) FROM Pages WHERE cID = ?', [$storedID]) > 0) {
+            $path = (string) $db->fetchOne('SELECT cPath FROM PagePaths WHERE cID = ? AND ppIsCanonical = 1', [$storedID]);
+            if (strpos($path, '/!trash') === 0) {
+                return ['page' => null, 'via' => 'stored', 'kind' => 'moved', 'problem' => 'The page this script created (page ID ' . $storedID . ') is in the trash (' . $path
+                    . '). Restore it to ' . $pagePath . ' or delete it, then run again. Nothing was deleted.'];
+            }
+            if ($path !== $pagePath) {
+                return ['page' => null, 'via' => 'stored', 'kind' => 'moved', 'problem' => 'The page this script created (page ID ' . $storedID . ') is no longer at ' . $pagePath
+                    . ' but at ' . ($path !== '' ? $path : '(no path)') . '. Move it back or delete it, then run again. Nothing was deleted.'];
+            }
+            $page = Page::getByID($storedID);
+            if ($page && !$page->isError()) {
+                return ['page' => $page, 'via' => 'stored', 'kind' => null, 'problem' => null];
+            }
+        }
         $page = Page::getByPath($pagePath);
+        if (!$page || $page->isError()) {
+            return ['page' => null, 'via' => null, 'kind' => null, 'problem' => null];
+        }
+        $approved = $db->fetchOne(
+            'SELECT cvDescription FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1 ORDER BY cvID DESC LIMIT 1',
+            [$page->getCollectionID()]
+        );
+        if ($approved !== $pageMarker) {
+            return ['page' => $page, 'via' => null, 'kind' => 'foreign', 'problem' => 'Page ' . $pagePath
+                . ' exists but was not created by this script. Nothing was deleted. Move or delete it yourself, then run again.'];
+        }
 
-        return ($page && !$page->isError()) ? $page : null;
+        return ['page' => $page, 'via' => 'marker', 'kind' => null, 'problem' => null];
     };
-    $findUser = function () use ($app, $userName) {
-        return $app->make(UserInfoRepository::class)->getByUserName($userName);
+    // [?UserInfo, bool found by its stored ID]
+    $lookupUser = function (string $name) use ($app, &$record) {
+        $repository = $app->make(UserInfoRepository::class);
+        $id = (int) ($record['users'][$name] ?? 0);
+        $info = $id > 0 ? $repository->getByID($id) : null;
+        if ($info) {
+            return [$info, true];
+        }
+
+        return [$repository->getByUserName($name) ?: null, false];
     };
-    $findPersonIDs = function () use ($db, $personNamePrefix, $personEmailDomain) {
-        return array_map('intval', $db->fetchFirstColumn(
+    $findUser = function () use ($lookupUser, $userName) {
+        return $lookupUser($userName)[0];
+    };
+    $findChatUser = function () use ($lookupUser, $chatUserName) {
+        return $lookupUser($chatUserName)[0];
+    };
+    // [?Group, bool found by its stored ID]
+    $lookupGroup = function () use ($groupName, &$record) {
+        $id = (int) ($record['group'] ?? 0);
+        $group = $id > 0 ? Group::getByID($id) : null;
+        if ($group instanceof Group) {
+            return [$group, true];
+        }
+        $group = Group::getByName($groupName);
+
+        return [$group instanceof Group ? $group : null, false];
+    };
+    $findGroup = function () use ($lookupGroup) {
+        return $lookupGroup()[0];
+    };
+    // [?Entity, bool found by its stored ID]
+    $lookupExpress = function () use ($em, $expressHandle, &$record) {
+        $repository = $em->getRepository(\Concrete\Core\Entity\Express\Entity::class);
+        $id = (string) ($record['express'] ?? '');
+        $entity = $id !== '' ? $repository->find($id) : null;
+        if ($entity) {
+            return [$entity, true];
+        }
+
+        return [$repository->findOneBy(['handle' => $expressHandle]), false];
+    };
+    $findExpress = function () use ($lookupExpress) {
+        return $lookupExpress()[0];
+    };
+    // Every person this script owns: the stored IDs that still exist, and (content from before the IDs were stored)
+    // the people with the fixture's name and email.
+    $findPersonIDs = function () use ($db, &$record, $personNamePrefix, $personEmailDomain) {
+        $ids = array_map('intval', $db->fetchFirstColumn(
             'SELECT sID FROM KatalysisPeople WHERE name LIKE ? AND email LIKE ? ORDER BY sID',
             [$personNamePrefix . '%', '%' . $personEmailDomain]
         ));
+        foreach ((array) ($record['people'] ?? []) as $storedID) {
+            if ((int) $db->fetchOne('SELECT COUNT(*) FROM KatalysisPeople WHERE sID = ?', [(int) $storedID]) > 0) {
+                $ids[] = (int) $storedID;
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+
+        return $ids;
     };
-    $findExpress = function () use ($em, $expressHandle) {
-        return $em->getRepository(\Concrete\Core\Entity\Express\Entity::class)->findOneBy(['handle' => $expressHandle]);
+    $storedFileID = function () use ($db, &$record) {
+        $id = (int) ($record['file'] ?? 0);
+
+        return ($id > 0 && (int) $db->fetchOne('SELECT COUNT(*) FROM Files WHERE fID = ?', [$id]) > 0) ? $id : 0;
     };
-    $findFileIDs = function () use ($db, $fileTitle, $fileMarker) {
-        return array_map('intval', $db->fetchFirstColumn(
+    $findFileIDs = function () use ($db, $fileTitle, $fileMarker, $storedFileID) {
+        $ids = array_map('intval', $db->fetchFirstColumn(
             'SELECT DISTINCT fID FROM FileVersions WHERE fvTitle = ? AND fvDescription = ? ORDER BY fID',
             [$fileTitle, $fileMarker]
         ));
+        if ($storedFileID() > 0) {
+            $ids[] = $storedFileID();
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+
+        return $ids;
     };
-    $countUnmarkedFiles = function () use ($db, $fileTitle, $fileMarker) {
+    // Files with the fixture's title that are neither the stored file nor carry the marker.
+    $countUnmarkedFiles = function () use ($db, $fileTitle, $fileMarker, $storedFileID) {
         return (int) $db->fetchOne(
-            'SELECT COUNT(DISTINCT fID) FROM FileVersions WHERE fvTitle = ? AND (fvDescription IS NULL OR fvDescription <> ?)',
-            [$fileTitle, $fileMarker]
+            'SELECT COUNT(DISTINCT fID) FROM FileVersions WHERE fvTitle = ? AND (fvDescription IS NULL OR fvDescription <> ?) AND fID <> ?',
+            [$fileTitle, $fileMarker, $storedFileID()]
         );
     };
-    $findChatUser = function () use ($app, $chatUserName) {
-        return $app->make(UserInfoRepository::class)->getByUserName($chatUserName);
+    // Writes the IDs of what this script owns. An ID that is already stored and still exists is kept (so a plain run
+    // changes nothing); content found by its marker is adopted; anything else is left out.
+    $storeRecord = function () use ($app, $db, &$record, $inspectRoot, $lookupUser, $lookupGroup, $lookupExpress, $findPersonIDs, $findFileIDs, $hasPeople, $userName, $userEmail, $chatUserName, $chatUserEmail, $groupMarker, $expressName) {
+        // A lookup made before the content was created may be cached as "not found".
+        $app->make('cache/request')->flush();
+        $data = ['version' => 1];
+        $root = $inspectRoot();
+        if ($root['problem'] === null && $root['page']) {
+            $data['rootPage'] = (int) $root['page']->getCollectionID();
+        }
+        $data['users'] = [];
+        foreach ([$userName => $userEmail, $chatUserName => $chatUserEmail] as $name => $email) {
+            [$info, $stored] = $lookupUser($name);
+            if ($info && ($stored || $info->getUserEmail() === $email)) {
+                $data['users'][$name] = (int) $info->getUserID();
+            }
+        }
+        [$group, $groupStored] = $lookupGroup();
+        if ($group && ($groupStored || $group->getGroupDescription() === $groupMarker)) {
+            $data['group'] = (int) $group->getGroupID();
+        }
+        [$entity, $entityStored] = $lookupExpress();
+        if ($entity && ($entityStored || $entity->getName() === $expressName)) {
+            $data['express'] = (string) $entity->getID();
+        }
+        $fileIDs = $findFileIDs();
+        if ($fileIDs !== []) {
+            $data['file'] = $fileIDs[0];
+        }
+        $data['people'] = $hasPeople ? $findPersonIDs() : [];
+
+        $db->executeStatement(
+            'DELETE FROM Config WHERE configNamespace = ? AND configGroup = ? AND configItem = ?',
+            ['katalysis_neuron_ai', 'fixture', 'ids']
+        );
+        $db->executeStatement(
+            'INSERT INTO Config (configNamespace, configGroup, configItem, configValue) VALUES (?, ?, ?, ?)',
+            ['katalysis_neuron_ai', 'fixture', 'ids', json_encode($data)]
+        );
+        $record = $data;
     };
     $entityIDOf = function ($info) use ($db) {
         return $info ? (int) $db->fetchOne('SELECT peID FROM PermissionAccessEntityUsers WHERE uID = ?', [$info->getUserID()]) : 0;
@@ -324,11 +496,6 @@ $seedStatus = (function () use ($args, $output) {
 
     // ---- The group and the "Use Neuron AI assistant" task permission (P1.10a) ---------------------------------------
 
-    $findGroup = function () use ($groupName) {
-        $group = Group::getByName($groupName);
-
-        return $group instanceof Group ? $group : null;
-    };
     // The access list of the use key, ready to change: one that other assignments share is duplicated first, so a shared
     // access is never changed. Null when the key does not exist (the package has not been upgraded).
     $writableUseAccess = function () use ($useKeyHandle, $accessUseCount) {
@@ -351,33 +518,35 @@ $seedStatus = (function () use ($args, $output) {
     if ($reset) {
         $output->writeln('Reset: removing the content created by this script...');
 
-        // Check every marker first, so a clash on one item aborts before anything is deleted.
-        $page = $findPage();
-        if ($page && $page->getCollectionDescription() !== $pageMarker) {
-            $output->writeln('<error>Page ' . $pagePath . ' exists but was not created by this script. Nothing was deleted.</error>');
+        // Find what this script owns (by stored ID, else by marker) and check it first, so a clash on one item aborts
+        // before anything is deleted.
+        $root = $inspectRoot();
+        if ($root['problem'] !== null) {
+            $output->writeln('<error>' . $root['problem'] . '</error>');
 
             return 1;
         }
-        $user = $findUser();
-        if ($user && $user->getUserEmail() !== $userEmail) {
+        $page = $root['page'];
+        [$user, $userStored] = $lookupUser($userName);
+        if ($user && !$userStored && $user->getUserEmail() !== $userEmail) {
             $output->writeln('<error>User ' . $userName . ' exists but was not created by this script. Nothing was deleted.</error>');
 
             return 1;
         }
-        $chatUser = $findChatUser();
-        if ($chatUser && $chatUser->getUserEmail() !== $chatUserEmail) {
+        [$chatUser, $chatUserStored] = $lookupUser($chatUserName);
+        if ($chatUser && !$chatUserStored && $chatUser->getUserEmail() !== $chatUserEmail) {
             $output->writeln('<error>User ' . $chatUserName . ' exists but was not created by this script. Nothing was deleted.</error>');
 
             return 1;
         }
-        $group = $findGroup();
-        if ($group && $group->getGroupDescription() !== $groupMarker) {
+        [$group, $groupStored] = $lookupGroup();
+        if ($group && !$groupStored && $group->getGroupDescription() !== $groupMarker) {
             $output->writeln('<error>Group ' . $groupName . ' exists but was not created by this script. Nothing was deleted.</error>');
 
             return 1;
         }
-        $entity = $findExpress();
-        if ($entity && $entity->getName() !== $expressName) {
+        [$entity, $entityStored] = $lookupExpress();
+        if ($entity && !$entityStored && $entity->getName() !== $expressName) {
             $output->writeln('<error>Express object ' . $expressHandle . ' exists but was not created by this script. Nothing was deleted.</error>');
 
             return 1;
@@ -386,6 +555,71 @@ $seedStatus = (function () use ($args, $output) {
             $output->writeln('<error>A file titled "' . $fileTitle . '" exists but was not created by this script. Nothing was deleted.</error>');
 
             return 1;
+        }
+
+        // Everything found is ours. Anything that was changed after the seed made it (and is ours by its stored ID)
+        // is put back by the delete and create below; say what is being discarded.
+        if ($root['via'] === 'stored') {
+            $approved = (string) $db->fetchOne(
+                'SELECT cvDescription FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1 ORDER BY cvID DESC LIMIT 1',
+                [$page->getCollectionID()]
+            );
+            if ($approved !== $pageMarker) {
+                $output->writeln('  ' . $pagePath . ': approved description differs from the seed text; discarded');
+            }
+        }
+        if ($user && $userStored && $user->getUserEmail() !== $userEmail) {
+            $output->writeln('  user ' . $userName . ': email differs from the seed text; discarded');
+        }
+        if ($chatUser && $chatUserStored && $chatUser->getUserEmail() !== $chatUserEmail) {
+            $output->writeln('  user ' . $chatUserName . ': email differs from the seed text; discarded');
+        }
+        if ($group && $groupStored && $group->getGroupDescription() !== $groupMarker) {
+            $output->writeln('  group ' . $groupName . ': description differs from the seed text; discarded');
+        }
+        if ($entity && $entityStored && $entity->getName() !== $expressName) {
+            $output->writeln('  Express object ' . $expressHandle . ': name differs from the seed text; discarded');
+        }
+        if ($storedFileID() > 0 && !in_array($storedFileID(), array_map('intval', $db->fetchFirstColumn(
+            'SELECT DISTINCT fID FROM FileVersions WHERE fvTitle = ? AND fvDescription = ?',
+            [$fileTitle, $fileMarker]
+        )), true)) {
+            $output->writeln('  file #' . $storedFileID() . ': title or description differs from the seed text; discarded');
+        }
+        if ($hasPeople) {
+            foreach ($findPersonIDs() as $sID) {
+                $row = $db->fetchAssociative('SELECT name, email FROM KatalysisPeople WHERE sID = ?', [$sID]);
+                if ($row && (strpos((string) $row['name'], $personNamePrefix) !== 0 || substr((string) $row['email'], -strlen($personEmailDomain)) !== $personEmailDomain)) {
+                    $output->writeln('  person #' . $sID . ': name or email differs from the seed text; discarded');
+                }
+            }
+        }
+
+        // Draft versions under the fixture pages (the assistant writes drafts, never the approved version) are removed
+        // first, through Concrete's own Version::delete(), then the page tree below is deleted as before.
+        if ($page) {
+            $treeIDs = array_merge([(int) $page->getCollectionID()], array_map('intval', $db->fetchFirstColumn(
+                'SELECT cID FROM PagePaths WHERE ppIsCanonical = 1 AND cPath LIKE ? ORDER BY cPath',
+                [$pagePath . '/%']
+            )));
+            foreach ($treeIDs as $treeCID) {
+                $approvedVersion = (int) $db->fetchOne('SELECT MAX(cvID) FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1', [$treeCID]);
+                if ($approvedVersion === 0) {
+                    continue;
+                }
+                $draftIDs = array_map('intval', $db->fetchFirstColumn(
+                    'SELECT cvID FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 0 AND cvID > ? ORDER BY cvID',
+                    [$treeCID, $approvedVersion]
+                ));
+                if ($draftIDs === []) {
+                    continue;
+                }
+                $treePage = Page::getByID($treeCID);
+                foreach ($draftIDs as $draftID) {
+                    Version::get($treePage, $draftID)->delete();
+                }
+                $output->writeln('  discarded ' . count($draftIDs) . ' draft version(s) of page #' . $treeCID);
+            }
         }
 
         // Concrete has no API to remove the permission rows that the editor's page grant created, and deleting
@@ -527,6 +761,8 @@ $seedStatus = (function () use ($args, $output) {
                 $db->executeStatement('DELETE FROM PermissionAccessEntities WHERE peID = ?', [$peID]);
             }
         }
+        // What the stored IDs pointed at is gone; the record goes with it (a run that creates the content stores new ones).
+        $clearRecord();
     }
 
     if ($resetOnly) {
@@ -568,8 +804,8 @@ $seedStatus = (function () use ($args, $output) {
 
     // Panel access, through Concrete's task permission "Use Neuron AI assistant": the group "Neuron Test Editors" holds
     // the chat user and is added to the permission's access list (additive: nobody else's access changes).
-    $group = $findGroup();
-    if ($group && $group->getGroupDescription() !== $groupMarker) {
+    [$group, $groupStored] = $lookupGroup();
+    if ($group && !$groupStored && $group->getGroupDescription() !== $groupMarker) {
         $output->writeln('<comment>group ' . $groupName . ': a group with this name exists without the marker, so ' . $chatUserName . ' has no panel access.</comment>');
     } elseif (!PermissionKey::getByHandle($useKeyHandle)) {
         $output->writeln('<comment>task permission "' . $useKeyHandle . '" not found (run c5:package:update katalysis_neuron_ai): ' . $chatUserName . ' has no panel access.</comment>');
@@ -743,9 +979,20 @@ $seedStatus = (function () use ($args, $output) {
         }
     };
 
-    $existingRoot = $findPage();
+    $rootNow = $inspectRoot();
+    if ($rootNow['kind'] === 'moved') {
+        // Creating a second /neuron-test while the first is somewhere else would leave two copies.
+        $output->writeln('<error>' . $rootNow['problem'] . '</error>');
+
+        return 1;
+    }
+    $existingRoot = $rootNow['page'];
     if ($existingRoot) {
-        $output->writeln('pages ' . $pagePath . ': already exist, left alone');
+        if ($rootNow['kind'] === 'foreign') {
+            $output->writeln('<comment>pages ' . $pagePath . ': a page that this script did not create is there. Left alone, and its ID is not stored.</comment>');
+        } else {
+            $output->writeln('pages ' . $pagePath . ': already exist, left alone');
+        }
         $ensureScenarioPages($existingRoot);
         // A site seeded before neuron_chat_editor existed: give that user the same rights, once.
         if (!$hasPageGrant($existingRoot, $chatUser)) {
@@ -753,6 +1000,7 @@ $seedStatus = (function () use ($args, $output) {
             $grantFixtureUser($existingRoot, ($existingHeadings && !$existingHeadings->isError()) ? $existingHeadings : null, $chatUser);
             $output->writeln('pages ' . $pagePath . ': ' . $chatUserName . ' granted the same rights as ' . $userName);
         }
+        $storeRecord();
 
         return 0;
     }
@@ -841,6 +1089,7 @@ $seedStatus = (function () use ($args, $output) {
 
     $output->writeln('pages ' . $pagePath . ': created (Headings, Columns, People)');
     $ensureScenarioPages($root);
+    $storeRecord();
 
     return 0;
 })();
