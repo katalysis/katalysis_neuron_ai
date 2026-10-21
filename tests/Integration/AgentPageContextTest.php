@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Integration;
 
+use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Http\Request;
+use Concrete\Core\Package\PackageService;
+use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
+use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\PageContextTag;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\PromptPreview;
@@ -22,8 +26,8 @@ use NeuronAI\Testing\RequestRecord;
  *
  * On Neuron 4 (P2.4) the prompt is built for every turn, so there is no cache to drop. These tests check that through
  * what the provider is actually given: real turns of the agent, with Neuron's FakeAIProvider as the model and v4's
- * in-memory history. No provider call, no API key, nothing written. P2.5 points test 4 at the Chat row store and adds
- * the check that the stored row holds no instructions.
+ * in-memory history. No provider call, no API key. Test 4 has a database half (P2.5): the same turns on the Chat row
+ * store, a throwaway chat deleted afterwards, checking that the stored rows hold no instructions.
  *
  * Needs the seeded dev site (/neuron-test/headings, /neuron-test/columns and neuron_chat_editor).
  */
@@ -200,5 +204,53 @@ final class AgentPageContextTest extends ConcreteTestCase
         // Each user message keeps the tag of the page it was sent from ("Earlier messages may refer to other pages").
         $this->assertStringContainsString('/neuron-test/headings', (string) $request->messages[0]->getContent());
         $this->assertStringContainsString('/neuron-test/columns', $this->newestUserText($request));
+    }
+
+    /**
+     * Test 4's database half (P2.5): the same two turns, each a new agent bound to one Chat row with setChatId(), the
+     * history read back from the row store.
+     */
+    public function testRestoredHistoryFromTheDatabaseDoesNotBringBackAnOldPageContext(): void
+    {
+        $service = $this->app()->make(PackageService::class);
+        $service->bootPackageEntityManager($service->getClass('katalysis_neuron_ai'));
+        $chat = (new Chat())->setSessionId('neuron-test-p25-' . bin2hex(random_bytes(4)))->setStarted(new \DateTime())->setCreatedDate(new \DateTime())->setCreatedBy(0);
+        $em = $this->app()->make(EntityManagerInterface::class);
+        $em->persist($chat);
+        $em->flush();
+        $chatId = (int) $chat->getId();
+        $db = $this->app()->make(Connection::class);
+
+        try {
+            // Turn 1 "request": an agent on the headings page.
+            [$turnOne, $providerOne] = $this->agentOn($this->headings);
+            $turnOne->setChatId($chatId);
+            $this->assertStringContainsString('/neuron-test/headings', $this->sentInstructions($this->turn($turnOne, $providerOne)));
+
+            // What is stored is the conversation only: neither the instructions, nor the page context lines, nor the
+            // tool guidelines. The tag in the user message is meant to be there.
+            $rows = $db->fetchAllAssociative('SELECT content, meta FROM KatalysisNeuronAiChatMessages WHERE chatId = ? ORDER BY id', [$chatId]);
+            $this->assertCount(2, $rows, 'the user message and the reply');
+            $storedText = (string) json_encode($rows);
+            foreach (['Current Page', 'TOOLS-GUIDELINES', 'You are an AI assistant'] as $needle) {
+                $this->assertStringNotContainsString($needle, $storedText, "the stored rows must not contain \"{$needle}\"");
+            }
+            $this->assertStringContainsString('[Current page for this message: ', $storedText);
+
+            // Turn 2 "request": a new agent on the columns page, history read back from the same Chat row.
+            $em->clear();
+            [$turnTwo, $providerTwo] = $this->agentOn($this->columns);
+            $turnTwo->setChatId($chatId);
+            $request = $this->turn($turnTwo, $providerTwo);
+
+            $this->assertCount(3, $request->messages, 'the conversation itself is restored, then the new message');
+            $instructions = $this->sentInstructions($request);
+            $this->assertStringContainsString('Current Page Path: /neuron-test/columns', $instructions);
+            $this->assertStringNotContainsString('/neuron-test/headings', $instructions);
+            $this->assertStringContainsString('/neuron-test/headings', (string) $request->messages[0]->getContent());
+            $this->assertStringContainsString('/neuron-test/columns', $this->newestUserText($request));
+        } finally {
+            $db->executeStatement('DELETE FROM KatalysisNeuronAiChats WHERE id = ?', [$chatId]);
+        }
     }
 }
