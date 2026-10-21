@@ -4,35 +4,27 @@ declare(strict_types=1);
 
 namespace NeuronAI\Workflow\Interrupt;
 
-use JsonSerializable;
 use NeuronAI\Exceptions\WorkflowException;
-use NeuronAI\Workflow\Events\Event;
-use NeuronAI\Workflow\Events\ParallelEvent;
-use NeuronAI\Workflow\NodeInterface;
-use NeuronAI\Workflow\WorkflowState;
-
-use function serialize;
-use function unserialize;
 
 /**
- * Exception thrown when a workflow needs human input.
+ * @internal
  *
- * Contains:
- * - InterruptRequest: Structured actions requiring approval
- * - Node context: Class and checkpoints for resumption
- * - Workflow state: Current state
- * - Event: The event being processed when interrupted
+ * Internal control-flow signal thrown by {@see \NeuronAI\Workflow\Node::interrupt()}
+ * and by pausing middleware to unwind to the step boundary
+ * ({@see \NeuronAI\Workflow\Executor\Segment::runNode}), which converts
+ * it into an {@see \NeuronAI\Workflow\Events\InterruptEvent}.
+ *
+ * This is never persisted and never reaches user code — a paused workflow is
+ * surfaced to callers as an interrupted {@see \NeuronAI\Workflow\WorkflowState},
+ * not as a thrown exception. It carries only the request that describes the pause
+ * and the wait that raised it; all other resume context (node, state, branch)
+ * is derived by the executor from its traversal context and step replay.
  */
-class WorkflowInterrupt extends WorkflowException implements JsonSerializable
+class WorkflowInterrupt extends WorkflowException
 {
     public function __construct(
         protected InterruptRequest $request,
-        protected NodeInterface $node,
-        protected WorkflowState $state,
-        protected Event $event,
-        protected ?string $branchId = null,
-        protected ?ParallelEvent $parallelEvent = null,
-        protected array $completedBranchResults = [],
+        public readonly ?string $wait = null,
     ) {
         parent::__construct($request->getMessage());
     }
@@ -43,92 +35,5 @@ class WorkflowInterrupt extends WorkflowException implements JsonSerializable
     public function getRequest(): InterruptRequest
     {
         return $this->request;
-    }
-
-    public function getNode(): NodeInterface
-    {
-        return $this->node;
-    }
-
-    public function getState(): WorkflowState
-    {
-        return $this->state;
-    }
-
-    public function getEvent(): Event
-    {
-        return $this->event;
-    }
-
-    public function getBranchId(): ?string
-    {
-        return $this->branchId;
-    }
-
-    public function getParallelEvent(): ?ParallelEvent
-    {
-        return $this->parallelEvent;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function getCompletedBranchResults(): array
-    {
-        return $this->completedBranchResults;
-    }
-
-    public function isParallelInterrupt(): bool
-    {
-        return $this->branchId !== null;
-    }
-
-    /**
-     * Pass this token back when resuming the workflow to identify
-     * which persisted state to restore.
-     */
-    public function getWorkflowId(): string
-    {
-        return $this->state->get('__workflowId');
-    }
-
-    /**
-     * @deprecated Use getWorkflowId() instead.
-     */
-    public function getResumeToken(): string
-    {
-        return $this->state->get('__workflowId');
-    }
-
-    public function jsonSerialize(): array
-    {
-        return [
-            'resumeToken' => $this->getWorkflowId(),
-            'message' => $this->message,
-            'request' => serialize($this->request),
-            'node' => serialize($this->node),
-            'state' => serialize($this->state),
-            'currentEvent' => serialize($this->event),
-            'branchId' => $this->branchId,
-            'parallelEvent' => $this->parallelEvent instanceof ParallelEvent ? serialize($this->parallelEvent) : null,
-            'completedBranchResults' => serialize($this->completedBranchResults),
-        ];
-    }
-
-    public function __serialize(): array
-    {
-        return $this->jsonSerialize();
-    }
-
-    public function __unserialize(array $data): void
-    {
-        $this->message = $data['message'];
-        $this->request = unserialize($data['request']);
-        $this->node = unserialize($data['node']);
-        $this->state = unserialize($data['state']);
-        $this->event = unserialize($data['currentEvent']);
-        $this->branchId = $data['branchId'] ?? null;
-        $this->parallelEvent = isset($data['parallelEvent']) ? unserialize($data['parallelEvent']) : null;
-        $this->completedBranchResults = isset($data['completedBranchResults']) ? unserialize($data['completedBranchResults']) : [];
     }
 }

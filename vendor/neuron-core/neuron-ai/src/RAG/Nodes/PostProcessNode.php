@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace NeuronAI\RAG\Nodes;
 
 use NeuronAI\Agent\AgentState;
-use NeuronAI\Observability\Events\PostProcessed;
-use NeuronAI\Observability\Events\PostProcessing;
 use NeuronAI\RAG\Events\DocumentsProcessedEvent;
 use NeuronAI\RAG\Events\DocumentsRetrievedEvent;
+use NeuronAI\RAG\Observability\PostProcessed;
+use NeuronAI\RAG\Observability\PostProcessing;
 use NeuronAI\RAG\PostProcessor\PostProcessorInterface;
 use NeuronAI\Workflow\Node;
 
@@ -36,9 +36,9 @@ class PostProcessNode extends Node
         $documents = $event->documents;
 
         foreach ($this->postProcessors as $processor) {
-            $this->emit('rag-postprocessing', new PostProcessing($processor::class, $query, $documents));
+            $this->emit(new PostProcessing($processor::class, $query, $documents));
             $documents = $processor->process($query, $documents);
-            $this->emit('rag-postprocessed', new PostProcessed($processor::class, $query, $documents));
+            $this->emit(new PostProcessed($processor::class, $query, $documents));
         }
 
         return new DocumentsProcessedEvent($query, $documents);

@@ -21,21 +21,22 @@ use const FILTER_VALIDATE_EMAIL;
 
 /**
  * @method static make(SesClient $sesClient, string $fromEmail)
+ * @deprecated SESTool will be removed in the next major version.
  */
 class SESTool extends Tool
 {
+    protected string $name = 'send_email';
+
+    protected ?string $description = <<<DESC
+        Send an email message to one or more recipients. Use this tool when you need to communicate with users via email,
+        send notifications, confirmations, reports, or any other email-based communication. The tool handles proper email
+        formatting, delivery, and basic error handling automatically.
+        DESC;
+
     public function __construct(
         protected SesClient $sesClient,
         protected string $fromEmail
     ) {
-        parent::__construct(
-            'send_email',
-            <<<DESC
-                Send an email message to one or more recipients. Use this tool when you need to communicate with users via email,
-                send notifications, confirmations, reports, or any other email-based communication. The tool handles proper email
-                formatting, delivery, and basic error handling automatically.
-                DESC
-        );
     }
 
     /**
@@ -79,10 +80,13 @@ class SESTool extends Tool
         string  $body,
         ?array  $cc = null,
         ?array  $bcc = null,
-        ?string $reply_to = null,
     ): array {
         try {
-            $this->validateRecipients($to);
+            if ($to === []) {
+                throw new ToolException('At least one recipient is required in "to".');
+            }
+
+            $this->validateRecipients([...$to, ...$cc ?? [], ...$bcc ?? []]);
 
             $result = $this->sesClient->sendEmail([
                 'Source' => $this->fromEmail,
@@ -108,12 +112,12 @@ class SESTool extends Tool
     }
 
     /**
-     * @param array<string> $to
+     * @param array<string> $recipients
      * @throws ToolException
      */
-    protected function validateRecipients(array $to): void
+    protected function validateRecipients(array $recipients): void
     {
-        foreach ($to as $recipient) {
+        foreach ($recipients as $recipient) {
             if (filter_var($recipient, FILTER_VALIDATE_EMAIL) === false) {
                 throw new ToolException('Invalid email address: ' . $recipient . '.');
             }

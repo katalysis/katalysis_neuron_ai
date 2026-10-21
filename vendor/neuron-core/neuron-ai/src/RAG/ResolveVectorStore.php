@@ -11,7 +11,7 @@ trait ResolveVectorStore
 {
     protected VectorStoreInterface $store;
 
-    public function setVectorStore(VectorStoreInterface $store): RAG
+    public function setVectorStore(VectorStoreInterface $store): static
     {
         $this->store = $store;
         return $this;
@@ -22,7 +22,7 @@ trait ResolveVectorStore
         return new MemoryVectorStore();
     }
 
-    public function resolveVectorStore(): VectorStoreInterface
+    final public function resolveVectorStore(): VectorStoreInterface
     {
         return $this->store ??= $this->vectorStore();
     }

@@ -4,65 +4,70 @@ declare(strict_types=1);
 
 namespace NeuronAI\RAG\VectorStore;
 
+use JsonException;
 use NeuronAI\Exceptions\HttpException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\Exceptions\VectorStoreException;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
+use NeuronAI\RAG\VectorStore\Compilers\QdrantFilterCompiler;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 
-use function array_map;
-use function in_array;
-use function is_null;
+use function rtrim;
 use function array_chunk;
+use function array_map;
+use function is_null;
 
 class QdrantVectorStore implements VectorStoreInterface
 {
     use HasHttpClient;
+    use HasDocumentSchema;
 
-    /**
-     * Qdrant "must" filter conditions applied to similaritySearch().
-     *
-     * https://qdrant.tech/documentation/concepts/filtering/
-     *
-     * @var array<int, array<string, mixed>>
-     */
-    protected array $filters = [];
+    protected string $baseUri;
 
-    /**
-     * @throws HttpException
-     */
+    protected bool $initialized = false;
+
     public function __construct(
-        protected string $collectionUrl, // like http://localhost:6333/collections/neuron-ai/
+        string $collectionUrl, // like http://localhost:6333/collections/neuron-ai/
         protected ?string $key = null,
         protected int $topK = 5,
         protected int $dimension = 1024,
         ?HttpClientInterface $httpClient = null,
+        ?DocumentSchema $schema = null,
     ) {
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->collectionUrl)
-            ->withHeaders([
-                'Content-Type' => 'application/json',
-                ...(!is_null($this->key) && $this->key !== '' ? ['api-key' => $this->key] : []),
-            ]);
-
-        $this->initialize();
+        $this->initializeSchema($schema);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->baseUri = $collectionUrl;
+        $this->httpHeaders = [
+            'Content-Type' => 'application/json',
+            ...(!is_null($this->key) && $this->key !== '' ? ['api-key' => $this->key] : []),
+        ];
     }
 
     /**
+     * Create the collection if it doesn't exist, the first time an operation needs it
+     *
      * @throws HttpException
      */
     protected function initialize(): void
     {
-        $response = $this->httpClient->request(
-            HttpRequest::get(uri: 'exists')
-        )->json();
-
-        if ($response['result']['exists']) {
+        if ($this->initialized) {
             return;
         }
 
-        $this->createCollection();
+        $response = $this->httpClient->request(
+            HttpRequest::get(uri: rtrim($this->baseUri, '/') . '/exists', headers: $this->httpHeaders)
+        )->json();
+
+        if (!$response['result']['exists']) {
+            $this->createCollection();
+        }
+
+        $this->initialized = true;
     }
 
     /**
@@ -70,7 +75,7 @@ class QdrantVectorStore implements VectorStoreInterface
      */
     public function destroy(): void
     {
-        $this->httpClient->request(HttpRequest::delete(uri: ''));
+        $this->httpClient->request(HttpRequest::delete(uri: rtrim($this->baseUri, '/'), headers: $this->httpHeaders));
     }
 
     /**
@@ -86,16 +91,20 @@ class QdrantVectorStore implements VectorStoreInterface
      *
      * @param Document[] $documents
      * @throws HttpException
+     * @throws VectorStoreException|JsonException
      */
     public function addDocuments(array $documents): VectorStoreInterface
     {
+        $this->validateDocuments($documents);
+        $this->initialize();
         $points = array_map(fn (Document $document): array => [
-            'id' => (string) $document->getId(),
+            // Qdrant ids are unsigned integers or UUIDs: an integer must stay one
+            'id' => $document->getId(),
             'payload' => [
                 'content' => $document->getContent(),
                 'sourceType' => $document->getSourceType(),
                 'sourceName' => $document->getSourceName(),
-                ...$document->metadata,
+                ...MetadataMapper::toStorage($document, $this->schema),
             ],
             'vector' => $document->getEmbedding(),
         ], $documents);
@@ -104,7 +113,7 @@ class QdrantVectorStore implements VectorStoreInterface
 
         foreach ($chunks as $chunk) {
             $this->httpClient->request(
-                HttpRequest::put(uri: 'points?wait=true', body: ['points' => $chunk])
+                HttpRequest::put(uri: rtrim($this->baseUri, '/') . '/points?wait=true', body: ['points' => $chunk], headers: $this->httpHeaders)
             );
         }
 
@@ -112,39 +121,20 @@ class QdrantVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @deprecated Use deleteBy() instead.
      * @throws HttpException
+     * @throws DocumentSchemaException
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        return $this->deleteBy($sourceType, $sourceName);
-    }
-
-    /**
-     * @throws HttpException
-     */
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
-    {
-        $must = [
-            [
-                'key' => 'sourceType',
-                'match' => ['value' => $sourceType],
-            ],
-        ];
-
-        if ($sourceName !== null) {
-            $must[] = [
-                'key' => 'sourceName',
-                'match' => ['value' => $sourceName],
-            ];
-        }
-
+        $this->validateFilters($filters);
+        $this->initialize();
         $this->httpClient->request(
             HttpRequest::post(
-                uri: 'points/delete?wait=true',
+                uri: rtrim($this->baseUri, '/') . '/points/delete?wait=true',
                 body: [
-                    'filter' => ['must' => $must],
-                ]
+                    'filter' => ['must' => (new QdrantFilterCompiler())->compile($filters)],
+                ],
+                headers: $this->httpHeaders,
             )
         );
 
@@ -152,52 +142,46 @@ class QdrantVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @param  array<int, array<string, mixed>>  $filters  Qdrant "must" filter conditions.
-     */
-    public function withFilters(array $filters): self
-    {
-        $this->filters = $filters;
-        return $this;
-    }
-
-    /**
      * @throws HttpException
+     * @throws DocumentSchemaException|VectorStoreException
      */
-    public function similaritySearch(array $embedding): iterable
+    public function search(SearchRequest $request): iterable
     {
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+        }
+
         $body = [
             'query' => [
-                'recommend' => ['positive' => [$embedding]],
+                'recommend' => ['positive' => [$request->embedding]],
             ],
-            'limit' => $this->topK,
+            'limit' => $request->topK ?? $this->topK,
             'with_payload' => true,
             'with_vector' => true,
         ];
 
-        if ($this->filters !== []) {
-            $body['filter'] = ['must' => $this->filters];
+        if ($request->filters instanceof FilterExpression) {
+            $body['filter'] = ['must' => (new QdrantFilterCompiler())->compile($request->filters)];
         }
 
+        $this->initialize();
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'points/query',
-                body: $body
+                uri: rtrim($this->baseUri, '/') . '/points/query',
+                body: $body,
+                headers: $this->httpHeaders,
             )
         )->json();
 
         return array_map(function (array $item): Document {
             $document = new Document($item['payload']['content']);
-            $document->id = $item['id'];
-            $document->embedding = $item['vector'];
-            $document->sourceType = $item['payload']['sourceType'];
-            $document->sourceName = $item['payload']['sourceName'];
-            $document->score = $item['score'];
+            $document->setId($item['id'])
+                ->setEmbedding($item['vector'])
+                ->setSourceType($item['payload']['sourceType'])
+                ->setSourceName($item['payload']['sourceName'])
+                ->setScore($item['score']);
 
-            foreach ($item['payload'] as $name => $value) {
-                if (!in_array($name, ['content', 'sourceType', 'sourceName', 'score', 'embedding', 'id'])) {
-                    $document->addMetadata($name, $value);
-                }
-            }
+            MetadataMapper::hydrate($document, $item['payload']);
 
             return $document;
         }, $response['result']['points']);
@@ -210,13 +194,14 @@ class QdrantVectorStore implements VectorStoreInterface
     {
         $this->httpClient->request(
             HttpRequest::put(
-                uri: '',
+                uri: rtrim($this->baseUri, '/'),
                 body: [
                     'vectors' => [
                         'size' => $this->dimension,
                         'distance' => 'Cosine',
                     ],
                 ],
+                headers: $this->httpHeaders,
             )
         );
     }

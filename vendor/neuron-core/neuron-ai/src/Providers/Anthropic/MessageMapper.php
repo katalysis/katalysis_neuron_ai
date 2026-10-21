@@ -7,6 +7,7 @@ namespace NeuronAI\Providers\Anthropic;
 use NeuronAI\Chat\Enums\MessageRole;
 use NeuronAI\Chat\Enums\SourceType;
 use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\ContentBlocks\ContentBlock;
 use NeuronAI\Chat\Messages\ContentBlocks\ContentBlockInterface;
 use NeuronAI\Chat\Messages\ContentBlocks\FileContent;
 use NeuronAI\Chat\Messages\ContentBlocks\ImageContent;
@@ -18,11 +19,14 @@ use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\Providers\MessageMapperInterface;
-use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolCall;
+use NeuronAI\Tools\ToolOutput;
 use stdClass;
 
 use function array_filter;
 use function array_map;
+use function array_splice;
+use function ksort;
 use function array_values;
 
 class MessageMapper implements MessageMapperInterface
@@ -49,8 +53,34 @@ class MessageMapper implements MessageMapperInterface
     {
         return [
             'role' => $message->getRole(),
-            'content' => $this->mapBlocks($message->getContentBlocks()),
+            'content' => $this->mapMessageContent($message),
         ];
+    }
+
+    protected function mapMessageContent(Message $message, array $toolContents = []): array
+    {
+        $contents = $this->mapBlocks($message->getContentBlocks());
+        $insertions = [];
+        foreach ($message->getMetadata('anthropic_redacted_thinking') ?? [] as $index => $data) {
+            $insertions[$index] = ['type' => 'redacted_thinking', 'data' => $data];
+        }
+
+        $toolPositions = $message->getMetadata('anthropic_tool_positions') ?? [];
+        foreach ($toolContents as $index => $toolContent) {
+            if (isset($toolPositions[$index])) {
+                $insertions[$toolPositions[$index]] = $toolContent;
+            } else {
+                $contents[] = $toolContent;
+            }
+        }
+
+        // Positions refer to the original response, including redacted blocks and tool calls.
+        ksort($insertions);
+        foreach ($insertions as $index => $content) {
+            array_splice($contents, $index, 0, [$content]);
+        }
+
+        return $contents;
     }
 
     protected function mapBlocks(array $blocks): array
@@ -60,7 +90,7 @@ class MessageMapper implements MessageMapperInterface
 
     protected function mapSingleBlock(ContentBlockInterface $block): ?array
     {
-        return match ($block::class) {
+        $mapped = match ($block::class) {
             TextContent::class => [
                 'type' => 'text',
                 'text' => $block->content,
@@ -74,6 +104,13 @@ class MessageMapper implements MessageMapperInterface
             FileContent::class => $this->mapFileBlock($block),
             default => null,
         };
+
+        // A thinking block takes no cache breakpoint
+        if ($mapped !== null && $block instanceof ContentBlock && !$block instanceof ReasoningContent && $block->isCached()) {
+            $mapped['cache_control'] = ['type' => 'ephemeral'];
+        }
+
+        return $mapped;
     }
 
     protected function mapImageBlock(ImageContent $block): ?array
@@ -135,14 +172,7 @@ class MessageMapper implements MessageMapperInterface
     protected function mapToolCall(ToolCallMessage $message): array
     {
         $parts = [];
-
-        // Add text content if present
-        if ($contentBlocks = $message->getContentBlocks()) {
-            $parts = array_map($this->mapSingleBlock(...), $contentBlocks);
-        }
-
-        // Add tool call blocks from the tool array
-        foreach ($message->getTools() as $tool) {
+        foreach ($message->getToolCalls() as $tool) {
             $parts[] = [
                 'type' => 'tool_use',
                 'id' => $tool->getCallId(),
@@ -153,17 +183,20 @@ class MessageMapper implements MessageMapperInterface
 
         return [
             'role' => MessageRole::ASSISTANT,
-            'content' => $parts,
+            'content' => $this->mapMessageContent($message, $parts),
         ];
     }
 
     protected function mapToolsResult(ToolResultMessage $message): array
     {
-        $parts = array_map(fn (ToolInterface $tool): array => [
+        $parts = array_map(fn (ToolCall $tool): array => [
             'type' => 'tool_result',
             'tool_use_id' => $tool->getCallId(),
-            'content' => $tool->getResult(),
-        ], $message->getTools());
+            'content' => ($result = $tool->getResult()) instanceof ToolOutput
+                ? ($this->mapBlocks($result->getBlocks()) ?: $result->getText())
+                : $result,
+            ...($result instanceof ToolOutput && $result->isError() ? ['is_error' => true] : []),
+        ], $message->getToolCalls());
 
         if ($contentBlocks = $message->getContentBlocks()) {
             $parts = [...$parts, ...$this->mapBlocks($contentBlocks)];

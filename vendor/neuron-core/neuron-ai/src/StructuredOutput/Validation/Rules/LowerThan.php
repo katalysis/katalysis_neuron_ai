@@ -6,8 +6,8 @@ namespace NeuronAI\StructuredOutput\Validation\Rules;
 
 use Attribute;
 
-use function get_debug_type;
 use function is_null;
+use function json_encode;
 
 #[Attribute(Attribute::TARGET_PROPERTY)]
 class LowerThan extends AbstractValidationRule
@@ -18,8 +18,13 @@ class LowerThan extends AbstractValidationRule
 
     public function validate(string $name, mixed $value, array &$violations): void
     {
-        if (is_null($value) || $value >= $this->reference) {
-            $violations[] = $this->buildMessage($name, 'must be greater than {compare}', ['compare' => get_debug_type($this->reference)]);
+        // Presence is the type's to decide: a comparison applies only when there is a value
+        if (is_null($value)) {
+            return;
+        }
+
+        if ($value >= $this->reference) {
+            $violations[] = $this->buildMessage($name, '{name} must be less than {compare}', ['compare' => json_encode($this->reference)]);
         }
     }
 }

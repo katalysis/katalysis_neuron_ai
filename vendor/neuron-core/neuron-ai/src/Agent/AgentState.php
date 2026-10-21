@@ -4,38 +4,53 @@ declare(strict_types=1);
 
 namespace NeuronAI\Agent;
 
-use NeuronAI\Chat\History\ChatHistoryInterface;
-use NeuronAI\Chat\History\InMemoryChatHistory;
 use NeuronAI\Chat\Messages\Message;
+use NeuronAI\Chat\Messages\ToolCallMessage;
+use NeuronAI\Providers\ProviderResponse;
+use NeuronAI\Tools\ToolCall;
 use NeuronAI\Workflow\WorkflowState;
+
+use function array_map;
+use function count;
+use function end;
+use function get_object_vars;
 
 /**
  * Extends WorkflowState with agent-specific state management.
+ *
+ * The chat history is a runtime service injected into agent nodes, never part
+ * of this state. The `__steps` accumulator is transient: excluded from durable
+ * snapshots, it reports the messages of the current execution cycle only.
  */
 class AgentState extends WorkflowState
 {
-    protected ChatHistoryInterface $chatHistory;
+    public InferenceRequest $request;
 
-    public function getMessage(): Message
+    public function __clone(): void
     {
-        return $this->getChatHistory()->getLastMessage();
+        parent::__clone();
+
+        if (isset($this->request)) {
+            $this->request = clone $this->request;
+        }
     }
 
-    public function getChatHistory(): ChatHistoryInterface
+    // Exclude the transient `__steps` accumulator from durable snapshots.
+    public function __serialize(): array
     {
-        return $this->chatHistory ??= new InMemoryChatHistory();
+        $properties = get_object_vars($this);
+        unset($properties['data']['__steps']);
+
+        return $properties;
     }
 
-    public function setChatHistory(ChatHistoryInterface $chatHistory): AgentState
+    public function __unserialize(array $properties): void
     {
-        $this->chatHistory = $chatHistory;
-        return $this;
+        foreach ($properties as $name => $value) {
+            $this->{$name} = $value;
+        }
     }
 
-    /**
-     * @param string $toolName The tool name for regular tools, or a custom run key
-     *                         when the tool implements HasRunKey.
-     */
     public function incrementToolRun(string $toolName): void
     {
         $attempts = $this->get('__tool_runs', []);
@@ -44,12 +59,18 @@ class AgentState extends WorkflowState
     }
 
     /**
-     * @param string $toolName The tool name for regular tools, or a custom run key
-     *                         when the tool implements HasRunKey.
+     * The run count of one key, or every count keyed by run key.
+     *
+     * @return ($toolName is null ? array<string, int> : int)
      */
-    public function getToolRuns(string $toolName): int
+    public function getToolRuns(?string $toolName = null): array|int
     {
         $attempts = $this->get('__tool_runs', []);
+
+        if ($toolName === null) {
+            return $attempts;
+        }
+
         return $attempts[$toolName] ?? 0;
     }
 
@@ -61,11 +82,38 @@ class AgentState extends WorkflowState
     public function addStep(Message $message): void
     {
         $steps = $this->get('__steps', []);
-        $steps[] = $message;
+
+        if (
+            $message instanceof ToolCallMessage
+            && $steps !== []
+            && end($steps) instanceof ToolCallMessage
+            && $this->callIds($message) === $this->callIds(end($steps))
+        ) {
+            $steps[count($steps) - 1] = $message;
+        } else {
+            $steps[] = $message;
+        }
+
         $this->set('__steps', $steps);
     }
 
     /**
+     * The ordered list of tool callIds on a ToolCallMessage, used to detect a re-write
+     * of an already-recorded step (an approval-state update on replay).
+     *
+     * @return array<int, string|null>
+     */
+    protected function callIds(ToolCallMessage $message): array
+    {
+        return array_map(
+            static fn (ToolCall $tool): ?string => $tool->getCallId(),
+            $message->getToolCalls()
+        );
+    }
+
+    /**
+     * The messages generated during the current execution cycle.
+     *
      * @return Message[]
      */
     public function getSteps(): array
@@ -76,5 +124,26 @@ class AgentState extends WorkflowState
     public function resetSteps(): void
     {
         $this->delete('__steps');
+    }
+
+    public function setResponse(ProviderResponse $response): AgentState
+    {
+        $this->set('__provider_response', $response);
+        return $this;
+    }
+
+    public function getResponse(): ?ProviderResponse
+    {
+        return $this->get('__provider_response');
+    }
+
+    /**
+     * The final assistant message of the run — the message carried by the stored
+     * provider response. Null only when the run paused before any inference
+     * produced a response.
+     */
+    public function getMessage(): ?Message
+    {
+        return $this->getResponse()?->message();
     }
 }

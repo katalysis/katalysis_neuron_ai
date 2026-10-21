@@ -8,8 +8,6 @@ use NeuronAI\Chat\Messages\ContentBlocks\ContentBlockInterface;
 use NeuronAI\Providers\BasicStreamState;
 
 use function array_key_exists;
-use function array_map;
-use function json_decode;
 
 class StreamState extends BasicStreamState
 {
@@ -67,17 +65,9 @@ class StreamState extends BasicStreamState
                 'name' => $line['content_block']['name'],
                 'input' => '',
             ];
-        } elseif ($input = $line['delta']['partial_json'] ?? null) {
-            $this->toolCalls[$line['index']]['input'] .= $input;
+        } else {
+            // A truthiness check would drop a fragment that is exactly "0"
+            $this->toolCalls[$line['index']]['input'] .= $line['delta']['partial_json'] ?? '';
         }
-    }
-
-    public function getToolCalls(): array
-    {
-        // Decode the input and return
-        return array_map(function (array $call): array {
-            $call['input'] = json_decode((string) $call['input'], true);
-            return $call;
-        }, $this->toolCalls);
     }
 }

@@ -4,20 +4,23 @@ declare(strict_types=1);
 
 namespace NeuronAI\Workflow\Executor;
 
-use NeuronAI\Workflow\Events\Event;
-
 /**
- * Encapsulates the result of a parallel branch execution.
+ * One streamed item or the terminal outcome of an asynchronous branch.
+ *
+ * AsyncBranchRunner advances each branch only once per instance, keeping
+ * output bounded while the parent forwards events with backpressure.
  */
 class BranchResult
 {
     /**
-     * @param array<int, Event> $streamedEvents Events yielded during branch execution
+     * @param object|null $streamedEvent The next item streamed by the branch
+     * @param int|null $streamedKey Its position in the segment's stream
+     * @param bool $paused The branch stopped at a durable boundary.
      */
     public function __construct(
-        public readonly string $branchId,
-        public readonly mixed $result = null,
-        public readonly array $streamedEvents = []
+        public readonly ?object $streamedEvent = null,
+        public readonly ?int $streamedKey = null,
+        public readonly bool $paused = false,
     ) {
     }
 }

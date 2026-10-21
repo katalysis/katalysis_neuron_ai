@@ -7,16 +7,19 @@ namespace NeuronAI\RAG\DataLoader;
 use NeuronAI\Exceptions\DataReaderException;
 use NeuronAI\RAG\Document;
 use Exception;
-use Throwable;
 
 use function array_key_exists;
 use function closedir;
 use function file_exists;
 use function is_array;
 use function is_dir;
+use function is_link;
+use function ltrim;
 use function opendir;
 use function pathinfo;
 use function readdir;
+use function rtrim;
+use function str_starts_with;
 use function strtolower;
 
 use const PATHINFO_EXTENSION;
@@ -26,7 +29,7 @@ class FileDataLoader extends AbstractDataLoader
     /**
      * @var array<string, ReaderInterface>
      */
-    protected array $readers = [];
+    protected array $readers;
 
     /**
      * @throws DataReaderException
@@ -49,7 +52,8 @@ class FileDataLoader extends AbstractDataLoader
         $extensions = is_array($fileExtension) ? $fileExtension : [$fileExtension];
 
         foreach ($extensions as $extension) {
-            $this->readers[$extension] = $reader;
+            // Stored the way file extensions are looked up: lowercase, without the dot
+            $this->readers[strtolower(ltrim($extension, '.'))] = $reader;
         }
 
         return $this;
@@ -57,7 +61,12 @@ class FileDataLoader extends AbstractDataLoader
 
     public function setReaders(array $readers): self
     {
-        $this->readers = $readers;
+        $this->readers = [];
+
+        foreach ($readers as $extension => $reader) {
+            $this->addReader((string) $extension, $reader);
+        }
+
         return $this;
     }
 
@@ -69,11 +78,7 @@ class FileDataLoader extends AbstractDataLoader
         }
 
         // If it's a file
-        try {
-            return $this->splitter->splitDocument($this->getDocument($this->getContentFromFile($this->path), $this->path));
-        } catch (Throwable) {
-            return [];
-        }
+        return $this->splitter->splitDocument($this->getDocument($this->getContentFromFile($this->path), $this->path));
     }
 
     protected function getDocumentsFromDirectory(string $directory): array
@@ -83,12 +88,15 @@ class FileDataLoader extends AbstractDataLoader
         if ($handle = opendir($directory)) {
             // Read the directory contents
             while (($entry = readdir($handle)) !== false) {
-                $fullPath = $directory.'/'.$entry;
-                if ($entry !== '.' && $entry !== '..') {
+                $fullPath = rtrim($directory, '/').'/'.$entry;
+                // Hidden entries and symlinks met while walking are skipped: hidden
+                // files hold secrets such as .env, and symlinks can loop back to an
+                // ancestor or lead outside the loaded directory.
+                if (! str_starts_with($entry, '.') && ! is_link($fullPath)) {
                     if (is_dir($fullPath)) {
                         $documents = [...$documents, ...$this->getDocumentsFromDirectory($fullPath)];
                     } else {
-                        $documents[] = $this->getDocument($this->getContentFromFile($fullPath), $entry);
+                        $documents[] = $this->getDocument($this->getContentFromFile($fullPath), $fullPath);
                     }
                 }
             }
@@ -112,19 +120,18 @@ class FileDataLoader extends AbstractDataLoader
         $fileExtension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
 
         if (array_key_exists($fileExtension, $this->readers)) {
-            $reader = $this->readers[$fileExtension];
-            return $reader::getText($path);
+            return $this->readers[$fileExtension]->read($path);
         }
 
-        return TextFileReader::getText($path);
+        return (new TextFileReader())->read($path);
     }
 
 
-    protected function getDocument(string $content, string $entry): Document
+    protected function getDocument(string $content, string $path): Document
     {
         $document = new Document($content);
-        $document->sourceType = 'files';
-        $document->sourceName = $entry;
+        $document->setSourceType('files');
+        $document->setSourceName($path);
 
         return $document;
     }

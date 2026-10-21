@@ -40,7 +40,9 @@ class QueryTransformationPreProcessor implements PreProcessorInterface
 
         return $this->provider
             ->systemPrompt($this->getSystemPrompt())
-            ->chat($preparedMessage);
+            ->setTools([])
+            ->chat($preparedMessage)
+            ->message();
     }
 
     public function getSystemPrompt(): string

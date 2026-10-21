@@ -4,124 +4,137 @@ declare(strict_types=1);
 
 namespace NeuronAI\Agent\Nodes;
 
-use Inspector\Exceptions\InspectorException;
+use NeuronAI\Agent\AgentResources;
 use NeuronAI\Agent\AgentState;
-use NeuronAI\Agent\ChatHistoryHelper;
-use NeuronAI\Agent\Events\AIInferenceEvent;
+use NeuronAI\Agent\Events\AgentOutputEvent;
+use NeuronAI\Agent\Events\StructuredInferenceEvent;
 use NeuronAI\Agent\Events\ToolCallEvent;
+use NeuronAI\Agent\Observability\Deserialized;
+use NeuronAI\Agent\Observability\Deserializing;
+use NeuronAI\Agent\Observability\Extracted;
+use NeuronAI\Agent\Observability\Extracting;
+use NeuronAI\Agent\Observability\InferenceStart;
+use NeuronAI\Agent\Observability\InferenceStop;
+use NeuronAI\Agent\Observability\SchemaGenerated;
+use NeuronAI\Agent\Observability\SchemaGeneration;
+use NeuronAI\Agent\Observability\Validated;
+use NeuronAI\Agent\Observability\Validating;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Exceptions\AgentException;
-use NeuronAI\Observability\Events\Deserialized;
-use NeuronAI\Observability\Events\Deserializing;
-use NeuronAI\Observability\Events\Extracted;
-use NeuronAI\Observability\Events\Extracting;
-use NeuronAI\Observability\Events\InferenceStart;
-use NeuronAI\Observability\Events\InferenceStop;
-use NeuronAI\Observability\Events\SchemaGenerated;
-use NeuronAI\Observability\Events\SchemaGeneration;
-use NeuronAI\Observability\Events\Validated;
-use NeuronAI\Observability\Events\Validating;
-use NeuronAI\Providers\AIProviderInterface;
+use NeuronAI\Exceptions\ChatHistoryException;
+use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\StructuredOutput\Deserializer\Deserializer;
 use NeuronAI\StructuredOutput\Deserializer\DeserializerException;
 use NeuronAI\StructuredOutput\JsonExtractor;
 use NeuronAI\StructuredOutput\JsonSchema;
 use NeuronAI\StructuredOutput\Validation\Validator;
-use NeuronAI\Workflow\Events\StopEvent;
-use NeuronAI\Workflow\Node;
 use ReflectionException;
 
 use function count;
+use function end;
 use function implode;
+use function max;
 use function trim;
 
 use const PHP_EOL;
 
 /**
  * Node responsible for handling structured output requests with retry logic.
+ *
+ * Routed by its ingress event's exact class; the output class and retry
+ * budget are inference intent carried on the event, so the node itself is
+ * constructible by any blank factory.
  */
-class StructuredOutputNode extends Node
+class StructuredOutputNode extends InferenceNode
 {
-    use ChatHistoryHelper;
-
     public function __construct(
-        protected AIProviderInterface $provider,
-        protected readonly string $outputClass,
-        protected int $maxTries = 1,
+        protected JsonExtractor $extractor = new JsonExtractor(),
     ) {
     }
 
     /**
      * @throws AgentException
      * @throws DeserializerException
-     * @throws InspectorException
      * @throws ReflectionException
+     * @throws ChatHistoryException
      */
-    public function __invoke(AIInferenceEvent $event, AgentState $state): ToolCallEvent|StopEvent
+    public function __invoke(StructuredInferenceEvent $event, AgentState $state, AgentResources $resources): ToolCallEvent|AgentOutputEvent
     {
-        $this->addToChatHistory($state, $event->getMessages());
+        $outputClass = $state->request->options->outputClass
+            ?? throw new AgentException('Structured inference requires an output class on the request.');
+        $maxRetries = max(0, $state->request->options->maxRetries);
+        // User-side messages (inbound, then corrections) awaiting a successful
+        // provider call before being committed to the chat history.
+        $pending = $state->request->messages;
 
-        // Generate JSON schema if not already generated
         if (!$state->has('structured_schema')) {
-            $this->emit('schema-generation', new SchemaGeneration($this->outputClass));
-            $schema = JsonSchema::make()->generate($this->outputClass);
-            $this->emit('schema-generated', new SchemaGenerated($this->outputClass, $schema));
+            $this->emit(new SchemaGeneration($outputClass));
+            $schema = JsonSchema::make()->generate($outputClass);
+            $this->emit(new SchemaGenerated($outputClass, $schema));
             $state->set('structured_schema', $schema);
         }
 
         $schema = $state->get('structured_schema');
         $error = '';
+        $attempt = 0;
 
         do {
             try {
-                // If something goes wrong, retry informing the model about the error
                 if (trim($error) !== '') {
-                    $correctionMessage = new UserMessage(
+                    // Recorded, so a replay writes the same correction to the
+                    // history instead of a new message beside the first one.
+                    $pending[] = $this->memoize("correction.{$attempt}", fn (): UserMessage => new UserMessage(
                         "There was a problem in your previous response that generated the following error:\n\n{$error}\n\n".
                         "Try to generate the correct JSON structure based on the provided schema."
-                    );
-                    $this->addToChatHistory($state, $correctionMessage);
+                    ));
                 }
 
-                $chatHistory = $state->getChatHistory();
-                $messages = $chatHistory->getMessages();
+                $messages = $this->withContext($this->pendingConversation($resources->history, $pending), $state->request->context);
 
-                $last = clone $chatHistory->getLastMessage();
+                $last = clone end($messages);
 
-                $this->emit('inference-start', new InferenceStart($last));
+                $this->emit(new InferenceStart($last));
 
-                $response = $this->provider
-                    ->systemPrompt($event->instructions)
-                    ->setTools($event->tools)
-                    ->structured($messages, $this->outputClass, $schema);
+                // Each retry attempt is a distinct non-deterministic inference
+                // call, so the memo key is attempt-indexed: on replay a
+                // previously-succeeded attempt is recalled without re-calling
+                // the provider.
+                $providerResponse = $this->memoize(
+                    "inference.{$attempt}",
+                    fn (): ProviderResponse => $resources->provider
+                        ->systemPrompt($state->request->instructions)
+                        ->setTools($resources->tools->all())
+                        ->structured($messages, $outputClass, $schema),
+                );
 
-                $this->emit('inference-stop', new InferenceStop($last, $response));
+                $message = $providerResponse->message();
+                $this->emit(new InferenceStop($last, $providerResponse));
 
-                // If the response is a tool call, route to tool execution
-                if ($response instanceof ToolCallMessage) {
-                    return new ToolCallEvent($response, $event);
+                $this->addToChatHistory($resources->history, $state, $pending);
+                $pending = [];
+
+                if ($message instanceof ToolCallMessage) {
+                    return new ToolCallEvent($message);
                 }
 
-                // Add the final message to the chat history (after tool loop)
-                $this->addToChatHistory($state, $response);
+                $this->addToChatHistory($resources->history, $state, $message);
 
-                // Process the response: extract, deserialize, and validate
-                $output = $this->processResponse($response, $schema, $this->outputClass);
+                $output = $this->processResponse($message, $schema, $outputClass);
 
-                // Store the structured output in state
                 $state->set('structured_output', $output);
+                $state->setResponse($providerResponse);
 
-                return new StopEvent();
+                return new AgentOutputEvent();
 
             } catch (AgentException|DeserializerException $ex) {
                 $lastException = $ex;
                 $error = $ex->getMessage();
             }
 
-            $this->maxTries--;
-        } while ($this->maxTries >= 0);
+            $attempt++;
+        } while ($attempt <= $maxRetries);
 
         throw $lastException;
     }
@@ -133,34 +146,32 @@ class StructuredOutputNode extends Node
      * @throws AgentException
      * @throws DeserializerException
      * @throws ReflectionException
-     * @throws InspectorException
      */
     protected function processResponse(
         Message $response,
         array $schema,
         string $class,
     ): object {
-        // Extract a valid JSON object from the LLM response
-        $this->emit('structured-extracting', new Extracting($response));
-        $json = (new JsonExtractor())->getJson($response->getContent());
-        $this->emit('structured-extracted', new Extracted($response, $schema, $json));
-        if ($json === null || $json === '') {
+        $this->emit(new Extracting($response));
+        // Passing an empty string when the response has no content generate an invalid json
+        // It avoids TypeError on the extractor and go through a new generation attempt.
+        $json = $this->extractor->getJson($response->getContent() ?? '');
+        $this->emit(new Extracted($response, $schema, $json));
+        if ($json === null) {
             throw new AgentException("The response does not contains a valid JSON Object.");
         }
 
-        // Deserialize the JSON response from the LLM into an instance of the response model
-        $this->emit('structured-deserializing', new Deserializing($class));
+        $this->emit(new Deserializing($class));
         $obj = Deserializer::make()->fromJson($json, $class);
-        $this->emit('structured-deserialized', new Deserialized($class));
+        $this->emit(new Deserialized($class));
 
-        // Validate if the object fields respect the validation attributes
-        $this->emit('structured-validating', new Validating($class, $json));
+        $this->emit(new Validating($class, $json));
         $violations = Validator::validate($obj);
         if (count($violations) > 0) {
-            $this->emit('structured-validated', new Validated($class, $json, $violations));
+            $this->emit(new Validated($class, $json, $violations));
             throw new AgentException(PHP_EOL.'- '.implode(PHP_EOL.'- ', $violations));
         }
-        $this->emit('structured-validated', new Validated($class, $json));
+        $this->emit(new Validated($class, $json));
 
         return $obj;
     }

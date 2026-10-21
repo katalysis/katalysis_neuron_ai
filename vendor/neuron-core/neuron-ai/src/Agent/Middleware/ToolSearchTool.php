@@ -9,28 +9,28 @@ use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\ToolProperty;
 
+use function array_column;
 use function array_filter;
+use function array_slice;
 use function array_values;
 use function count;
 use function implode;
+use function sprintf;
 use function in_array;
 use function levenshtein;
 use function preg_replace;
 use function preg_split;
-use function sprintf;
 use function str_contains;
 use function strlen;
 use function strtolower;
 use function trim;
 use function usort;
-use function array_column;
-use function array_slice;
-use function max;
 
 class ToolSearchTool extends Tool
 {
-    /** @var ToolInterface[] */
-    protected array $discovered = [];
+    protected string $name = 'tool_search';
+
+    protected ?string $description = 'Search for available tools by name or description. Returns matching tools that will become available for you to use.';
 
     /**
      * @var array<int, array{tool: ToolInterface, nameLower: string, descLower: string, nameWords: string[], descWords: string[]}>|null
@@ -39,17 +39,12 @@ class ToolSearchTool extends Tool
 
     /**
      * @param ToolInterface[] $toolPool
+     * @param int<1,max> $topN Maximum number of matching tools to return
      */
     public function __construct(
         protected array $toolPool,
-        protected int $topN = 10,
+        protected int $topN = 5,
     ) {
-        parent::__construct(
-            name: 'tool_search',
-            description: 'Search for available tools by name or description. Returns matching tools that will become available for you to use.',
-        );
-
-        $this->topN = max(1, $this->topN);
     }
 
     protected function properties(): array
@@ -66,9 +61,7 @@ class ToolSearchTool extends Tool
 
     public function __invoke(string $query): string
     {
-        $matches = $this->defaultSearch($query);
-
-        $this->discovered = $matches;
+        $matches = $this->search($query);
 
         if ($matches === []) {
             return "No tools found matching '{$query}'.";
@@ -87,17 +80,13 @@ class ToolSearchTool extends Tool
     }
 
     /**
+     * The matches for a query — deterministic for a given pool, so the
+     * middleware can re-derive a past call's discoveries from its recorded
+     * inputs (no side-channel data travels on message entries).
+     *
      * @return ToolInterface[]
      */
-    public function discoveredTools(): array
-    {
-        return $this->discovered;
-    }
-
-    /**
-     * @return ToolInterface[]
-     */
-    protected function defaultSearch(string $query): array
+    public function search(string $query): array
     {
         $queryKeywords = $this->tokenize($query);
         if ($queryKeywords === []) {
@@ -212,9 +201,7 @@ class ToolSearchTool extends Tool
     protected function tokenize(string $text): array
     {
         $spaced = preg_replace('/(?<!^)[A-Z]/', '_$0', $text);
-        if ($spaced === null) {
-            $spaced = $text;
-        }
+        $spaced ??= $text;
 
         $spaced = strtolower(trim($spaced));
         if ($spaced === '') {

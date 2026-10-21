@@ -4,42 +4,69 @@ declare(strict_types=1);
 
 namespace NeuronAI\Workflow\Persistence;
 
-use NeuronAI\Exceptions\WorkflowException;
-use NeuronAI\Workflow\Interrupt\WorkflowInterrupt;
-
-use function serialize;
-use function unserialize;
-
-class InMemoryPersistence implements PersistenceInterface, SerializablePersistenceInterface
+class InMemoryPersistence implements PersistenceInterface
 {
-    private array $storage = [];
+    /**
+     * Values keyed by partition then key. The engine hands the backend
+     * already-serialized strings, so every stored value is inherently a
+     * detached snapshot — mutations to a live record after writing are never
+     * visible on get(), matching the durable backends.
+     *
+     * @var array<string, array<string, string>>
+     */
+    protected array $storage = [];
 
-    public function serialize(WorkflowInterrupt $interrupt): string
+    public function get(string $partition, string $key): ?string
     {
-        return serialize($interrupt);
+        return $this->storage[$partition][$key] ?? null;
     }
 
-    public function unserialize(string $data): WorkflowInterrupt
-    {
-        return unserialize($data);
-    }
-
-    public function save(string $workflowId, WorkflowInterrupt $interrupt): void
-    {
-        $this->storage[$workflowId] = $this->serialize($interrupt);
-    }
-
-    public function load(string $workflowId): WorkflowInterrupt
-    {
-        if (!isset($this->storage[$workflowId])) {
-            throw new WorkflowException("No saved workflow found for ID: {$workflowId}.");
+    public function initializeIfAbsent(
+        string $partition,
+        string $conditionKey,
+        string $initialValue,
+        array $records = [],
+    ): bool {
+        if (isset($this->storage[$partition][$conditionKey])) {
+            return false;
         }
 
-        return $this->unserialize($this->storage[$workflowId]);
+        $records[$conditionKey] = $initialValue;
+        foreach ($records as $key => $value) {
+            $this->storage[$partition][$key] = $value;
+        }
+
+        return true;
     }
 
-    public function delete(string $workflowId): void
-    {
-        unset($this->storage[$workflowId]);
+    public function writeIfUnchanged(
+        string $partition,
+        string $conditionKey,
+        string $expectedValue,
+        array $records,
+    ): bool {
+        if (($this->storage[$partition][$conditionKey] ?? null) !== $expectedValue) {
+            return false;
+        }
+
+        foreach ($records as $key => $value) {
+            $this->storage[$partition][$key] = $value;
+        }
+
+        return true;
+    }
+
+    public function deleteIfUnchanged(
+        string $partition,
+        string $conditionKey,
+        string $expectedValue,
+    ): bool {
+        if (($this->storage[$partition][$conditionKey] ?? null) !== $expectedValue) {
+            return false;
+        }
+
+        unset($this->storage[$partition]);
+
+        return true;
     }
 }

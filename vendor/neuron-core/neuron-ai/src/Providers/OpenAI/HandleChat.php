@@ -7,14 +7,13 @@ namespace NeuronAI\Providers\OpenAI;
 use NeuronAI\Chat\Enums\MessageRole;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Citation;
-use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
+use NeuronAI\Providers\ProviderResponse;
 
 use function array_unshift;
-use function is_array;
 use function uniqid;
 
 trait HandleChat
@@ -23,7 +22,7 @@ trait HandleChat
      * @throws ProviderException
      * @throws HttpException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
         // Include the system prompt
         if (isset($this->system)) {
@@ -45,7 +44,11 @@ trait HandleChat
             $this->createChatHttpRequest($body)
         );
 
-        return $this->processChatResult($response->json());
+        return new ProviderResponse(
+            message: $this->processChatResult($response->json()),
+            body: $response->body,
+            headers: $response->headers,
+        );
     }
 
     /**
@@ -53,11 +56,13 @@ trait HandleChat
      */
     protected function processChatResult(array $result): AssistantMessage
     {
-        if ($result['choices'][0]['finish_reason'] === 'tool_calls') {
-            $block = isset($result['choices'][0]['message']['content'])
-                ? new TextContent($result['choices'][0]['message']['content'])
-                : null;
-            $response = $this->createToolCallMessage($result['choices'][0]['message']['tool_calls'], $block);
+        // The calls decide, not the finish reason: a forced tool_choice answers "stop"
+        if (!empty($result['choices'][0]['message']['tool_calls'])) {
+            // The same blocks as a plain answer, so what a subclass parses (e.g. reasoning) is kept
+            $response = $this->createToolCallMessage(
+                $result['choices'][0]['message']['tool_calls'],
+                $this->createAssistantMessage($result['choices'][0]['message'])->getContentBlocks()
+            );
         } else {
             $response = $this->createAssistantMessage($result['choices'][0]['message']);
         }
@@ -90,7 +95,7 @@ trait HandleChat
     }
 
     /**
-     * Extract citations from OpenAI's content annotations.
+     * Chat Completions annotates the message itself, with url_citation only.
      *
      * @return Citation[]
      */
@@ -98,55 +103,25 @@ trait HandleChat
     {
         $citations = [];
 
-        if (isset($message['content']) && is_array($message['content'])) {
-            foreach ($message['content'] as $contentBlock) {
-                if (isset($contentBlock['annotations']) && is_array($contentBlock['annotations'])) {
-                    foreach ($contentBlock['annotations'] as $annotation) {
-                        if ($citation = $this->processAnnotation($annotation)) {
-                            $citations[] = $citation;
-                        }
-                    }
-                }
+        foreach ($message['annotations'] ?? [] as $annotation) {
+            if (($annotation['type'] ?? null) !== 'url_citation') {
+                continue;
             }
+
+            $urlCitation = $annotation['url_citation'] ?? [];
+            $citations[] = new Citation(
+                id: uniqid('openai_url_'),
+                source: $urlCitation['url'] ?? '',
+                title: $urlCitation['title'] ?? null,
+                startIndex: $urlCitation['start_index'] ?? null,
+                endIndex: $urlCitation['end_index'] ?? null,
+                metadata: [
+                    'type' => 'url_citation',
+                    'provider' => 'openai',
+                ]
+            );
         }
 
         return $citations;
-    }
-
-    protected function processAnnotation(array $annotation): ?Citation
-    {
-        $type = $annotation['type'] ?? null;
-        if ($type === 'file_citation') {
-            $fileCitation = $annotation['file_citation'] ?? [];
-            return new Citation(
-                id: $fileCitation['file_id'] ?? uniqid('openai_file_'),
-                source: $fileCitation['file_id'] ?? '',
-                startIndex: $annotation['start_index'] ?? null,
-                endIndex: $annotation['end_index'] ?? null,
-                citedText: $annotation['text'] ?? null,
-                metadata: [
-                    'type' => 'file_citation',
-                    'quote' => $fileCitation['quote'] ?? null,
-                    'provider' => 'openai',
-                ]
-            );
-        }
-
-        if ($type === 'file_path') {
-            $filePath = $annotation['file_path'] ?? [];
-            return new Citation(
-                id: $filePath['file_id'] ?? uniqid('openai_path_'),
-                source: $filePath['file_id'] ?? '',
-                startIndex: $annotation['start_index'] ?? null,
-                endIndex: $annotation['end_index'] ?? null,
-                citedText: $annotation['text'] ?? null,
-                metadata: [
-                    'type' => 'file_path',
-                    'provider' => 'openai',
-                ]
-            );
-        }
-
-        return null;
     }
 }

@@ -26,6 +26,12 @@ class BasicStreamState
      */
     protected array $metadata = [];
 
+    /**
+     * Why this stream stopped: kept per stream, so a stream that ends without
+     * one never reports the previous stream's reason.
+     */
+    protected ?string $stopReason = null;
+
     public function __construct(
         protected Usage $usage = new Usage(0, 0),
     ) {
@@ -60,12 +66,12 @@ class BasicStreamState
         return $this->usage;
     }
 
-    public function messageId(?string $id = null): string
+    /**
+     * One Neuron ID per stream: every chunk carries it and the returned message
+     * takes it. Vendor IDs are not used, because message IDs deduplicate storage.
+     */
+    public function messageId(): string
     {
-        if ($id !== null) {
-            $this->messageId = $id;
-        }
-
         if (!isset($this->messageId)) {
             $this->messageId = UniqueIdGenerator::generateId('msg_');
         }
@@ -91,6 +97,16 @@ class BasicStreamState
         return $this->toolCalls;
     }
 
+    /**
+     * Raw provider-specific tool call entry as accumulated during streaming.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getToolCall(int|string $index): ?array
+    {
+        return $this->toolCalls[$index] ?? null;
+    }
+
     public function addMetadata(string $key, mixed $value): self
     {
         $this->metadata[$key] = $value;
@@ -99,9 +115,7 @@ class BasicStreamState
 
     public function accumulateMetadata(string $key, string $value): self
     {
-        if (!isset($this->metadata[$key])) {
-            $this->metadata[$key] = '';
-        }
+        $this->metadata[$key] ??= '';
 
         $this->metadata[$key] .= $value;
         return $this;
@@ -119,5 +133,15 @@ class BasicStreamState
     public function hasMetadata(string $key): bool
     {
         return isset($this->metadata[$key]);
+    }
+
+    public function setStopReason(string $reason): void
+    {
+        $this->stopReason = $reason;
+    }
+
+    public function stopReason(): ?string
+    {
+        return $this->stopReason;
     }
 }

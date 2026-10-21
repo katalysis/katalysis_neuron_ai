@@ -6,8 +6,12 @@ namespace NeuronAI\Evaluation\Output;
 
 use NeuronAI\Evaluation\AssertionFailure;
 use NeuronAI\Evaluation\Contracts\EvaluationOutputInterface;
-use NeuronAI\Evaluation\Runner\EvaluatorSummary;
+use NeuronAI\Evaluation\Conversation\Trajectory;
+use NeuronAI\Evaluation\Runner\EvaluationResults;
+use NeuronAI\Evaluation\Runner\EvaluationReport;
 
+use function addcslashes;
+use function array_count_values;
 use function array_map;
 use function array_unique;
 use function count;
@@ -30,10 +34,9 @@ class ConsoleOutput implements EvaluationOutputInterface
     ) {
     }
 
-    public function output(EvaluatorSummary $summary): void
+    public function output(EvaluationReport $report): void
     {
-        $this->printHeader();
-        $this->printSummary($summary);
+        $this->printSummary($report);
     }
 
     public function printHeader(): void
@@ -48,84 +51,167 @@ class ConsoleOutput implements EvaluationOutputInterface
         }
     }
 
-    public function printSummary(EvaluatorSummary $summary): void
+    public function printSummary(EvaluationReport $suite): void
     {
+        $results = $suite->getResults();
+        $evaluatorLabels = $this->getEvaluatorLabels($suite);
+
         if (!$this->verbose) {
             echo "\n\n";
         }
 
-        $totalCount = $summary->getTotalCount();
-        $passedCount = $summary->getPassedCount();
-        $failedCount = $summary->getFailedCount();
-        $successRate = round($summary->getSuccessRate() * 100, 1);
-        $totalTime = round($summary->getTotalExecutionTime(), 3);
-        $avgTime = round($summary->getAverageExecutionTime(), 3);
+        $totalTime = round($suite->getDuration(), 3);
+        $avgTime = round($results->getAverageExecutionTime(), 3);
 
-        if ($summary->hasFailures()) {
-            $this->printFailures($summary);
+        $this->printEvaluatorErrors($suite, $evaluatorLabels);
+        if ($results->hasFailures()) {
+            $this->printFailures($results, $evaluatorLabels);
         }
 
-        $this->printAssertionFailureSummary($summary);
+        $this->printAssertionFailureSummary($results, $evaluatorLabels);
 
         echo sprintf(
-            "Time: %s seconds, Average: %s seconds per test\n\n",
+            "Started: %s\nFinished: %s\nDuration: %s seconds, Average: %s seconds per test\n\n",
+            $suite->getStartedAt()->format("Y-m-d\\TH:i:s.uP"),
+            $suite->getFinishedAt()->format("Y-m-d\\TH:i:s.uP"),
             $totalTime,
             $avgTime
         );
 
-        if ($summary->hasFailures()) {
+        if ($suite->hasFailures()) {
             echo "FAILURES!\n";
         } else {
             echo "OK\n";
         }
 
-        $totalAssertions = $summary->getTotalAssertions();
-        $passedAssertions = $summary->getTotalAssertionsPassed();
-        $failedAssertions = $summary->getTotalAssertionsFailed();
-        $assertionSuccessRate = round($summary->getAssertionSuccessRate() * 100, 1);
+        $this->printTotals($results);
 
-        echo sprintf(
+        if (count($suite->getEvaluatorReports()) > 1) {
+            $this->printEvaluatorBreakdown($suite, $evaluatorLabels);
+        }
+    }
+
+    /**
+     * @param array<string, string> $evaluatorLabels
+     */
+    protected function printEvaluatorErrors(EvaluationReport $suite, array $evaluatorLabels): void
+    {
+        $errors = [];
+        foreach ($suite->getEvaluatorReports() as $report) {
+            if ($report->hasError()) {
+                $errors[] = $report;
+            }
+        }
+
+        if ($errors === []) {
+            return;
+        }
+
+        echo "There were " . count($errors) . " evaluator error(s):\n\n";
+
+        foreach ($errors as $index => $report) {
+            echo ($index + 1) . ") {$evaluatorLabels[$report->getEvaluatorClass()]}\n";
+            echo "   Error: {$this->escapeControlCharacters((string) $report->getError())}\n\n";
+        }
+    }
+
+    /**
+     * @param array<string, string> $evaluatorLabels
+     */
+    protected function printEvaluatorBreakdown(EvaluationReport $suite, array $evaluatorLabels): void
+    {
+        echo "\nBy evaluator:\n";
+
+        foreach ($suite->getEvaluatorReports() as $report) {
+            echo "  {$evaluatorLabels[$report->getEvaluatorClass()]}\n";
+            echo "    Duration: " . round($report->getDuration(), 3) . " seconds\n";
+            $this->printTotals($report->getResults(), '    ');
+        }
+    }
+
+    protected function printTotals(EvaluationResults $results, string $indent = ''): void
+    {
+        echo $indent . sprintf(
             "Tests: %d, Passed: %d, Failed: %d, Success Rate: %s%%\n",
-            $totalCount,
-            $passedCount,
-            $failedCount,
-            $successRate
+            $results->getTotalCount(),
+            $results->getPassedCount(),
+            $results->getFailedCount(),
+            round($results->getSuccessRate() * 100, 1),
         );
 
-        echo sprintf(
+        echo $indent . sprintf(
             "Assertions: %d, Passed: %d, Failed: %d, Success Rate: %s%%\n",
-            $totalAssertions,
-            $passedAssertions,
-            $failedAssertions,
-            $assertionSuccessRate
+            $results->getTotalAssertions(),
+            $results->getTotalAssertionsPassed(),
+            $results->getTotalAssertionsFailed(),
+            round($results->getAssertionSuccessRate() * 100, 1),
         );
 
-        // Display score statistics if there are any scores
-        $allScores = $summary->getAllAssertionScores();
-        if ($allScores !== []) {
-            $avgScore = round($summary->getAverageAssertionScore(), 3);
-            $minScore = round($summary->getMinAssertionScore(), 3);
-            $maxScore = round($summary->getMaxAssertionScore(), 3);
+        $cachedRuns = $results->getCachedRunCount();
+        if ($cachedRuns > 0) {
+            echo $indent . sprintf(
+                "Cached runs: %d of %d (assertions re-evaluated)\n",
+                $cachedRuns,
+                $results->getTotalCount(),
+            );
+        }
 
-            echo sprintf(
-                "Score Stats: Avg: %s, Min: %s, Max: %s\n",
-                $avgScore,
-                $minScore,
-                $maxScore
+        if ($results->getAllAssertionScores() === []) {
+            return;
+        }
+
+        echo $indent . sprintf(
+            "Score Stats: Avg: %s, Min: %s, Max: %s\n",
+            round($results->getAverageAssertionScore(), 3),
+            round($results->getMinAssertionScore(), 3),
+            round($results->getMaxAssertionScore(), 3),
+        );
+
+        foreach ($results->getScoreStatisticsByLabel() as $label => $stats) {
+            echo $indent . sprintf(
+                "  %s: Avg: %s, Min: %s, Max: %s (%d assertions)\n",
+                $label,
+                round($stats['average'], 3),
+                round($stats['min'], 3),
+                round($stats['max'], 3),
+                $stats['count'],
             );
         }
     }
 
-    protected function printFailures(EvaluatorSummary $summary): void
+    /**
+     * @return array<string, string>
+     */
+    protected function getEvaluatorLabels(EvaluationReport $suite): array
     {
-        echo "There were " . $summary->getFailedCount() . " failure(s):\n\n";
+        $shortNames = [];
+        foreach ($suite->getEvaluatorReports() as $report) {
+            $shortNames[$report->getEvaluatorClass()] = $report->getShortEvaluatorClass();
+        }
+
+        $shortNameCounts = array_count_values($shortNames);
+        $labels = [];
+
+        foreach ($shortNames as $evaluatorClass => $shortName) {
+            $labels[$evaluatorClass] = $shortNameCounts[$shortName] > 1
+                ? $evaluatorClass
+                : $shortName;
+        }
+
+        return $labels;
+    }
+
+    /** @param array<string, string> $evaluatorLabels */
+    protected function printFailures(EvaluationResults $results, array $evaluatorLabels): void
+    {
+        echo "There were " . $results->getFailedCount() . " failure(s):\n\n";
 
         $failureCount = 1;
-        foreach ($summary->getFailedResults() as $result) {
-            echo "{$failureCount}) Test #{$result->getIndex()}\n";
+        foreach ($results->getFailedResults() as $result) {
+            echo "{$failureCount}) {$evaluatorLabels[$result->getEvaluatorClass()]} #{$result->getIndex()}\n";
 
             if ($result->hasError()) {
-                echo "   Error: " . $result->getError() . "\n";
+                echo "   Error: " . $this->escapeControlCharacters((string) $result->getError()) . "\n";
             } else {
                 echo "   Evaluation failed\n";
                 if ($this->verbose) {
@@ -150,7 +236,11 @@ class ConsoleOutput implements EvaluationOutputInterface
     protected function formatOutput(mixed $output): string
     {
         if (is_string($output)) {
-            return '"' . $output . '"';
+            return '"' . $this->escapeControlCharacters($output) . '"';
+        }
+
+        if ($output instanceof Trajectory) {
+            return $this->escapeControlCharacters($output->toTranscript());
         }
 
         if (is_array($output) || is_object($output)) {
@@ -168,9 +258,16 @@ class ConsoleOutput implements EvaluationOutputInterface
         return (string) $output;
     }
 
-    protected function printAssertionFailureSummary(EvaluatorSummary $summary): void
+    /** @param array<string, string> $evaluatorLabels */
+    protected function printAssertionFailureSummary(EvaluationResults $results, array $evaluatorLabels): void
     {
-        $failuresByLocation = $summary->getAssertionFailuresByLocation();
+        $failuresByLocation = [];
+        foreach ($results->getAllAssertionFailures() as $failure) {
+            $location = $evaluatorLabels[$failure->getEvaluatorClass()]
+                . ':'
+                . $failure->getLineNumber();
+            $failuresByLocation[$location][] = $failure;
+        }
 
         if ($failuresByLocation === []) {
             return;
@@ -193,11 +290,21 @@ class ConsoleOutput implements EvaluationOutputInterface
 
             if ($this->verbose) {
                 foreach ($failures as $failure) {
-                    echo sprintf("  - %s: %s\n", $failure->getAssertionMethod(), $failure->getMessage());
+                    echo sprintf("  - %s: %s\n", $failure->getAssertionMethod(), $this->escapeControlCharacters($failure->getMessage()));
                 }
             }
         }
 
         echo "\n";
+    }
+
+    /**
+     * Model output, provider errors and exception messages can carry terminal
+     * control sequences that would rewrite the report on screen: show them as
+     * escapes instead. Newlines and tabs are kept.
+     */
+    protected function escapeControlCharacters(string $text): string
+    {
+        return addcslashes($text, "\0..\10\13..\37\177");
     }
 }

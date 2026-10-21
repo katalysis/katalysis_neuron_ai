@@ -14,8 +14,10 @@ use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\HttpClient\HttpRequest;
+use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\Tools\ToolInterface;
 
+use function rtrim;
 use function array_filter;
 use function array_key_exists;
 use function json_encode;
@@ -26,7 +28,7 @@ trait HandleChat
      * @throws ProviderException
      * @throws HttpException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
         $body = [
             'contents' => $this->messageMapper()->map($messages),
@@ -62,12 +64,17 @@ trait HandleChat
 
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: "{$this->model}:generateContent",
-                body: $body
+                uri: rtrim($this->baseUri, '/') . "/{$this->model}:generateContent",
+                body: $body,
+                headers: $this->requestHeaders(),
             )
         );
 
-        return $this->processChatResult($response->json());
+        return new ProviderResponse(
+            message: $this->processChatResult($response->json()),
+            body: $response->body,
+            headers: $response->headers,
+        );
     }
 
     /**
@@ -90,14 +97,13 @@ trait HandleChat
             throw new ProviderException("Gemini API finished with reason: {$finishReason}. Full response: " . json_encode($result));
         }
 
-        $content = $candidate['content'];
-
-        if (!isset($content['parts']) && $finishReason === 'MAX_TOKENS') {
-            return (new AssistantMessage())->setStopReason($finishReason);
-        }
+        // Gemini may omit the parts (or the whole content): an empty answer still
+        // carries its usage, citations and stop reason, e.g. a thinking model
+        // that spent its whole budget on thoughts
+        $parts = $candidate['content']['parts'] ?? [];
 
         $blocks = [];
-        foreach ($content['parts'] as $part) {
+        foreach ($parts as $part) {
 
             if (isset($part['text'])) {
                 $block = $part['thought'] ?? false
@@ -126,16 +132,14 @@ trait HandleChat
             }
 
             if (isset($part['functionCall'])) {
-                $toolCalls = array_filter($content['parts'], fn (array $item): bool => isset($item['functionCall']));
+                $toolCalls = array_filter($parts, fn (array $item): bool => isset($item['functionCall']));
                 $message = $this->createToolCallMessage($blocks, $toolCalls);
                 break;
             }
         }
 
         // If no tool calls
-        if (!isset($message)) {
-            $message = new AssistantMessage($blocks);
-        }
+        $message ??= new AssistantMessage($blocks);
 
         if (array_key_exists('groundingMetadata', $result['candidates'][0])) {
             // Extract citations from groundingMetadata
@@ -149,7 +153,7 @@ trait HandleChat
         if (array_key_exists('usageMetadata', $result)) {
             $message->setUsage(
                 new Usage(
-                    $result['usageMetadata']['promptTokenCount'],
+                    $result['usageMetadata']['promptTokenCount'] ?? 0,
                     $result['usageMetadata']['candidatesTokenCount'] ?? 0,
                     $result['usageMetadata']['cachedContentTokenCount'] ?? 0,
                     $result['usageMetadata']['thoughtsTokenCount'] ?? 0,

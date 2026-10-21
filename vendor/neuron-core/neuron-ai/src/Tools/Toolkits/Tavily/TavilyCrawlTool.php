@@ -4,28 +4,31 @@ declare(strict_types=1);
 
 namespace NeuronAI\Tools\Toolkits\Tavily;
 
-use GuzzleHttp\Client;
-use GuzzleHttp\RequestOptions;
-use NeuronAI\Exceptions\ToolException;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Tools\PropertyType;
+use NeuronAI\Tools\ToolOutput;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\Tool;
 
 use function array_merge;
 use function filter_var;
-use function json_decode;
-use function trim;
+use function preg_match;
 
 use const FILTER_VALIDATE_URL;
 
 /**
- * @method static static make(string $key)
+ * @method static static make(string $key, ?HttpClientInterface $httpClient = null)
  */
 class TavilyCrawlTool extends Tool
 {
-    protected Client $client;
+    use HandleTavilyClient;
 
-    protected string $url = 'https://api.tavily.com/';
+    protected string $name = 'url_crawl';
+
+    protected ?string $description = 'Crawl a website starting from a URL: it follows the links from that page and returns the content of every page reached, in Markdown format. '.
+        'Use it when you need several pages of the same site, such as the sections of its documentation. '.
+        'It returns far more content than reading one page, so when you know which page you need, read that page alone.';
 
     protected array $options = [
         'include_images' => false,
@@ -37,11 +40,9 @@ class TavilyCrawlTool extends Tool
      */
     public function __construct(
         protected string $key,
+        ?HttpClientInterface $httpClient = null,
     ) {
-        parent::__construct(
-            'url_crawl',
-            'Get the entire website in markdown format.'
-        );
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
     }
 
     protected function properties(): array
@@ -50,39 +51,24 @@ class TavilyCrawlTool extends Tool
             new ToolProperty(
                 'url',
                 PropertyType::STRING,
-                'The URL to crawl.',
+                'The absolute http or https URL of the page the crawl starts from.',
                 true
             ),
         ];
     }
 
-    public function __invoke(string $url): array
+    public function __invoke(string $url): array|ToolOutput
     {
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            throw new ToolException('Invalid URL.');
+        if (preg_match('~^https?://~i', $url) !== 1 || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return ToolOutput::error('Invalid URL: an absolute http or https URL is required.');
         }
 
-        $result = $this->getClient()->post('crawl', [
-            RequestOptions::JSON => array_merge(
-                $this->options,
-                ['url' => $url]
-            ),
-        ]);
+        $result = $this->post('crawl', array_merge(
+            $this->options,
+            ['url' => $url]
+        ));
 
-        return json_decode((string) $result->getBody(), true);
-    }
-
-
-    protected function getClient(): Client
-    {
-        return $this->client ?? $this->client = new Client([
-            'base_uri' => trim($this->url, '/').'/',
-            'headers' => [
-                'Authorization' => 'Bearer '.$this->key,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ],
-        ]);
+        return $result->json();
     }
 
     public function withOptions(array $options): self

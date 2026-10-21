@@ -5,22 +5,21 @@ declare(strict_types=1);
 namespace NeuronAI\Providers\Mistral;
 
 use NeuronAI\Chat\Messages\ContentBlocks\ContentBlockInterface;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Exceptions\ProviderException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\HandleWithTools;
-use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\Providers\MessageMapperInterface;
 use NeuronAI\Providers\OpenAI\HandleStructured;
 use NeuronAI\Providers\OpenAI\ToolMapper;
 use NeuronAI\Providers\ToolMapperInterface;
-use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolCall;
 
 use function array_map;
-use function json_decode;
-use function array_values;
 
 class Mistral implements AIProviderInterface
 {
@@ -50,29 +49,31 @@ class Mistral implements AIProviderInterface
         protected bool $strict_response = false,
         ?HttpClientInterface $httpClient = null,
     ) {
-        // Use the provided client or create default Guzzle client
-        // Provider always configures authentication and base URI
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->baseUri)
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer ' . $this->key,
-            ]);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $this->key,
+        ];
     }
 
-    public function systemPrompt(?string $prompt): AIProviderInterface
+    public function getModel(): string
     {
-        $this->system = $prompt;
+        return $this->model;
+    }
+
+    public function systemPrompt(SystemMessage|string|null $prompt): AIProviderInterface
+    {
+        $this->system = $prompt instanceof SystemMessage ? $prompt->getContent() : $prompt;
         return $this;
     }
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
         return $this->messageMapper ??= new MessageMapper();
     }
 
-    public function toolPayloadMapper(): ToolMapperInterface
+    protected function toolPayloadMapper(): ToolMapperInterface
     {
         return $this->toolPayloadMapper ??= new ToolMapper();
     }
@@ -86,15 +87,15 @@ class Mistral implements AIProviderInterface
     protected function createToolCallMessage(array $toolCalls, array|ContentBlockInterface|null $blocks = null): ToolCallMessage
     {
         $tools = array_map(
-            fn (array $item): ToolInterface => $this->findTool($item['function']['name'])
-                ->setInputs(
-                    json_decode((string) $item['function']['arguments'], true)
-                )
-                ->setCallId($item['id']),
+            fn (array $item): ToolCall => $this->newToolCall(
+                $item['function']['name'],
+                $item['id'],
+                $this->decodeToolArguments($item['function']['name'], $item['function']['arguments'] ?? null),
+            ),
             $toolCalls
         );
 
-        $result = new ToolCallMessage($blocks, array_values($tools));
+        $result = new ToolCallMessage($blocks, $tools);
         $result->addMetadata('tool_calls', $toolCalls);
 
         return $result;

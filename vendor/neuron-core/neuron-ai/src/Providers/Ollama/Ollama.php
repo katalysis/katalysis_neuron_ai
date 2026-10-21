@@ -4,19 +4,19 @@ declare(strict_types=1);
 
 namespace NeuronAI\Providers\Ollama;
 
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Exceptions\ProviderException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\HandleWithTools;
-use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\Providers\MessageMapperInterface;
 use NeuronAI\Providers\ToolMapperInterface;
-use NeuronAI\Tools\ToolInterface;
 
-use function array_map;
 use function array_values;
+use function uniqid;
 
 class Ollama implements AIProviderInterface
 {
@@ -25,6 +25,8 @@ class Ollama implements AIProviderInterface
     use HandleChat;
     use HandleStream;
     use HandleStructured;
+
+    protected string $baseUri;
 
     protected ?string $system = null;
 
@@ -35,43 +37,56 @@ class Ollama implements AIProviderInterface
      * @param array<string, mixed> $parameters
      */
     public function __construct(
-        protected string $url, // http://localhost:11434/api
+        string $url, // http://localhost:11434/api
         protected string $model,
         protected array $parameters = [],
         ?HttpClientInterface $httpClient = null,
     ) {
         // Use provided client or create default Guzzle client
         // Provider always configures base URI
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->url);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->baseUri = $url;
     }
 
-    public function systemPrompt(?string $prompt): AIProviderInterface
+    public function getModel(): string
     {
-        $this->system = $prompt;
+        return $this->model;
+    }
 
+    public function systemPrompt(SystemMessage|string|null $prompt): AIProviderInterface
+    {
+        $this->system = $prompt instanceof SystemMessage ? $prompt->getContent() : $prompt;
         return $this;
     }
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
         return $this->messageMapper ??= new MessageMapper();
     }
 
-    public function toolPayloadMapper(): ToolMapperInterface
+    protected function toolPayloadMapper(): ToolMapperInterface
     {
         return $this->toolPayloadMapper ??= new ToolMapper();
     }
 
     /**
-     * @param array<string, mixed> $toolCalls
+     * @param array<int, array<string, mixed>> $toolCalls
      * @throws ProviderException
      */
     protected function createToolCallMessage(array $toolCalls, array|string|null $content = null): ToolCallMessage
     {
-        $tools = array_map(fn (array $item): ToolInterface => $this->findTool($item['function']['name'])
-            ->setInputs($item['function']['arguments']), $toolCalls);
+        $tools = [];
+        foreach (array_values($toolCalls) as $index => $item) {
+            // Ollama sends no call id, but the framework treats callId as per-call identity
+            // (memoization, approval decisions, stream protocols): synthesize a locally-unique
+            // one. The mapper never sends it back, since Ollama matches results by tool name.
+            $tools[] = $this->newToolCall(
+                $item['function']['name'],
+                uniqid($item['function']['name'].'_'.$index.'_'),
+                $this->decodeToolArguments($item['function']['name'], $item['function']['arguments'] ?? null),
+            );
+        }
 
-        return new ToolCallMessage($content, array_values($tools));
+        return new ToolCallMessage($content, $tools);
     }
 }

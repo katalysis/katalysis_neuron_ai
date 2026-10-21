@@ -1,10 +1,10 @@
-
 {
     "name": "katalysis/katalysis_neuron_ai",
     "description": "AI Assistant for Concrete CMS using Neuron AI (Dependencies bundled in vendor/)",
     "type": "concrete5-package",
     "require": {
-        "php": "^8.1"
+        "php": "^8.1",
+        "neuron-core/neuron-ai": "4.1.12"
     },
     "autoload": {
         "psr-4": {

@@ -10,17 +10,21 @@ use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ContentBlocks\AudioContent;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\Stream\Chunks\AudioChunk;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\MessageMapperInterface;
+use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\Providers\ToolMapperInterface;
 use NeuronAI\UniqueIdGenerator;
 
+use function rawurlencode;
+use function rtrim;
 use function base64_encode;
 use function end;
 
@@ -42,42 +46,58 @@ class ElevenLabsTextToSpeech implements AIProviderInterface
         protected array $parameters = [],
         ?HttpClientInterface $httpClient = null
     ) {
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->baseUri)
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'xi-api-key' => $this->key,
-            ]);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'xi-api-key' => $this->key,
+        ];
     }
 
-    public function systemPrompt(?string $prompt): AIProviderInterface
+    public function getModel(): string
     {
-        $this->system = $prompt;
+        return $this->model;
+    }
+
+    public function systemPrompt(SystemMessage|string|null $prompt): AIProviderInterface
+    {
+        $this->system = $prompt instanceof SystemMessage ? $prompt->getContent() : $prompt;
         return $this;
+    }
+
+    /**
+     * The voice ID is a path segment: encoded, it cannot reach another endpoint.
+     */
+    protected function voiceUri(): string
+    {
+        return rtrim($this->baseUri, '/') . '/' . rawurlencode($this->voiceId);
     }
 
     /**
      * @throws HttpException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
         $message = end($messages);
 
         $body = [
             'model_id' => $this->model,
             'text' => $message->getContent(),
+            ...$this->parameters,
         ];
 
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: $this->voiceId,
-                body: $body
+                uri: $this->voiceUri(),
+                body: $body,
+                headers: $this->httpHeaders,
             )
         );
 
-        return new AssistantMessage(
-            new AudioContent(base64_encode($response->body), SourceType::BASE64)
+        return new ProviderResponse(
+            message: new AssistantMessage(
+                new AudioContent(base64_encode($response->body), SourceType::BASE64)
+            )
         );
     }
 
@@ -91,12 +111,14 @@ class ElevenLabsTextToSpeech implements AIProviderInterface
         $json = [
             'model_id' => $this->model,
             'text' => $message->getContent(),
+            ...$this->parameters,
         ];
 
         $response = $this->httpClient->stream(
             HttpRequest::post(
-                uri: $this->voiceId,
-                body: $json
+                uri: $this->voiceUri(),
+                body: $json,
+                headers: $this->httpHeaders,
             )
         );
 
@@ -105,28 +127,30 @@ class ElevenLabsTextToSpeech implements AIProviderInterface
 
         while (! $response->eof()) {
             $chunk = $response->read(1024);
-            yield new AudioChunk($msgId, $chunk);
+            yield new AudioChunk($msgId, base64_encode($chunk));
             $audio .= $chunk;
         }
 
-        return new AssistantMessage(
-            new AudioContent(base64_encode($audio), SourceType::BASE64)
+        return new ProviderResponse(
+            message: (new AssistantMessage(
+                new AudioContent(base64_encode($audio), SourceType::BASE64)
+            ))->setId($msgId)
         );
     }
 
-    public function structured(array|Message $messages, string $class, array $response_schema): Message
+    public function structured(array|Message $messages, string $class, array $response_schema): ProviderResponse
     {
-        throw new ProviderException('Structured output is not supported by OpenAI Text to Speech.');
+        throw new ProviderException('Structured output is not supported by ElevenLabs Text to Speech.');
     }
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
-        throw new ProviderException('Messages are not supported by OpenAI Text to Speech.');
+        throw new ProviderException('Messages are not supported by ElevenLabs Text to Speech.');
     }
 
-    public function toolPayloadMapper(): ToolMapperInterface
+    protected function toolPayloadMapper(): ToolMapperInterface
     {
-        throw new ProviderException('Tools are not supported by OpenAI Text to Speech.');
+        throw new ProviderException('Tools are not supported by ElevenLabs Text to Speech.');
     }
 
     public function setTools(array $tools): AIProviderInterface

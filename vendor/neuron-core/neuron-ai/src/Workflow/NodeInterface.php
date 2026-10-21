@@ -5,34 +5,15 @@ declare(strict_types=1);
 namespace NeuronAI\Workflow;
 
 use NeuronAI\Workflow\Events\Event;
-use NeuronAI\Workflow\Interrupt\InterruptRequest;
 use Generator;
 
 interface NodeInterface
 {
-    public function run(Event $event, WorkflowState $state): Generator|Event;
-
-    public function setWorkflowContext(
-        WorkflowState $currentState,
-        Event $currentEvent,
-        ?Interrupt\InterruptRequest $resumeRequest = null
-    ): void;
+    public function run(Event $event, WorkflowState $state, WorkflowResources $resources): Generator|Event;
 
     /**
-     * Check if the node is in resuming mode.
-     *
-     * This is useful for middleware to determine if the workflow is resuming
-     * from an interruption.
+     * Receive the execution context for the upcoming run. Called by the
+     * executor before every node execution.
      */
-    public function isResuming(): bool;
-
-    /**
-     * Get the resume request if the node is resuming.
-     *
-     * This allows middleware to access user decisions when resuming from
-     * an interruption.
-     *
-     * @return InterruptRequest|null The resume request or null if not resuming
-     */
-    public function getResumeRequest(): ?InterruptRequest;
+    public function setWorkflowContext(NodeContext $context): void;
 }
