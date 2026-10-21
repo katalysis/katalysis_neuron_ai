@@ -4,7 +4,7 @@ Claude Code updates **Current position** and adds a **Log** entry at the end of 
 
 ## Current position
 - **Phase:** 1 closed 21 October 2026 (exit criteria met in the exit review; every Phase 1 task merged, P1.14 last in PR #27). Next is Phase 2.
-- **Last completed:** P1.14 (seed and runner fixtures can't be broken by assistant edits: the seed identifies its content by IDs stored in `Config`, discards drafts first, and refuses a moved or trashed root; `SeedResetTest`; branch `task/P1.14-fixture-identity`; PR #27), P1.13 (no live writes outside a draft: 12 more tools disabled, `create_page` makes an unpublished page, `set_file_attribute_value` returns the previous value, `update_page` refuses unknown parameters, test bootstrap registers package autoloaders; branch `task/P1.13-disable-live-write-tools`; PR #26), Phase 1 exit review (comparison run on commit 4758bbf: no regressions, all exit criteria met, safety findings and the new P1.13; report `documentation/eval-results/phase1-exit-20261020.md`; branch `task/phase1-exit-review`; PR #25), P1.12 (test hygiene: the tests no longer leave rows in the dev database, every integration test class is leak-checked, the existing leftovers are cleaned up, three Concrete core issues drafted in `documentation/upstream/`; branch `task/P1.12-test-hygiene`; PR #24), P1.11 (injected instructions are flagged and disclosed: server-side detector, a fixed notice that names where the text was read, one instruction rule, scenarios 16 and 21; branch `task/P1.11-injection-disclosure`; PR #23), P1.10a (access moves to two Concrete task permissions, `use_neuron_ai` and `configure_neuron_ai`; version 3.1.0; branch `task/P1.10a-task-permissions`; PR #22), P1.10 (`get_page_content` reads the blocks directly and works under the CLI; the `neuron_chat_editor` browser test user; scenario 16 now sees the injected text; PR #20), P1.7b (settings changes need Edit Page Properties on the settings page; PR #19), P1.7a (API keys never reach the browser: settings page, save rules, `SecretRedactor`; PR #18), P1.9 (page context across navigation: per-turn agent in the runner, cache reset, page tag on every user message, scenarios 19 and 20; PR #17), P1.8a (PR #16), P1.8 (draft edits no longer change live content, PR #15), P1.7 (security fix: endpoint access check, CSRF token, three tools disabled, PR #14), P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
+- **Last completed:** WP-1 (agent tooling and working practice: permission rules, the Bash guard hook, notifications, tracked git hooks, the backup wrapper, test tiers, the working agreement in CLAUDE.md; branch `task/WP-1-agent-tooling`; PR #28), P1.14 (seed and runner fixtures can't be broken by assistant edits: the seed identifies its content by IDs stored in `Config`, discards drafts first, and refuses a moved or trashed root; `SeedResetTest`; branch `task/P1.14-fixture-identity`; PR #27), P1.13 (no live writes outside a draft: 12 more tools disabled, `create_page` makes an unpublished page, `set_file_attribute_value` returns the previous value, `update_page` refuses unknown parameters, test bootstrap registers package autoloaders; branch `task/P1.13-disable-live-write-tools`; PR #26), Phase 1 exit review (comparison run on commit 4758bbf: no regressions, all exit criteria met, safety findings and the new P1.13; report `documentation/eval-results/phase1-exit-20261020.md`; branch `task/phase1-exit-review`; PR #25), P1.12 (test hygiene: the tests no longer leave rows in the dev database, every integration test class is leak-checked, the existing leftovers are cleaned up, three Concrete core issues drafted in `documentation/upstream/`; branch `task/P1.12-test-hygiene`; PR #24), P1.11 (injected instructions are flagged and disclosed: server-side detector, a fixed notice that names where the text was read, one instruction rule, scenarios 16 and 21; branch `task/P1.11-injection-disclosure`; PR #23), P1.10a (access moves to two Concrete task permissions, `use_neuron_ai` and `configure_neuron_ai`; version 3.1.0; branch `task/P1.10a-task-permissions`; PR #22), P1.10 (`get_page_content` reads the blocks directly and works under the CLI; the `neuron_chat_editor` browser test user; scenario 16 now sees the injected text; PR #20), P1.7b (settings changes need Edit Page Properties on the settings page; PR #19), P1.7a (API keys never reach the browser: settings page, save rules, `SecretRedactor`; PR #18), P1.9 (page context across navigation: per-turn agent in the runner, cache reset, page tag on every user message, scenarios 19 and 20; PR #17), P1.8a (PR #16), P1.8 (draft edits no longer change live content, PR #15), P1.7 (security fix: endpoint access check, CSRF token, three tools disabled, PR #14), P1.6 (external toolkits loaded, PR #13) and P1.6a (`add_block_to_page_area` block type description, PR #12). Before that, P1.5a (scenario 07 fixture fix and baseline amendment, PR #11), P1.5 (baseline on v3.15.26, PR #10), P1.4 (scenario runner, PR #9), P1.3 (PHPUnit setup, PR #8), P1.2 (golden scenarios, PR #7), P1.1 (behaviour spec, PR #6) and Phase 0 (P0.1–P0.7).
 - **Next open:** Phase 2 (Neuron AI 4.x upgrade). P1.7, P1.7a, P1.7b, P1.8, P1.10a, P1.11 and P1.13 must be done before Neuron is installed on any non-dev site (all merged). Open follow-ups: one small `katalysis_pro` PR that fixes `add_person` (`KatalysisProEntitiesToolkit.php:740`, `$app->make('user')` fails with "Target class [user] does not exist.") and removes `delete_person` and `delete_all_people` from its guidelines (also noted in P2.8); P3.3 now includes explicit input-field descriptions; whether to file the three Concrete issues in `documentation/upstream/` (Glyn); the two warnings found in P1.12 are in P3.9; the P3.6 notes on scenario 14 (direct live-version check) and scenario 09 (one wrong-page write).
 - **Scenario baseline:** recorded 2026-10-19 in `documentation/eval-results/baseline-20261019.md` and `.json` (18 scenarios × 3 runs, gpt-4o, Neuron 3.15.26), **with one amendment (P1.5a, appended at the end of each file, so read it before comparing).** Majority labels: 6 pass (01, 02, 07, 12, 13, 15), 4 partial (03, 08, 10, 11), 8 fail (04, 05, 06, 09, 14, 16, 17, 18). Unstable: 07 (2 of 3), 11, 12, 16 (a comparison run uses `--repeat=5`).
 
@@ -58,12 +58,46 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 - Done:
 - Not done / left for later:
 - Checks: PHPUnit … / Scenarios x of y (baseline z) / manual …
+- Who / tool / model:
+- Time: elapsed from /start-task to the PR; own time
+- Cost: /usage; scenario spend
 - Plan changes proposed:
 - Questions for review:
 ```
 
 ## Log
 (newest first)
+
+### 2026-10-21: WP-1 Agent tooling and working practice
+- Branch / PR: `task/WP-1-agent-tooling`, PR #28. Plan: `documentation/plans/WP-1.md` (approved by Glyn, with decisions 1 to 10). Findings: `documentation/plans/WP-1-findings.md` (the Copilot agent's report, as given).
+- Done:
+  - **Permissions** in `.claude/settings.json`: allow, ask and deny rules with no absolute paths.
+  - **Bash guard hook** (`.claude/hooks/guard-bash.php`) for the bypass forms the rules can't match. It has 94 unit tests and was committed red first.
+  - **Notification hook** (`.claude/hooks/notify.php`).
+  - **Git hooks** (`.githooks/`): `vendor/`, `main`/`development`, non-fast-forward.
+  - **Backup wrapper:** `documentation/fixtures/backup_dev_db.sh`.
+  - **Test tiers:** `SeedResetTest` is in the `slow` group.
+  - **Docs and commands:** CLAUDE.md (working agreement, tiers, the guard's limits), SETUP.md (new developer setup), `/next-task`, updated `/start-task` and `/finish-task`, the PR template, this template's cost fields, and DELIVERY_PLAN §6 (decision 7).
+  - **Verify items:** settled with the extension's binary (Claude Code 2.1.306) run headless. The outcomes are in the PR description. In short:
+    - `env` from `settings.local.json` reaches hooks and Bash, but `~` is not expanded, so the wrapper expands it.
+    - Project `allow` rules apply only after the workspace trust dialog has been accepted. I checked the rules from a local copy; nobody's trust state was changed.
+    - `Write(/vendor/**)` is not a working rule, so it was dropped.
+    - The guard, the Read deny and the ask rules work as intended.
+    - `c5:exec` works from the package root.
+- Not done / left for later:
+  - **Notifications in the extension:** not verified, because I can't see the screen. Glyn to confirm.
+  - **For Glyn by hand:** the Copilot approvals in WP-1.md section 9, branch protection and the token, `core.hooksPath` on each clone, and the malformed `UserPromptSubmit` hook in the user-level `~/.claude/settings.json`.
+  - **Guard false positives:** a command or `-m` message that mentions `--no-verify`, `DROP TABLE` or `.env` is blocked (use `-F <file>`).
+  - **Extra dump:** the verification run left a second dump, `prodb_before_WP-1-verify_20261021_104753.sql`. It can be deleted.
+- Checks:
+  - **PHPUnit:** 531 tests, 2743 assertions, OK, 32 s (437 before plus 94 new). Fast tier: 519 tests, 9.1 s.
+  - **Scenarios:** not needed (no prompts, tools, safety layers, model, provider or Neuron version touched).
+  - **Manual:** git hooks in a throwaway repo, every backup wrapper refusal, and one real dump (`~/Herd/backups/prodb_before_WP-1_20261021_104534.sql`, 18 MB, mode 600).
+- Who / tool / model: Glyn; Claude Code (VS Code extension); claude-opus-5-5. The verification runs used Haiku.
+- Time: branch and proposal about 10:15 to 10:30. Glyn's review until 10:41. Implementation 10:41 to 10:55, elapsed about 40 minutes. Own time: not recorded.
+- Cost: `/usage` not recorded. Scenario spend: none.
+- Plan changes proposed: none beyond the ones in the PR (dropping `Write(/vendor/**)`, no `git push * :*` rule, and `/finish-task` pushing and opening the PR itself).
+- Questions for review: did the test notifications appear?
 
 ### 2026-10-21: P1.14 Seed and runner fixtures can't be broken by assistant edits
 - Branch / PR: `task/P1.14-fixture-identity`, PR #27. Plan approved by Glyn; work reviewed and approved by Glyn on 2026-10-21. Plan: `documentation/plans/P1.14.md`.
