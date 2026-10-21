@@ -398,7 +398,8 @@ final class SeedResetTest extends TestCase
             $this->assertCount(1, $turn['toolCalls'], "turn {$i}: only this turn's call");
             $this->assertSame('get_current_page_context', $turn['toolCalls'][0]['name']);
             $this->assertTrue($turn['toolCalls'][0]['ok'], "turn {$i}: " . $turn['toolCalls'][0]['result']);
-            $this->assertStringContainsString($i === 0 ? '/neuron-test/headings' : '/neuron-test/columns', $turn['toolCalls'][0]['result'], 'the result is the one the tool returned, for that turn\'s page');
+            // The result is the tool's JSON, slashes escaped.
+            $this->assertStringContainsString($i === 0 ? '"path":"\/neuron-test\/headings"' : '"path":"\/neuron-test\/columns"', $turn['toolCalls'][0]['result'], 'the result is the one the tool returned, for that turn\'s page');
             $this->assertSame($turnUsage, $turn['usage'], "turn {$i}: usage survives the store");
         }
         $this->assertSame(['input' => 2 * $turnUsage['input'], 'output' => 2 * $turnUsage['output']], $run['usage']);
