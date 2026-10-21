@@ -16,6 +16,7 @@ use Concrete\Core\Entity\Attribute\Type as AttributeTypeEntity;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Tools\Utilities\PageByName;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
@@ -516,33 +517,8 @@ class AttributesToolkit extends AbstractToolkit
             } elseif ($pagePath) {
                 $page = \Concrete\Core\Page\Page::getByPath($pagePath);
             } elseif ($pageName) {
-                // Fuzzy match by name - search for pages with similar names
-                $pl = new \Concrete\Core\Page\PageList();
-                $pl->filterByName($pageName);
-                $results = $pl->getResults();
-                
-                if (count($results) === 0) {
-                    // Try case-insensitive search
-                    $pl = new \Concrete\Core\Page\PageList();
-                    $pl->getQueryObject()->where('lower(cName) = ?', [strtolower($pageName)]);
-                    $results = $pl->getResults();
-                }
-                
-                if (count($results) === 0) {
-                    // Try partial match
-                    $pl = new \Concrete\Core\Page\PageList();
-                    $pl->getQueryObject()->where('lower(cName) LIKE ?', ['%' . strtolower($pageName) . '%']);
-                    $results = $pl->getResults();
-                }
-                
-                if (count($results) === 1) {
-                    $page = $results[0];
-                } elseif (count($results) > 1) {
-                    $pageNames = array_map(function($p) { return $p->getCollectionName() . ' (ID: ' . $p->getCollectionID() . ')'; }, $results);
-                    throw new \RuntimeException("Multiple pages found matching '{$pageName}': " . implode(', ', $pageNames) . ". Please use pageID or pagePath instead.");
-                } else {
-                    throw new \RuntimeException("No page found matching name '{$pageName}'");
-                }
+                // Exact, then ignoring case, then contains (BF-2); one page or an error.
+                $page = PageByName::find($pageName);
             }
             
             if (!$page || $page->isError()) {
