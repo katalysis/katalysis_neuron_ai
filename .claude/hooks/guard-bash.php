@@ -5,8 +5,9 @@
  *
  * Run as: php "${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.php" (see .claude/settings.json).
  * Reads the hook input (JSON) on stdin. Exit 2 blocks the command and sends the reason on
- * stderr to Claude; exit 0 lets the normal permission rules decide. A hook can block but
- * never approve, so it cannot weaken the rules.
+ * stderr to Claude. Exit 0 with a permissionDecision of "ask" on stdout prompts the person,
+ * even when an allow rule matches (WP-1b). Exit 0 with no output lets the normal permission
+ * rules decide. It never approves, so it cannot weaken the rules.
  *
  * It catches what the deny rules' prefix and wildcard matching can't: git global options
  * before the subcommand, refspecs that name a protected branch, flags after the arguments,
@@ -26,6 +27,18 @@ final class NeuronBashGuard
 {
     private const PROTECTED_BRANCHES = ['main', 'development'];
 
+    /** Branches under this prefix take changes only through PRs too (WP-1b). */
+    private const PROTECTED_PREFIX = 'integration/';
+
+    /** The only host curl may reach without a prompt (WP-1b). */
+    private const CURL_HOST = 'katalysis-pro.test';
+
+    /** curl flags that only change how the reply is shown. */
+    private const CURL_FLAGS = ['--silent', '--show-error', '--head', '--include', '--location', '--insecure', '--fail', '--compressed', '--verbose'];
+
+    /** curl flags whose value is harmless. */
+    private const CURL_FLAGS_WITH_VALUE = ['-w', '--write-out', '-H', '--header', '-m', '--max-time', '--connect-timeout', '-A', '--user-agent'];
+
     /** Words that can come before a command without changing what runs. */
     private const COMMAND_PREFIXES = ['command', 'exec', 'env', 'sudo', 'time', 'nice', 'nohup', 'xargs'];
 
@@ -42,6 +55,26 @@ final class NeuronBashGuard
         }
         foreach (self::segments($command) as $tokens) {
             $reason = self::checkGit($tokens, $currentBranch) ?? self::checkGh($tokens);
+            if ($reason !== null) {
+                return $reason;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns why the person should be asked before the command runs, or null. Used only for
+     * commands check() lets through.
+     */
+    public static function askReason(string $command): ?string
+    {
+        // Strip quotes and backslashes so run_"scen"arios and run\_scenarios are caught too.
+        if (str_contains(strtolower(str_replace(['"', "'", '\\'], '', $command)), 'run_scenarios')) {
+            return 'it runs the scenario runner, which calls the AI provider and costs money';
+        }
+        foreach (self::segments($command) as $tokens) {
+            $reason = self::checkCurl($tokens);
             if ($reason !== null) {
                 return $reason;
             }
@@ -71,6 +104,15 @@ final class NeuronBashGuard
 
         $reason = self::check($command, static fn (): ?string => self::gitBranch($cwd));
         if ($reason === null) {
+            $ask = self::askReason($command);
+            if ($ask !== null) {
+                echo json_encode(['hookSpecificOutput' => [
+                    'hookEventName' => 'PreToolUse',
+                    'permissionDecision' => 'ask',
+                    'permissionDecisionReason' => "Project guard (.claude/hooks/guard-bash.php): {$ask}.",
+                ]]), "\n";
+            }
+
             return 0;
         }
         fwrite(STDERR, "Blocked by the project guard (.claude/hooks/guard-bash.php): {$reason}. See CLAUDE.md, Working agreement.\n");
@@ -113,11 +155,6 @@ final class NeuronBashGuard
         if ($i === null) {
             return null;
         }
-        foreach ($tokens as [$value]) {
-            if (stripos($value, 'core.hookspath') !== false) {
-                return 'it changes core.hooksPath, which turns off the git hooks';
-            }
-        }
 
         // Global options come before the subcommand: git -c x=y -C dir --git-dir=... push.
         $n = count($tokens);
@@ -130,6 +167,14 @@ final class NeuronBashGuard
         }
         $subcommand = $tokens[$i][0] ?? '';
         $args = array_slice($tokens, $i + 1);
+
+        // Reading it (git config [--get] core.hooksPath) is fine; anything else that names it is not.
+        $readsHooksPath = $subcommand === 'config' && self::isConfigRead($args);
+        foreach ($tokens as $j => [$value]) {
+            if (stripos($value, 'core.hookspath') !== false && !($readsHooksPath && $j > $i)) {
+                return 'it changes core.hooksPath, which turns off the git hooks';
+            }
+        }
 
         return match ($subcommand) {
             'push' => self::checkPush($args, $currentBranch),
@@ -183,7 +228,7 @@ final class NeuronBashGuard
         $refspecs = array_slice($positional, 1);
         if ($refspecs === []) {
             $branch = $currentBranch();
-            if ($branch !== null && in_array($branch, self::PROTECTED_BRANCHES, true)) {
+            if ($branch !== null && self::isProtected($branch)) {
                 return "it pushes the current branch, {$branch}, which takes changes only through a PR";
             }
 
@@ -200,9 +245,75 @@ final class NeuronBashGuard
             if (str_starts_with($destination, 'refs/heads/')) {
                 $destination = substr($destination, strlen('refs/heads/'));
             }
-            if (in_array($destination, self::PROTECTED_BRANCHES, true)) {
+            if (self::isProtected($destination)) {
                 return "it pushes to or deletes {$destination}, which takes changes only through a PR";
             }
+        }
+
+        return null;
+    }
+
+    private static function isProtected(string $branch): bool
+    {
+        return in_array($branch, self::PROTECTED_BRANCHES, true) || str_starts_with($branch, self::PROTECTED_PREFIX);
+    }
+
+    /**
+     * Whether "git config <args>" only reads one key: the key alone, or "get" and the key,
+     * with no flag other than --get and the scope flags.
+     *
+     * @param list<array{string, bool}> $args
+     */
+    private static function isConfigRead(array $args): bool
+    {
+        $positional = [];
+        foreach ($args as [$value, $quoted]) {
+            if ($quoted || !str_starts_with($value, '-')) {
+                $positional[] = $value;
+            } elseif (!in_array($value, ['--get', '--local', '--global', '--system', '--worktree', '--show-origin', '--show-scope'], true)) {
+                return false;
+            }
+        }
+        if (($positional[0] ?? null) === 'get') {
+            array_shift($positional);
+        }
+
+        return count($positional) === 1;
+    }
+
+    /**
+     * Asks unless curl only reads from the dev site: every argument is a URL on CURL_HOST or
+     * a flag that changes how the reply is shown, and output goes nowhere but /dev/null.
+     *
+     * @param list<array{string, bool}> $tokens
+     */
+    private static function checkCurl(array $tokens): ?string
+    {
+        $i = self::commandIndex($tokens, 'curl');
+        if ($i === null) {
+            return null;
+        }
+        $args = array_slice($tokens, $i + 1);
+        $n = count($args);
+        for ($j = 0; $j < $n; $j++) {
+            [$value, $quoted] = $args[$j];
+            $isFlag = !$quoted && str_starts_with($value, '-');
+            if ($isFlag && (in_array($value, self::CURL_FLAGS, true) || preg_match('/^-[sSIiLkfv]+$/', $value))) {
+                continue;
+            }
+            if ($isFlag && in_array($value, self::CURL_FLAGS_WITH_VALUE, true)) {
+                $j++;
+                continue;
+            }
+            if ($isFlag && in_array($value, ['-o', '--output'], true) && ($args[$j + 1][0] ?? '') === '/dev/null') {
+                $j++;
+                continue;
+            }
+            if (!$isFlag && preg_match('#^(https?://)?' . preg_quote(self::CURL_HOST, '#') . '(:\d+)?([/?\#].*)?$#i', $value)) {
+                continue;
+            }
+
+            return 'curl may reach only ' . self::CURL_HOST . ", and only to read; it has \"{$value}\"";
         }
 
         return null;
