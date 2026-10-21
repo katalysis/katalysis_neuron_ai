@@ -343,7 +343,8 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
 
 ## 6. Working practices
 - **One task ID = one branch = one PR into `development`.** Merge `development` into `main` at releases.
-- **Claude Code** (VS Code, running on the Mac with Herd's PHP/composer): follow `CLAUDE.md`. Plan first, keep diffs small, never rewrite wholesale, and run PHPUnit plus the scenarios before proposing a merge.
+- **Claude Code** (the VS Code extension, with `packages/katalysis_neuron_ai` as the workspace root, so `CLAUDE.md` and `.claude/settings.json` apply): follow `CLAUDE.md`. Plan first for significant tasks, keep diffs small, never rewrite wholesale. Every task PR runs the full PHPUnit suite. **Scenarios run when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit.** They don't run on every merge.
+- **`main` and `development` are protected** (PRs only, no force pushes, no deletion). Each task's tick here and its PROGRESS entry go inside the task PR.
 - **Review:** Glyn or Alex reviews each PR. The other person reviews anything touching permissions, approval, the generator or dependencies.
 - **Releases:** bump `pkgVersion`, add a changelog entry, run the scenarios on the dev site, then deploy to EPRA.
 
