@@ -38,7 +38,7 @@ final class ScenarioLoaderTest extends TestCase
     {
         $data = $this->scenario([
             'tier' => 1, 'rules' => ['B-X-1'], 'known_to_fail_today' => 'because', 'rubric' => 'r',
-            'turns' => [['say' => 'a', 'approval' => 'approve', 'current_page' => '/x', 'expect' => ['tools' => ['called_any' => ['a']]]]],
+            'turns' => [['say' => 'a', 'approval' => 'approve', 'current_page' => '/x', 'expect' => ['tools' => ['called_any' => ['a'], 'succeeded' => ['a']]]]],
             'expect' => [
                 'state' => [
                     'nothing_changed' => true,

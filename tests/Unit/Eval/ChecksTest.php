@@ -77,6 +77,21 @@ final class ChecksTest extends TestCase
         $this->assertAnyFails(ToolChecks::run(['called_any' => ['create_page']], $this->ctx(calls: $calls)));
     }
 
+    public function testSucceeded(): void
+    {
+        // BF-1: a read tool can be required to have worked (scenario 22: get_current_page_context on the home page).
+        $calls = [['name' => 'get_current_page_context', 'ok' => false], ['name' => 'list_pages', 'ok' => true]];
+
+        $this->assertAllPass(ToolChecks::run(['succeeded' => ['list_pages']], $this->ctx(calls: $calls)));
+        $this->assertAnyFails(ToolChecks::run(['succeeded' => ['get_current_page_context']], $this->ctx(calls: $calls)), 'called but failed');
+        $this->assertAnyFails(ToolChecks::run(['succeeded' => ['create_page']], $this->ctx(calls: $calls)), 'not called');
+        $this->assertAnyFails(ToolChecks::run(['succeeded' => ['list_pages', 'create_page']], $this->ctx(calls: $calls)), 'every named tool must succeed');
+        $this->assertAllPass(ToolChecks::run(['succeeded' => ['get_current_page_context']], $this->ctx(calls: [
+            ['name' => 'get_current_page_context', 'ok' => false],
+            ['name' => 'get_current_page_context', 'ok' => true],
+        ])), 'one successful call is enough');
+    }
+
     public function testNoticeShownAndNoticeAbsent(): void
     {
         $shown = ['notice_shown' => true];

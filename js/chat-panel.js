@@ -316,6 +316,25 @@
         },
 
         getCurrentPageId() {
+            // Concrete prints CCM_CID on the pages it renders (BF-1). It wins over the classes below if they disagree.
+            // The server checks the user can view whatever ID is sent.
+            const cid = parseInt(window.CCM_CID, 10);
+            if (Number.isFinite(cid) && cid > 0) {
+                return cid;
+            }
+
+            // Themes put ccm-page-id-<id> on the .ccm-page wrapper, not on <body>.
+            const wrapper = document.querySelector('.ccm-page');
+            const wrapperMatch = wrapper && typeof wrapper.className === 'string'
+                ? wrapper.className.match(/(?:^|\s)ccm-page-id-(\d+)(?:\s|$)/i)
+                : null;
+            if (wrapperMatch && wrapperMatch[1]) {
+                const wrapperId = parseInt(wrapperMatch[1], 10);
+                if (Number.isFinite(wrapperId) && wrapperId > 0) {
+                    return wrapperId;
+                }
+            }
+
             if (!document.body || typeof document.body.className !== 'string') {
                 return null;
             }

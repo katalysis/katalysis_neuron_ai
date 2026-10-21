@@ -17,6 +17,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
+use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -547,6 +548,7 @@ class AttributesToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page not found");
             }
+            SystemPageGuard::refuse($page);
 
             // Check permissions
             $checker = new \Concrete\Core\Permission\Checker($page);
