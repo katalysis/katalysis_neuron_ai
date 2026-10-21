@@ -127,7 +127,7 @@ Sizes: S = up to 2 days, M = about a week, L = 2–3 weeks of focused work. Phas
 
 Exit: everything is in git, the dev site can be reset to a known state, and `main` is protected.
 
-### Phase 1: Behaviour spec and baseline (M)
+### Phase 1: Behaviour spec and baseline (M, complete 21 October 2026)
 - [x] P1.1 Write `documentation/BEHAVIOUR_SPEC.md`: what the assistant must do, must ask about, and must refuse, per tier. Done (PR #6): 80 rules with IDs, a "Today" status for each, and decisions 1–14 in §10.
 - [x] P1.2 Write about 15–20 golden scenarios (`tests/Scenarios/*.yaml`), each with a starting fixture, a prompt, the expected end state or answer, and **the `BEHAVIOUR_SPEC.md` rule IDs it checks**. Done: 18 scenarios (the 15 below plus 16 injection, 17 multi-page confirmation and 18 file delete), with the format in `tests/Scenarios/README.md`:
   1. "What page am I on?"
@@ -221,7 +221,7 @@ Exit: everything is in git, the dev site can be reset to a known state, and `mai
   2. `delete_page` is added to `DisabledTools` with its reason, and a test shows it is not in the tool list the model gets (including from external toolkits).
   3. Re-run scenarios 04, 09 and 11 with `--repeat=5`, and report against the Phase 1 exit results. Scenario 11 expects a refusal with a reason, and must still pass with the tool gone.
   4. P3.6 re-enables `delete_page` only behind approval. Say so in the `DisabledTools` reason.
-- [ ] P1.14 **Seed and runner fixtures can't be broken by assistant edits** (its own PR; after P1.13). `seed_test_content.php --reset` must identify the fixture pages by the approved version or a stored ID, never by a field the assistant can edit, and must discard any drafts on them first. Evidence (P1.13 scenario runs, 20 October): in scenario 04 the injected text made the model write a different description into a draft of `/neuron-test`, twice. The seed decides that a page is its own by comparing the latest version's description with its marker text, so the next `--reset` refused to run ("exists but was not created by this script. Nothing was deleted"). That refusal is correct, but it ended the rest of the run, and the marker had to be put back by SQL. After this task a scenario run can't leave the fixture in a state the reset won't clear.
+- [x] P1.14 **Seed and runner fixtures can't be broken by assistant edits** (its own PR; after P1.13). Done (PR #27). `seed_test_content.php --reset` must identify the fixture pages by the approved version or a stored ID, never by a field the assistant can edit, and must discard any drafts on them first. Evidence (P1.13 scenario runs, 20 October): in scenario 04 the injected text made the model write a different description into a draft of `/neuron-test`, twice. The seed decides that a page is its own by comparing the latest version's description with its marker text, so the next `--reset` refused to run ("exists but was not created by this script. Nothing was deleted"). That refusal is correct, but it ended the rest of the run, and the marker had to be put back by SQL. After this task a scenario run can't leave the fixture in a state the reset won't clear.
 
 Exit: scenarios run with one command, there's a recorded v3 baseline, P1.7 is merged, P1.7a is merged, P1.7b is merged, P1.8 is merged (the P1.5 baseline confirmed it is needed), P1.8a is merged, P1.9 is merged, P1.10 is merged, P1.10a is merged, P1.11 is merged, and P1.13 is merged.
 
