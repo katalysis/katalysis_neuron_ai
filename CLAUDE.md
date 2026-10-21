@@ -2,22 +2,53 @@
 
 A Concrete CMS 9.3+ package (PHP 8.1+) that adds an AI assistant to the CMS. It's built on Neuron AI (`neuron-core/neuron-ai`, bundled in `vendor/`). It's on 3.15.26 now, and an upgrade to 4.x is planned in Phase 2 of the delivery plan.
 
-Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `development`.
+Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integration branch: `development`. `main` and `development` are protected: changes go in only through PRs, with no force pushes and no deletion.
+
+**Tooling:** Glyn and Alex use the Claude Code VS Code extension with this package folder (`httpdocs/packages/katalysis_neuron_ai`) as the workspace root, so this file, `.claude/settings.json` (permission rules and hooks) and `.claude/commands/` apply. Copilot is no longer used. First-time setup: `documentation/SETUP.md`, "New developer setup".
 
 **Read first:** `documentation/DELIVERY_PLAN.md` covers the product tiers, guard rails, architecture and the current phase. `documentation/KATALYSIS_NEURON_AI_PLAN.md` holds the tool implementation policy.
 
 ## Workflow (required)
-- Start every task with `/start-task <ID>` and end it with `/finish-task`. Work only on tasks listed in `documentation/DELIVERY_PLAN.md`.
+- `/next-task` shows what's open and not yet taken. Start every task with `/start-task <ID>` and end it with `/finish-task`. Work only on tasks listed in `documentation/DELIVERY_PLAN.md` (`P` tasks and `WP` working-practice tasks).
 - **Never** change `DELIVERY_PLAN.md`, `EXTENSIONS.md` or the decisions in `PROGRESS.md`. Propose changes in your progress entry instead. Glyn or Alex decide, with design review in Cowork.
   - Exception: you may fix purely factual or formatting slips in `DELIVERY_PLAN.md` and `PROGRESS.md` (PR numbers, status lines, markdown rendering, typos) and must list each one in your reply. Anything that changes scope, rules or decisions still goes to Glyn.
+  - Exception: the task's own tick in `DELIVERY_PLAN.md` ("Done (PR #N)") and the PROGRESS "Current position" update go inside the task PR, as its last commit (see Working agreement).
 - Stop and ask whenever any of these apply:
   - the task needs files outside the approved plan
   - a test or scenario that used to pass now fails
   - you're about to delete more than about 20 lines of working code **that the approved plan didn't list for deletion** (planned deletions, such as `src/Toolkits/` in P3.3, are covered by plan approval)
   - a design doc and the code disagree
-- **Commit messages** start with the task ID (`P1.4: ...`). Changes to the plan, design or workflow docs made after a review start with `PLAN: ...`.
+- **Commit messages** start with the task ID (`P1.4: ...`, `WP-1: ...`). Changes to the plan, design or workflow docs made after a review start with `PLAN: ...`.
 - **Don't rewrite pushed or shared history.** Never amend or reword commits someone else made, even unpushed ones, unless you're asked to.
 - Report results honestly. "Not tested" is an acceptable answer; claiming something works when it wasn't checked is not.
+
+## Working agreement
+- **Significant tasks stop for plan approval** after `/start-task`. A task is significant if it touches prompts (`instructions()`, guidelines), tools, the safety layers (draft isolation, injection detection, disabled tools, approval), permissions, the DB schema or fixtures, dependencies, or anything in `BEHAVIOUR_SPEC.md`. **Everything else is a small task:** implement it, then report with the PR and its PROGRESS entry. If unsure, treat it as significant.
+- **Always stop and ask**, whatever the size: anything in the Workflow "Stop and ask" list, any change to a scenario's expected values or the baseline, running paid scenarios the plan doesn't name, and any command an `ask` rule prompts for (commit, push, `gh pr create`, `mysql`, the scenario runner).
+- **PR contents, in commit order:**
+  1. `PLAN:` the plan, or the `DELIVERY_PLAN.md` entry for a new task
+  2. tests, red first when behaviour changes
+  3. code
+  4. docs
+  5. last, after `gh pr create` so the number is known: the PROGRESS entry, "Current position" and the `DELIVERY_PLAN.md` tick ("Done (PR #N)"), with the task ID prefix
+
+  Nothing is pushed straight to `development` or `main`.
+- **PROGRESS cost fields**, in every entry. Write "not recorded" rather than guess.
+  - `Who / tool / model`: e.g. `Glyn; Claude Code (VS Code); claude-opus-5-5`
+  - `Time`: elapsed from `/start-task` to the PR, plus the person's own time (they estimate it)
+  - `Cost`: Claude Code usage from `/usage` ($ and tokens for API-key users, plan usage for subscription users), plus scenario spend in $, or "none"
+- **Guards and their limits:**
+  - `.claude/hooks/guard-bash.php` (PreToolUse, Bash) blocks:
+    - force pushes, and pushes to or deleting `main` or `development`, however they are written
+    - `--no-verify`, `git commit -n` and changes to `core.hooksPath`
+    - `DROP`, `TRUNCATE` and `mysqladmin`
+    - `gh pr merge`, `gh repo edit|delete` and non-GET `gh api`
+    - commands that name `database.php`, `generated_overrides` or `.env`
+
+    **The guard does not fail safe.** If PHP is missing or the hook errors, Claude Code treats that as a non-blocking hook error and the command goes on to the permission rules. The deny rules in `.claude/settings.json` are the backstop. Don't work around a block: report it.
+  - `.githooks/` (pre-commit: `vendor/`; pre-push: `main`, `development`, non-fast-forward) is enabled once per clone with `git config core.hooksPath .githooks`. `--no-verify` skips it, so GitHub branch protection is the real guard.
+  - The `allow` rules in `.claude/settings.json` apply only after you accept the workspace trust dialog once. The `deny` and `ask` rules always apply.
+- **Personal settings** go in `.claude/settings.local.json` (gitignored), for example `NEURON_BACKUP_DIR` and `NEURON_NOTIFY=off` under `env`. Committed files contain no absolute or machine-specific paths.
 
 ## Layout
 - `controller.php`: package controller (routes, chat panel injection, install/upgrade)
@@ -53,12 +84,17 @@ Dev site: `katalysis_pro_theme` (Herd, Concrete 9.5.5). Integration branch: `dev
 9. **Don't touch secrets:** API keys live in Concrete config (`katalysis.ai.*`) and must never be logged or returned to the frontend.
 
 ## Testing
-- PHPUnit tests: `php tools/phpunit/vendor/bin/phpunit`, run from the package folder with Herd's PHP (install and options in `documentation/SETUP.md`). Suites: `unit` (no Concrete, no dev site) and `integration` (boots Concrete against the dev site database; the dev-host guard is inside the boot function, so it can't be skipped).
+- PHPUnit tests: `php tools/phpunit/vendor/bin/phpunit`, run from the package folder with PHP 8.2+ on `PATH` (install and options in `documentation/SETUP.md`). Suites: `unit` (no Concrete, no dev site) and `integration` (boots Concrete against the dev site database; the dev-host guard is inside the boot function, so it can't be skipped).
+- **Test tiers:**
+  - **Fast**, after every change: `php tools/phpunit/vendor/bin/phpunit --exclude-group slow` (about 9 s). The `slow` group is `SeedResetTest`. A new test class that takes more than about 2 s goes in it too (`#[Group('slow')]`), with a note in PROGRESS.
+  - **Full**, before every PR (in `/finish-task`): `php tools/phpunit/vendor/bin/phpunit` (about 35 s).
+  - **Scenarios** cost money and call the AI. Run them only when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit. The plan names the scenarios and `--repeat`. They don't run on every merge.
 - **No test may call the AI provider or use an API key.** Only the scenario runner does that.
 - Tests that change shared fixtures restore the state they found. They never assume or force a fixed starting state.
 - Tests that run the seed's reset change fixture IDs and the Config record; compare by structure and row counts, as SeedResetTest does.
 - **Leak check (P1.12):** every integration test class that extends `ConcreteTestCase` is checked after it runs. `DatabaseSnapshot` counts every table (and checksums `Config` and the permission tables), and the class fails if any table changed, naming the tables. Only `Logs` is allowed (reason in the constant). `Page::delete()` and `UserInfo::delete()` leave permission rows behind, so use `AreaGrantFixture` and `TaskKeyFixture` for those grants and users, and call `parent::tearDownAfterClass()` if you override it. To clean up rows from older runs, `documentation/fixtures/cleanup_test_leftovers.php` (dry run by default).
-- Behaviour scenarios: `php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php -- [--scenario=] [--repeat=N]`, run from `httpdocs/` against the dev site (Phase 1). It costs money; see `documentation/SETUP.md`.
+- Behaviour scenarios: `php ../../concrete/bin/concrete c5:exec tests/Eval/run_scenarios.php -- [--scenario=] [--repeat=N]`, run from the package folder against the dev site. It costs money; see `documentation/SETUP.md`.
+- Before a task that writes to the dev site, back up the database: `documentation/fixtures/backup_dev_db.sh <task-id>` (needs `NEURON_BACKUP_DIR`; see SETUP.md).
 - **The merge rule tightens as the project goes:**
   - **Before the P1.5 baseline exists:** no regressions in the manual checks listed in the task plan.
   - **After P1.5:** no regressions against the recorded baseline. A scenario that passed must still pass, and scenarios that are known to fail may keep failing.
