@@ -376,7 +376,7 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
 
 ### Bug-fix tasks (BF)
 Bugs found outside a phase task. Each is fixed on `development` in its own PR and, during Phase 2, synced into `integration/neuron4` (Phase 2 Branching note).
-- [ ] BF-1 **The current page resolves on the home page, dashboard pages and in edit mode** (significant; its own PR into `development`, then synced into `integration/neuron4`). Found after P2.2: `get_current_page_context` failed on those pages because the panel never sent a page ID and the server couldn't look up `/` or `/index.php/...`. The browser's ID is untrusted: used only for a page the user can view. Plan: [plans/BF-1.md](plans/BF-1.md).
+- [x] BF-1 **The current page resolves on the home page, dashboard pages and in edit mode** (significant; its own PR into `development`, then synced into `integration/neuron4`). Done (PR #35). Found after P2.2: `get_current_page_context` failed on those pages because the panel never sent a page ID and the server couldn't look up `/` or `/index.php/...`. The browser's ID is untrusted: used only for a page the user can view. Plan: [plans/BF-1.md](plans/BF-1.md).
   - also (Glyn, on approving the plan): every write tool that takes a page refuses a system page (`isSystemPage()`), with one shared check, a red-first test per tool and a registry-level test over every write tool (B-WRT-5)
   - **for P2.3:** capture its v3 tool baseline only after BF-1 is synced into `integration/neuron4`, so the refusal isn't counted as a difference
 
