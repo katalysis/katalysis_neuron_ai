@@ -29,6 +29,7 @@ Record decisions that change the plan or design, with the date and who made them
   - **Guests:** no access.
   - **Security:** the P1.7 fix is required before any non-dev install.
   - **Scenario runner:** runs in-process.
+- 2026-10-21: Dev chats are disposable; no v3 chat compatibility or rollback (Glyn, P2.5).
 
 ## Test hygiene
 **Closed by P1.12 (20 October)**, apart from the Concrete core issues, which are drafted in `documentation/upstream/` for Glyn to file or not. Details: `documentation/plans/P1.12.md` and the P1.12 log entry.
