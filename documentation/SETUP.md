@@ -111,6 +111,18 @@ The seed clears Concrete's cache at the end of every successful run (also `--res
 
 The editor's rights are set per page through Concrete's API, and the site's simple permission model is enough: advanced permissions don't need to be switched on.
 
+### Clearing the dev chats (`clear_dev_chats.php`)
+
+Dev chats are disposable (P2.5): chat history has no compatibility across the Neuron 3 → 4 upgrade or its rollback. `documentation/fixtures/clear_dev_chats.php` deletes every stored chat; the messages in `KatalysisNeuronAiChatMessages` go with them (the foreign key cascades). It refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host. Run it from the package folder:
+
+```bash
+# dry run (the default): how many chats and message rows there are
+php ../../concrete/bin/concrete c5:exec documentation/fixtures/clear_dev_chats.php
+
+# delete them, after a backup (documentation/fixtures/backup_dev_db.sh <task-id>)
+php ../../concrete/bin/concrete c5:exec documentation/fixtures/clear_dev_chats.php -- --apply
+```
+
 ### What the model receives (`show_prompt.php`)
 
 `tests/Support/show_prompt.php` (P2.4) prints what the model would be given for one user message: the system prompt, the user message with its page tag, and the tools offered, external toolkits included. It runs one real agent turn with a fake model, so there is no AI provider call, no API key is read and nothing is written to the database. It refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host, and everything it prints goes through `SecretRedactor`. Run it from the package folder; options go after `--`:

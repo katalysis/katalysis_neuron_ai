@@ -5,7 +5,7 @@ Concrete CMS dashboard assistant powered by Neuron AI.
 ## Current capabilities
 
 - Chat panel injected on dashboard pages
-- Persistent chat history saved in database table `KatalysisNeuronAiChats`
+- Persistent chat history saved in the database: one row per chat in `KatalysisNeuronAiChats`, one row per message in `KatalysisNeuronAiChatMessages`
 - List and load previous chats for the current user
 - Start a new chat session from the panel header
 - Toolkits for pages, files, and users

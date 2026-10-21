@@ -64,7 +64,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - `src/ConcreteCmsAgent.php`: the agent (provider, instructions, tools, history)
 - `src/Tools/*Toolkit.php`: native toolkits (extend `NeuronAI\Tools\Toolkits\AbstractToolkit`)
 - `src/Tools/ExternalToolkitRegistry.php`: lets other packages register toolkits
-- `src/Entity/`, `src/DatabaseChatHistory.php`: chat persistence
+- `src/Entity/`, `src/Chat/ChatMessageStore.php`: chat persistence (Neuron 4 message store, one row per message; P2.5)
 - `js/chat-panel.js`, `css/chat-panel.css`, `elements/chat_panel.php`: UI
 - `src/Toolkits/` is legacy and duplicated. Don't edit it; it's due for removal in Phase 2.
 
