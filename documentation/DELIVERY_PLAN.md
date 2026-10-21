@@ -245,8 +245,10 @@ A spec document and starter template EPRA staff give to their own Claude, so new
 - P2.4 `instructions()` → `SystemMessage`.
 - P2.5 Rewrite `DatabaseChatHistory` as a `MessageStoreInterface` implementation backed by the `Chat` entity. Keep the existing JSON format readable, or add a one-off migration, so old chats still load.
   - **Repair chats with two user messages in a row** (decided after P2.1, findings §6.4): v4 refuses to continue such a chat, and only after a paid provider call. The repair runs when a chat loads, before any provider call.
+  - **Thread ID** (decided after P2.2; upgrade guide 13): `setChatId()` binds the agent's thread as `chat-<id>` (the Chat row's ID, not the PHP session ID; P2.1 findings §6.3). On v4, `chat()` throws without a thread ID.
 - P2.6 Fix the agent error path (`resolveState()`) and the controller's `getOrRestoreAgent` / `saveAgentState` for the v4 `AgentState`.
   - also (decided at P2.2's plan approval): move the scenario runner to the v4 API (history through `getChatHistory()`, results from `ToolResultMessage`), with a free `FakeAIProvider` dry run before any paid run
+  - **Thread ID** (decided after P2.2): the controller and the scenario runner bind the agent's thread (through P2.5's `setChatId()`) before every `chat()`
 - P2.7 Check that `ConcreteCmsLogObserver` still works. Add a PSR-14 listener later, in Phase 3. **Whatever logs event data (the observer now, the PSR-14 listener later) must pass it through `SecretRedactor` first** (found in P1.7a: the observer isn't attached today, but the event data can include request and provider details).
 - P2.8 Coordinated `katalysis_pro` PR: convert `KatalysisProEntitiesToolkit` to `ToolDefinition`s, so it no longer touches Neuron classes and is unaffected by future library upgrades. The full provider and event registration follows in P3.10.
   - **Must be ready before P2.9** (decided after P2.1): without it, `katalysis_pro`'s 7 tools are not offered on v4 (findings §5).
@@ -264,7 +266,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If P2.1 shows the adapter 
   - P1.10a already gives chat and settings their own permissions, separate from the settings dashboard page; P3.2 does not repeat that.
   - The seed: P1.10a keeps `neuron_editor` in no group as the no-access fixture. If P3.2 needs a Content-tier test user, add a separate one.
   - **Decide, with the tiers: panel only where the toolbar shows (P1.10a), or everywhere.** If "everywhere", the acceptance test is that a user with a tier key and no toolbar permission can open the panel.
-- P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/` and the root scripts. Describe each tool's input fields explicitly (e.g. the html block's field is `content`; scenario 07 failed with `htmlContent`). Also, from P1.8:
+- P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/`, `src/ConcreteCmsAIProvider.php` (a legacy agent that uses them; unused, decided after P2.2) and the root scripts. Describe each tool's input fields explicitly (e.g. the html block's field is `content`; scenario 07 failed with `htmlContent`). Also, from P1.8:
   - support for nested (container) blocks in batch updates, which P1.8a only refuses
   - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored"
   - remove the double update in `update_block_in_page_area` (`UpdatePageBlockCommand`, then `$blockToEdit->update()`), unless P1.8a fixes it
@@ -311,6 +313,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If P2.1 shows the adapter 
   3. the descriptor engine: JSON Schema, field types, validation, mapping, `describe_block_type`
   4. transforms plus the core `convert_blocks` tool
   5. the Extensions dashboard page
+     - (decided after P2.2) today the AI settings page builds every external toolkit on each load, to list the ones that fail. Revisit that here once a toolkit connects to anything (an MCP toolkit would connect on every page view)
   6. `katalysis_pro` moved to a provider, and `PeopleToolkit` removed from core
   7. a shim for `ExternalToolkitRegistry` for one release
   8. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
