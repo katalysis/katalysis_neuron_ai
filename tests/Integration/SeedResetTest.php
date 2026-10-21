@@ -21,6 +21,7 @@ use Katalysis\NeuronAi\Tests\Support\DatabaseSnapshot;
 use Katalysis\NeuronAi\Tests\Support\SeedProcess;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use NeuronAI\Tools\ToolInterface;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -39,6 +40,7 @@ use PHPUnit\Framework\TestCase;
  * Needs the dev site and the katalysis_pro People classes. No provider calls: the scenario 04 write is the real
  * update_page tool, run as neuron_editor.
  */
+#[Group('slow')]
 final class SeedResetTest extends TestCase
 {
     private const MARKER = 'Neuron AI test fixture (created by seed_test_content.php). Safe to delete.';
