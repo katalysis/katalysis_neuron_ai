@@ -12,6 +12,8 @@ use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\GlobalAreaFixture;
+use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
 use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
@@ -50,11 +52,15 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
     /** @var int[] pages to delete in tearDown(), children first */
     private array $pages = [];
 
+    private ?GlobalAreaFixture $stacks = null;
+
     protected function tearDown(): void
     {
         $this->actAs('superuser');
+        $this->stacks?->restore();
+        $this->stacks = null;
         foreach (array_reverse($this->pages) as $cID) {
-            $this->db()->executeStatement('UPDATE Pages SET cIsSystemPage = 0 WHERE cID = ?', [$cID]);
+            $this->db()->executeStatement('UPDATE Pages SET cIsSystemPage = 0, cIsTemplate = 0 WHERE cID = ?', [$cID]);
             CacheLocal::flush();
             $page = Page::getByID($cID);
             if ($page && !$page->isError()) {
@@ -120,6 +126,64 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
         }
         $this->assertStringContainsString('is a Concrete system page', $output, "{$toolName} did not refuse a system page. It returned: {$output}");
         $this->assertStringContainsString('Nothing was changed', $output);
+    }
+
+    /**
+     * BF-2: page type defaults (master collections) are refused permanently. Concrete doesn't mark them as system
+     * pages, and getVersionToModify() returns a master collection itself, so before BF-2 a write to them was live.
+     * The page is a throwaway flagged as a master collection for the test, so a red run changes only that page.
+     *
+     * @param class-string<ToolkitInterface> $toolkit
+     */
+    #[DataProvider('writeToolProvider')]
+    public function testTheToolRefusesPageTypeDefaults(string $toolkit, string $toolName, string $pageInput): void
+    {
+        if ($pageInput !== 'pageID' && $pageInput !== 'parentID' && $pageInput !== 'newParentID') {
+            // Page type defaults have no path, and a PageList (pageName) never returns them.
+            $this->addToAssertionCount(1);
+
+            return;
+        }
+        $defaults = $this->newPage('Defaults page ');
+        $this->db()->executeStatement('UPDATE Pages SET cIsTemplate = 1 WHERE cID = ?', [$defaults->getCollectionID()]);
+        CacheLocal::flush();
+        $defaults = Page::getByID($defaults->getCollectionID());
+        $this->assertTrue((bool) $defaults->isMasterCollection());
+        $before = $this->state($defaults);
+
+        $output = $this->runTool(new $toolkit(), $toolName, $this->inputs($toolName, $pageInput, $defaults));
+
+        $this->assertSame($before, $this->state($defaults), "{$toolName} changed page type defaults.");
+        $this->assertStringContainsString('page type defaults', $output, "{$toolName} did not refuse page type defaults. It returned: {$output}");
+        $this->assertStringContainsString('Nothing was changed', $output);
+    }
+
+    /**
+     * B-WRT-5 (b): a stack (found by Stack::getByID(), so multilingual copies count too) is refused with the
+     * "not yet" message, not the permanent one, until stack editing is enabled (P3.6a).
+     */
+    public function testAStackIsRefusedUntilStackEditingIsEnabled(): void
+    {
+        $this->assertFalse(SystemPageGuard::stackEditingEnabled());
+        $this->stacks = new GlobalAreaFixture($this->db());
+        $stackID = $this->stacks->stack();
+        [, $globalAreaStackID] = $this->stacks->globalArea();
+
+        foreach ([$stackID, $globalAreaStackID] as $cID) {
+            $output = $this->runTool(new PagesToolkit(), 'update_page', ['pageID' => $cID, 'name' => 'Changed by the assistant']);
+
+            $this->assertStringContainsString("can't edit stacks or global areas yet", $output);
+            $this->assertStringContainsString('Nothing was changed', $output);
+            $this->assertStringNotContainsString('is a Concrete system page', $output);
+        }
+    }
+
+    public function testADashboardPageGetsThePermanentRefusal(): void
+    {
+        $message = SystemPageGuard::message(Page::getByPath('/dashboard/system'));
+
+        $this->assertStringContainsString('is a Concrete system page', $message);
+        $this->assertStringNotContainsString('yet', $message);
     }
 
     public function testEveryWriteToolThatTakesAPageIsCovered(): void
