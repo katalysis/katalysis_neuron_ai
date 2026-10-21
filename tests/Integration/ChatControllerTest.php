@@ -22,7 +22,6 @@ use NeuronAI\Chat\History\HistoryTrimmer;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\ToolCallMessage;
-use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Tools\ToolCall;
@@ -202,6 +201,8 @@ final class ChatControllerTest extends ConcreteTestCase
             $request->headers->set(ChatAccess::TOKEN_HEADER, $token === 'valid' ? ChatAccess::generateToken() : $token);
         }
         $controller->setRequest($request);
+        // Every call is a new request over HTTP, with a new entity manager: nothing is read from an earlier call's.
+        $this->app()->make(EntityManagerInterface::class)->clear();
 
         $response = $controller->$action();
         $this->assertNotNull($response, "{$action} must return a response, not echo and exit.");
