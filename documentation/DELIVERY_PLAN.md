@@ -343,9 +343,13 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
 
 ## 6. Working practices
 - **One task ID = one branch = one PR into `development`.** Merge `development` into `main` at releases.
-- **Claude Code** (VS Code, running on the Mac with Herd's PHP/composer): follow `CLAUDE.md`. Plan first, keep diffs small, never rewrite wholesale, and run PHPUnit plus the scenarios before proposing a merge.
+- **Claude Code** (the VS Code extension, with `packages/katalysis_neuron_ai` as the workspace root, so `CLAUDE.md` and `.claude/settings.json` apply): follow `CLAUDE.md`. Plan first for significant tasks, keep diffs small, never rewrite wholesale. Every task PR runs the full PHPUnit suite. **Scenarios run when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit.** They don't run on every merge.
+- **`main` and `development` are protected** (PRs only, no force pushes, no deletion). Each task's tick here and its PROGRESS entry go inside the task PR.
 - **Review:** Glyn or Alex reviews each PR. The other person reviews anything touching permissions, approval, the generator or dependencies.
 - **Releases:** bump `pkgVersion`, add a changelog entry, run the scenarios on the dev site, then deploy to EPRA.
+
+### Working-practice tasks (WP)
+- [x] WP-1 **Agent tooling and working practice** (its own PR; before Phase 2). Done (PR #28). Glyn and Alex both use the Claude Code VS Code extension with `packages/katalysis_neuron_ai` as the workspace root, so `CLAUDE.md` and `.claude/settings.json` are loaded and enforced. Copilot is retired. `main` and `development` get branch protection (PRs only, no force pushes, no deletion), and `gh` uses a fine-grained token for this repo only: it can push branches and open PRs, but it can't change settings or merge. Once `development` is protected, the plan and PROGRESS ticks go inside the task PR. Committed files work for both developers, with no absolute or Herd-specific paths; personal settings go in `.claude/settings.local.json` (gitignored). Scope: permission rules (allow, ask, deny), a notification hook, tracked git hooks (`.githooks/`), a dev DB backup wrapper, test tiers (fast, full, scenarios), a working agreement in `CLAUDE.md`, and who, tool, model and time taken in each PROGRESS entry. Findings: [plans/WP-1-findings.md](plans/WP-1-findings.md).
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.

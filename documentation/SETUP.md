@@ -2,6 +2,22 @@
 
 **Note:** This package bundles all dependencies in its `vendor/` directory. You do NOT need to run `composer install` for normal installation.
 
+## New developer setup (Claude Code)
+
+For working on this package (Glyn and Alex: macOS, Herd, the Claude Code VS Code extension). Once per clone:
+
+1. Open `httpdocs/packages/katalysis_neuron_ai` in VS Code as the workspace root, not `katalysis_pro_theme`. Then `CLAUDE.md`, `.claude/settings.json` and `.claude/commands/` apply.
+2. In Claude Code, accept the workspace trust dialog once. Until you do, the `allow` rules in `.claude/settings.json` are ignored (Claude Code says so), so routine commands keep prompting. The `deny` and `ask` rules always apply.
+3. Enable the git hooks: `git config core.hooksPath .githooks`
+4. Create `.claude/settings.local.json` (gitignored) with your own settings:
+   ```json
+   { "env": { "NEURON_BACKUP_DIR": "~/Herd/backups" } }
+   ```
+   `NEURON_BACKUP_DIR` must be an existing directory outside the repo and the web root. Add `"NEURON_NOTIFY": "off"` to turn off the desktop notifications.
+5. Make sure `php` (8.2+), `git`, and for backups `mysqldump`, are on `PATH`. The hooks need only `php` and `git`.
+
+What you get: a guard on risky Bash commands (`.claude/hooks/guard-bash.php`), a notification when Claude is waiting for you or has finished (`.claude/hooks/notify.php`), and git hooks that refuse `vendor/` commits and pushes to `main` or `development`. `CLAUDE.md`, "Working agreement", describes what each one does and doesn't cover.
+
 ## Install or upgrade package
 
 1. Install in Concrete CMS
@@ -84,7 +100,7 @@ The editor's rights are set per page through Concrete's API, and the site's simp
 
 ### Full database snapshot (local only, never in git)
 
-A script reset is enough in most cases. For a full restore, keep snapshots outside the repo in `~/Herd/backups/`. The dev database is `prodb` on `127.0.0.1:3307`; the password is in `httpdocs/application/config/database.php`. A snapshot contains user password hashes and chat history, so don't copy it anywhere shared.
+A script reset is enough in most cases. To take a snapshot before a task, run `documentation/fixtures/backup_dev_db.sh <task-id>` from the package folder. It writes `$NEURON_BACKUP_DIR/<database>_before_<task-id>_<timestamp>.sql` (mode 600), reads the connection from `database.php` and accepts only a local host. The manual commands below do the same. For a full restore, keep snapshots outside the repo (Glyn uses `~/Herd/backups/`). The dev database is `prodb` on `127.0.0.1:3307`; the password is in `httpdocs/application/config/database.php`. A snapshot contains user password hashes and chat history, so don't copy it anywhere shared.
 
 ```bash
 mkdir -p ~/Herd/backups
@@ -112,7 +128,8 @@ export PATH="$HOME/Library/Application Support/Herd/bin:$PATH"
 COMPOSER=composer.dev.json composer install
 
 # run the tests
-php tools/phpunit/vendor/bin/phpunit                        # everything
+php tools/phpunit/vendor/bin/phpunit --exclude-group slow   # fast tier, after every change (about 9 s)
+php tools/phpunit/vendor/bin/phpunit                        # everything, before every PR (about 35 s)
 php tools/phpunit/vendor/bin/phpunit --testsuite unit
 php tools/phpunit/vendor/bin/phpunit --testsuite integration
 ```
@@ -128,7 +145,7 @@ php tools/phpunit/vendor/bin/phpunit --testsuite integration
 
 The runner plays the scenarios in `tests/Scenarios/` through the real agent and checks the end state. It is dev tooling under `tests/Eval/`, not part of the shipped package. **It calls the AI provider with the dev site's API key, so every run costs money, and it resets the `/neuron-test` content for each run.**
 
-Run from `httpdocs/` (options for the script go after `--`):
+Run from `httpdocs/` as below, or from the package folder as `php ../../concrete/bin/concrete c5:exec tests/Eval/run_scenarios.php -- ...` (options for the script go after `--`):
 
 ```bash
 export PATH="$HOME/Library/Application Support/Herd/bin:$PATH"

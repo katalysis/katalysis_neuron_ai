@@ -1,0 +1,36 @@
+#!/bin/sh
+# WP-1: refuse pushes to main or development (both take changes only through PRs), deleting
+# either, and any non-fast-forward update. Branch protection on GitHub is the real guard;
+# this stops the mistake before it leaves the machine. --no-verify skips it.
+# Enable once per clone: git config core.hooksPath .githooks
+
+zero=0000000000000000000000000000000000000000
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    branch=${remote_ref#refs/heads/}
+    case "$branch" in
+        main|development)
+            if [ "$local_sha" = "$zero" ]; then
+                echo "pre-push: refusing to delete $branch." >&2
+            else
+                echo "pre-push: refusing to push to $branch. Push a task branch and open a PR." >&2
+            fi
+            status=1
+            continue
+            ;;
+    esac
+    # A new branch on the remote, or a deletion of another branch: nothing to compare.
+    if [ "$remote_sha" = "$zero" ] || [ "$local_sha" = "$zero" ]; then
+        continue
+    fi
+    if ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+        echo "pre-push: $branch on the remote has commits you don't have. Fetch and merge first; force pushes are not allowed." >&2
+        status=1
+    elif ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+        echo "pre-push: refusing a non-fast-forward push to $branch (it would discard commits on the remote)." >&2
+        status=1
+    fi
+done
+
+exit $status

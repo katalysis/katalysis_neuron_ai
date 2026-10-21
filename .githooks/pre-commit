@@ -1,0 +1,17 @@
+#!/bin/sh
+# WP-1: refuse commits that change vendor/ (CLAUDE.md rule 8: dependencies change only through
+# composer, in a planned dependency PR). For that PR only: ALLOW_VENDOR=1 git commit ...
+# Enable once per clone: git config core.hooksPath .githooks
+
+if [ "${ALLOW_VENDOR:-}" = "1" ]; then
+    exit 0
+fi
+
+changed=$(git diff --cached --name-only -- vendor/ | head -5)
+if [ -n "$changed" ]; then
+    echo "pre-commit: this commit changes vendor/, for example:" >&2
+    echo "$changed" | sed 's/^/  /' >&2
+    echo "Unstage those files. A planned dependency upgrade PR commits them with ALLOW_VENDOR=1." >&2
+    exit 1
+fi
+exit 0
