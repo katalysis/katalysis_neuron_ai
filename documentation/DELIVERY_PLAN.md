@@ -232,7 +232,7 @@ A spec document and starter template EPRA staff give to their own Claude, so new
 **Branching (decided after P2.1, 2026-10-21; P2.7 and the sync rule added at P2.2's plan approval):** P2.2–P2.8 merge into a protected integration branch, `integration/neuron4`, not into `development`. None of them leaves the site working on its own (P2.1 findings §7: with v4 installed and nothing else changed, every page returns 500 and chat fails). P2.9 runs the full scenarios on `integration/neuron4`, then opens the PR that merges it into `development`, once. Whenever `development` changes during Phase 2, it is synced into `integration/neuron4` by a PR merged with a merge commit.
 
 - [x] P2.1 Adapter spike (see §4). Done (PR #30): go with conditions ([plans/P2.1-findings.md](plans/P2.1-findings.md)). Do it on a throwaway branch, against the v4 source. Shape the adapter as the public `Katalysis\NeuronAi\Extension\ToolDefinition` builder (see `EXTENSIONS.md`), so extensions never extend Neuron classes directly.
-- P2.2 Update dependencies:
+- [x] P2.2 Update dependencies. Done (PR #33, into `integration/neuron4`):
   - pin `neuron-core/neuron-ai` exactly, in `composer.json`, to the newest 4.1.x release that is at least two weeks old (decided after P2.1; the spike used 4.1.12, see findings §2.2 for 4.1.13). **Decided at P2.2's plan approval: pin 4.1.12** (the spike's evidence is on it; nothing on `integration/neuron4` leaves the dev machine before P2.9, when 4.1.12 passes two weeks); run `composer audit` and record the result
   - run `composer update` with Herd's PHP and composer
   - remove Guzzle and Inspector if nothing else needs them
