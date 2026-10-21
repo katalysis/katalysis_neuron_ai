@@ -11,6 +11,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use Concrete\Core\User\UserInfo;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -40,12 +41,12 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeListUserAttributesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_user_attributes',
             'List all user attributes defined in the system with their handles, names, and types.'
         );
 
-        $tool->setCallable($this->guarded(function (): array {
+        $tool->setHandler($this->guarded(function (): array {
             $attributes = UserAttributeKey::getList();
             $results = [];
 
@@ -73,7 +74,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeGetUserAttributeDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_user_attribute_details',
             'Get detailed information about a specific user attribute by handle.'
         );
@@ -85,7 +86,7 @@ class UserAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (?string $handle = null): array {
+        $tool->setHandler($this->guarded(function (?string $handle = null): array {
             if (!$handle) {
                 throw new \RuntimeException("Attribute handle is required");
             }
@@ -138,7 +139,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeCreateUserAttributeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_user_attribute',
             'Create a new user attribute with specified type and settings. Use list_attribute_types to see available types.'
         );
@@ -178,7 +179,7 @@ class UserAttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $name = null,
             ?string $type = null,
@@ -307,7 +308,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeUpdateUserSelectAttributeOptionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'update_user_select_attribute_options',
             'Update the options for an existing select/dropdown user attribute. Replaces all existing options.'
         );
@@ -326,7 +327,7 @@ class UserAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?array $options = null
         ): array {
@@ -421,7 +422,7 @@ class UserAttributesToolkit extends AbstractToolkit
 
     protected function makeSetUserAttributeValueTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'set_user_attribute_value',
             'Set the value of a user attribute for a specific user. Handles all attribute types including select/dropdown.'
         );
@@ -461,7 +462,7 @@ class UserAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $userID = null,
             ?string $username = null,
             ?string $email = null,

@@ -14,6 +14,7 @@ use Concrete\Core\Area\Area;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -75,7 +76,7 @@ GUIDELINES;
      */
     protected function makeListPageVersionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_page_versions',
             'List all versions of a page, showing which are approved/draft and who created them.'
         );
@@ -94,7 +95,7 @@ GUIDELINES;
             false
         ));
 
-        $tool->setCallable(function (int $pageID, ?int $limit = 10) {
+        $tool->setHandler(function (int $pageID, ?int $limit = 10) {
             try {
                 $page = Page::getByID($pageID);
                 
@@ -183,7 +184,7 @@ GUIDELINES;
      */
     protected function makeApprovePageVersionTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'approve_page_version',
             'Approve a version to make it the active/published page. Use this to REVERT to a previous version or publish a draft.'
         );
@@ -202,7 +203,7 @@ GUIDELINES;
             true
         ));
 
-        $tool->setCallable(function (int $pageID, int $versionID) {
+        $tool->setHandler(function (int $pageID, int $versionID) {
             try {
                 // Get the page with the specific version (convert to string)
                 $page = Page::getByID($pageID, (string)$versionID);
@@ -256,7 +257,7 @@ GUIDELINES;
      */
     protected function makeCreatePageDraftTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_page_draft',
             'Create a draft version of a page for safe editing, or reuse the draft that already exists (the result says which). Changes in draft do not affect live page until approved.'
         );
@@ -282,7 +283,7 @@ GUIDELINES;
             false
         ));
 
-        $tool->setCallable(function (int $pageID, ?string $comments = null, ?int $basedOnVersionID = null) {
+        $tool->setHandler(function (int $pageID, ?string $comments = null, ?int $basedOnVersionID = null) {
             try {
                 // Get the base version
                 if ($basedOnVersionID) {
@@ -370,7 +371,7 @@ GUIDELINES;
      */
     protected function makeDiscardDraftVersionTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'discard_draft_version',
             'Discard (delete) an unapproved draft version. Use this to cancel unwanted changes. Cannot discard active versions.'
         );
@@ -389,7 +390,7 @@ GUIDELINES;
             true
         ));
 
-        $tool->setCallable(function (int $pageID, int $versionID) {
+        $tool->setHandler(function (int $pageID, int $versionID) {
             try {
                 // Get the page with the specific version (convert to string)
                 $page = Page::getByID($pageID, (string)$versionID);
@@ -449,7 +450,7 @@ GUIDELINES;
      */
     protected function makeGetVersionContentTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_version_content',
             'Get blocks and content from a specific version. Use this to preview what a version contains before approving.'
         );
@@ -468,7 +469,7 @@ GUIDELINES;
             true
         ));
 
-        $tool->setCallable(function (int $pageID, int $versionID) {
+        $tool->setHandler(function (int $pageID, int $versionID) {
             try {
                 // Get the page with the specific version (convert to string)
                 $page = Page::getByID($pageID, (string)$versionID);

@@ -12,6 +12,7 @@ use Concrete\Core\Attribute\Set as AttributeSet;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -42,7 +43,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeListAttributeSetsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_attribute_sets',
             'List all attribute sets for a category (page, user, or file) with their contained attributes.'
         );
@@ -54,7 +55,7 @@ class AttributeSetsToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (?string $category = 'collection'): array {
+        $tool->setHandler($this->guarded(function (?string $category = 'collection'): array {
             // Get category service
             $app = Application::getFacadeApplication();
             $categoryService = $app->make(CategoryService::class);
@@ -99,7 +100,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeCreateAttributeSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_attribute_set',
             'Create a new attribute set in a category to organize related attributes.'
         );
@@ -125,7 +126,7 @@ class AttributeSetsToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $name = null,
             ?string $category = 'collection'
@@ -169,7 +170,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeDeleteAttributeSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'delete_attribute_set',
             'Delete an attribute set. Note: Attributes are not deleted, they are just removed from the set (ungrouped).'
         );
@@ -188,7 +189,7 @@ class AttributeSetsToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $category = 'collection'
         ): array {
@@ -233,7 +234,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeAddAttributeToSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'add_attribute_to_set',
             'Add an attribute to an attribute set for better organization in the CMS interface.'
         );
@@ -259,7 +260,7 @@ class AttributeSetsToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $attribute_handle = null,
             ?string $set_handle = null,
             ?string $category = 'collection'
@@ -323,7 +324,7 @@ class AttributeSetsToolkit extends AbstractToolkit
 
     protected function makeRemoveAttributeFromSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'remove_attribute_from_set',
             'Remove an attribute from its attribute set (ungroup it). The attribute itself is not deleted.'
         );
@@ -342,7 +343,7 @@ class AttributeSetsToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $attribute_handle = null,
             ?string $category = 'collection'
         ): array {
