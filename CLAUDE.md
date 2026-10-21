@@ -48,6 +48,10 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
     **The guard does not fail safe.** If PHP is missing or the hook errors, Claude Code treats that as a non-blocking hook error and the command goes on to the permission rules. The deny rules in `.claude/settings.json` are the backstop. Don't work around a block: report it.
   - `.githooks/` (pre-commit: `vendor/`; pre-push: `main`, `development`, non-fast-forward) is enabled once per clone with `git config core.hooksPath .githooks`. `--no-verify` skips it, so GitHub branch protection is the real guard.
   - The `allow` rules in `.claude/settings.json` apply only after you accept the workspace trust dialog once. The `deny` and `ask` rules always apply.
+  - `defaultMode` is `acceptEdits` (WP-1a):
+    - **Accepted without a prompt:** file edits inside the package, and the filesystem commands that mode covers (`mkdir`, `touch`, `mv`, `cp`, `sed`; `rm` and `rmdir` too, but the `rm *` ask rule still prompts for them).
+    - **Rules still win:** deny, then ask, then allow, whatever the mode. So `Edit(/vendor/**)` is still denied, and `composer.json` and `controller.php` still prompt.
+    - **VS Code:** the extension may not take its starting mode from project settings. See SETUP.md.
 - **Personal settings** go in `.claude/settings.local.json` (gitignored), for example `NEURON_BACKUP_DIR` and `NEURON_NOTIFY=off` under `env`. Committed files contain no absolute or machine-specific paths.
 
 ## Layout

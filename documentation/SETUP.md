@@ -8,6 +8,9 @@ For working on this package (Glyn and Alex: macOS, Herd, the Claude Code VS Code
 
 1. Open `httpdocs/packages/katalysis_neuron_ai` in VS Code as the workspace root, not `katalysis_pro_theme`. Then `CLAUDE.md`, `.claude/settings.json` and `.claude/commands/` apply.
 2. In Claude Code, accept the workspace trust dialog once. Until you do, the `allow` rules in `.claude/settings.json` are ignored (Claude Code says so), so routine commands keep prompting. The `deny` and `ask` rules always apply.
+   - **Edit mode:** `.claude/settings.json` sets `defaultMode: acceptEdits`, so edits inside the package don't prompt (`vendor/` stays denied; `composer.json` and `controller.php` still ask).
+   - **VS Code:** the Claude Code docs say VS Code sessions don't read the starting mode from project settings. If edits still prompt in the extension, switch to the accept-edits mode in the extension's mode selector at the start of a session. Not yet checked in the extension.
+   - **Source:** https://code.claude.com/docs/en/permission-modes
 3. Enable the git hooks: `git config core.hooksPath .githooks`
 4. Create `.claude/settings.local.json` (gitignored) with your own settings:
    ```json
