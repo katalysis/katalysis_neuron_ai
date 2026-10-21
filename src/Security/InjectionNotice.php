@@ -94,11 +94,16 @@ final class InjectionNotice
 
         $changed = false;
         foreach ($messages as $i => $message) {
-            if (!is_array($message) || ($message['role'] ?? null) !== 'assistant' || !isset($message[self::META_KEY])) {
+            if (!is_array($message) || ($message['role'] ?? null) !== 'assistant') {
                 continue;
             }
-            $source = isset($message[self::META_SOURCE_KEY]) && is_string($message[self::META_SOURCE_KEY]) ? $message[self::META_SOURCE_KEY] : null;
-            $text = is_string($message[self::META_KEY]) ? self::text($message[self::META_KEY], $source) : null;
+            // Neuron 3 stored metadata beside the message's own fields; Neuron 4 nests it under __meta (P2.1 spike).
+            $meta = is_array($message['__meta'] ?? null) ? array_merge($message, $message['__meta']) : $message;
+            if (!isset($meta[self::META_KEY])) {
+                continue;
+            }
+            $source = isset($meta[self::META_SOURCE_KEY]) && is_string($meta[self::META_SOURCE_KEY]) ? $meta[self::META_SOURCE_KEY] : null;
+            $text = is_string($meta[self::META_KEY]) ? self::text($meta[self::META_KEY], $source) : null;
             if ($text !== null) {
                 $messages[$i]['notice'] = $text;
                 $changed = true;

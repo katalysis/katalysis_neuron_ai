@@ -133,7 +133,7 @@ class Chat extends AbstractController
                 // The fixed notice text when a tool result held text addressed to the assistant, else null (P1.11).
                 'notice' => $agent->getTurnNotice(),
                 'timestamp' => time(),
-                'history_count' => count($agent->resolveState()->getChatHistory()->getMessages())
+                'history_count' => count($agent->getChatHistory()->getMessages())
             ]);
             exit;
             
@@ -144,8 +144,9 @@ class Chat extends AbstractController
             
             // Try to add an error recovery message to maintain history alternation
             try {
-                if (isset($agent)) {
-                    $chatHistory = $agent->resolveState()->getChatHistory();
+                // P2.1 spike: on Neuron 4 a failed turn stores no user message, so this finds nothing to repair.
+                if (isset($agent) && $agent->getThreadId() !== null) {
+                    $chatHistory = $agent->getChatHistory();
                     $messages = $chatHistory->getMessages();
                     
                     // Check if the last message was from the user (indicating we failed to respond)
@@ -375,11 +376,10 @@ class Chat extends AbstractController
      */
     private function saveAgentState(ConcreteCmsAgent $agent): void
     {
-        $chatHistory = $agent->resolveState()->getChatHistory();
-
-        if (!($chatHistory instanceof DatabaseChatHistory)) {
+        // P2.1 spike: on Neuron 4 the agent stores each message through ChatMessageStore once it is bound to a chat.
+        if ($agent->getThreadId() === null) {
             \Concrete\Core\Support\Facade\Log::warning(
-                "Chat history is not using DatabaseChatHistory - messages may not persist!"
+                "Chat history is not bound to a chat - messages may not persist!"
             );
         }
     }

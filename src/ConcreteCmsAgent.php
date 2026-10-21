@@ -4,11 +4,13 @@ namespace Katalysis\NeuronAi;
 
 use NeuronAI\Agent\Agent;
 use NeuronAI\Agent\Nodes\ToolNode;
+use NeuronAI\Chat\History\MessageStoreInterface;
+use Katalysis\NeuronAi\Chat\ChatMessageStore;
+use Doctrine\ORM\EntityManagerInterface;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
-use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -35,7 +37,6 @@ use Concrete\Core\Attribute\Key\CollectionKey;
 class ConcreteCmsAgent extends Agent
 {
     private ?int $chatId = null;
-    private ?DatabaseChatHistory $chatHistoryInstance = null;
     private ?array $runtimePageContext = null;
     private ?ToolResultScanner $toolResultScanner = null;
     
@@ -144,15 +145,12 @@ class ConcreteCmsAgent extends Agent
     public function setChatId(?int $chatId): self
     {
         $this->chatId = $chatId;
-        
-        // IMPORTANT: Always call chatHistory() to ensure instance exists
-        // This matches the pattern from katalysis_pro_ai RagAgent
-        $chatHistory = $this->chatHistory();
-        
-        if ($chatHistory instanceof DatabaseChatHistory && $chatId) {
-            $chatHistory->setChatId($chatId);
+
+        // P2.1 spike: Neuron 4 needs a thread ID; it is the Chat row's own ID (not the PHP session ID).
+        if ($chatId) {
+            $this->setThreadId(ChatMessageStore::threadFor($chatId));
         }
-        
+
         return $this;
     }
 
@@ -179,24 +177,24 @@ class ConcreteCmsAgent extends Agent
     }
 
     /**
-     * Use database-backed chat history for persistent storage
-     * Uses singleton pattern to ensure chat ID persistence
-     * 
-     * @return \NeuronAI\Chat\History\AbstractChatHistory
+     * P2.1 spike: Neuron 4's hook for where the conversation is stored. A chat (setChatId()) is stored on its Chat
+     * row; an agent with no chat keeps Neuron's in-memory default. Resolved once, on the first chat().
      */
-    protected function chatHistory(): \NeuronAI\Chat\History\AbstractChatHistory
+    protected function messageStore(): MessageStoreInterface
     {
-        // Use singleton pattern to ensure chat ID persistence
-        if ($this->chatHistoryInstance === null) {
-            $this->chatHistoryInstance = new DatabaseChatHistory(50000);
-            
-            // Set chat ID directly on the instance if available (don't call setChatId to avoid recursion)
-            if ($this->chatId) {
-                $this->chatHistoryInstance->setChatId($this->chatId);
-            }
+        if (!$this->chatId) {
+            return parent::messageStore();
         }
-        
-        return $this->chatHistoryInstance;
+
+        return new ChatMessageStore(\Concrete\Core\Support\Facade\Application::getFacadeApplication()->make(EntityManagerInterface::class));
+    }
+
+    /**
+     * 50,000 tokens, as DatabaseChatHistory was given.
+     */
+    protected function contextWindow(): int
+    {
+        return 50000;
     }
 
     protected function instructions(): string
@@ -572,29 +570,8 @@ INST;
             // A provider error body can quote part of the API key (B-SEC-1), so redact before logging.
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
 
-            // Keep message alternation valid when the provider fails after a user message is added.
-            // Without this, subsequent requests can fail with "Invalid message sequence".
-            try {
-                $chatHistory = $this->resolveState()->getChatHistory();
-                $messages = $chatHistory->getMessages();
-
-                if (!empty($messages)) {
-                    $lastMessage = end($messages);
-                    if ($lastMessage && $lastMessage->getRole() === 'user') {
-                        $chatHistory->addMessage(new AssistantMessage(
-                            'I ran into an error processing that request. Please try again.'
-                        ));
-                    }
-                }
-
-                // The turn read flagged content before it failed, so the recovery message carries the flag too.
-                $this->saveTurnNotice();
-            } catch (\Throwable $historyError) {
-                \Concrete\Core\Support\Facade\Log::warning(
-                    'Failed to append fallback assistant message after provider error: ' . $historyError->getMessage()
-                );
-            }
-
+            // P2.1 spike: Neuron 4 stores the turn's user message only once the provider has answered, so a failed turn
+            // leaves nothing in the history: v3's fallback assistant message (and its injection flag) isn't needed.
             return "I ran into an error processing that request. Please try again.";
         }
     }
@@ -612,9 +589,10 @@ INST;
         }
 
         try {
-            $history = $this->resolveState()->getChatHistory();
-            if ($history instanceof DatabaseChatHistory) {
-                $history->flagLastAssistantMessage(InjectionNotice::META_KEY, $kind, [
+            $store = $this->resolveMessageStore();
+            $thread = $this->getThreadId();
+            if ($store instanceof ChatMessageStore && $thread !== null) {
+                $store->flagLastAssistantMessage($thread, InjectionNotice::META_KEY, $kind, [
                     InjectionNotice::META_SOURCE_KEY => $this->getTurnNoticeSource() ?? InjectionNotice::SOURCE_OTHER,
                 ]);
             }

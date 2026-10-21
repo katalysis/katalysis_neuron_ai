@@ -269,7 +269,7 @@ final class ScenarioRunner
      */
     private function messages(ConcreteCmsAgent $agent): array
     {
-        return array_values($agent->resolveState()->getChatHistory()->getMessages());
+        return array_values($agent->getChatHistory()->getMessages());
     }
 
     /**
@@ -279,17 +279,26 @@ final class ScenarioRunner
      */
     private function toolCalls(array $messages): array
     {
+        // P2.1 spike: on Neuron 4 the results are on the ToolResultMessage that follows the call, matched by call ID.
+        $results = [];
+        foreach ($messages as $message) {
+            if ($message instanceof \NeuronAI\Chat\Messages\ToolResultMessage) {
+                foreach ($message->getToolCalls() as $settled) {
+                    if ($settled->hasResult()) {
+                        $value = $settled->getResult();
+                        $results[(string) $settled->getCallId()] = $value instanceof \NeuronAI\Tools\ToolOutput ? (string) json_encode($value) : $value;
+                    }
+                }
+            }
+        }
+
         $calls = [];
         foreach ($messages as $message) {
             if (!$message instanceof ToolCallMessage) {
                 continue;
             }
-            foreach ($message->getTools() as $tool) {
-                try {
-                    $result = $tool->getResult();
-                } catch (\Throwable) {
-                    $result = '';
-                }
+            foreach ($message->getToolCalls() as $tool) {
+                $result = $results[(string) $tool->getCallId()] ?? '';
                 $calls[] = [
                     'name' => $tool->getName(),
                     'inputs' => $tool->getInputs(),
