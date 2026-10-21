@@ -7,6 +7,7 @@ use Concrete\Core\Http\ResponseFactory;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Page\Page;
 use Katalysis\NeuronAi\Access\ChatAccess;
+use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\DatabaseChatHistory;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
@@ -90,13 +91,8 @@ class Chat extends AbstractController
                         ->findOneBy(['sessionId' => $sessionId]);
                     
                     if ($chat) {
-                        // Clear the chat history in the database
-                        $chat->setChatHistory('');
-                        $chat->setFirstMessage('');
-                        $chat->setLastMessage('');
-                        $chat->setUserMessageCount(0);
-                        $chat->setUpdatedDate(new \DateTime());
-                        $entityManager->flush();
+                        // Clear the chat's messages; the store also resets the chat list's columns.
+                        $this->messageStore()->clear(ChatMessageStore::threadFor($chat->getId()));
                     }
                 } catch (\Exception $e) {
                     \Concrete\Core\Support\Facade\Log::error(
@@ -270,6 +266,22 @@ class Chat extends AbstractController
         }
     }
     
+    private function messageStore(): ChatMessageStore
+    {
+        return new ChatMessageStore(Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class));
+    }
+
+    /**
+     * The chat's stored messages as the JSON list the panel reads (P2.5: the message rows, archived ones included),
+     * without the page tags and with the injection notices added.
+     */
+    private function historyForPanel(int $chatId): string
+    {
+        $json = $this->messageStore()->transcriptJson(ChatMessageStore::threadFor($chatId));
+
+        return InjectionNotice::annotateHistoryJson(PageContextTag::stripFromHistoryJson($json));
+    }
+
     /**
      * Get or restore agent with database-backed chat history
      */
@@ -327,10 +339,8 @@ class Chat extends AbstractController
             $qb->select('c')
                ->from(ChatEntity::class, 'c')
                ->where('c.createdBy = :userId')
-               ->andWhere('c.chatHistory IS NOT NULL')
-               ->andWhere('c.chatHistory != :empty')
+               ->andWhere('c.userMessageCount > 0')
                ->setParameter('userId', $userId)
-               ->setParameter('empty', '')
                ->orderBy('c.updatedDate', 'DESC')
                ->setMaxResults(100); // Limit to 100 most recent chats
             
@@ -418,7 +428,7 @@ class Chat extends AbstractController
                 'success' => true,
                 'chat' => [
                     'id' => $chat->getId(),
-                    'chatHistory' => InjectionNotice::annotateHistoryJson(PageContextTag::stripFromHistoryJson($chat->getChatHistory())),
+                    'chatHistory' => $this->historyForPanel($chat->getId()),
                     'firstMessage' => $chat->getFirstMessage(),
                     'lastMessage' => $chat->getLastMessage(),
                     'createdDate' => $chat->getCreatedDate() ? $chat->getCreatedDate()->format('c') : null,
@@ -476,7 +486,7 @@ class Chat extends AbstractController
                 'success' => true,
                 'chat' => [
                     'id' => $chat->getId(),
-                    'chatHistory' => InjectionNotice::annotateHistoryJson(PageContextTag::stripFromHistoryJson($chat->getChatHistory())),
+                    'chatHistory' => $this->historyForPanel($chat->getId()),
                     'firstMessage' => $chat->getFirstMessage(),
                     'lastMessage' => $chat->getLastMessage(),
                     'createdDate' => $chat->getCreatedDate() ? $chat->getCreatedDate()->format('c') : null,

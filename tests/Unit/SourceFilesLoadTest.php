@@ -53,7 +53,9 @@ final class SourceFilesLoadTest extends TestCase
         $files = self::sourceFiles();
 
         $this->assertGreaterThan(30, count($files));
-        $this->assertContains(dirname(__DIR__, 2) . '/src/DatabaseChatHistory.php', $files);
+        $this->assertContains(dirname(__DIR__, 2) . '/src/Chat/ChatMessageStore.php', $files);
+        $this->assertContains(dirname(__DIR__, 2) . '/src/Entity/ChatMessage.php', $files);
+        $this->assertNotContains(dirname(__DIR__, 2) . '/src/DatabaseChatHistory.php', $files, 'removed in P2.5');
         $this->assertContains(dirname(__DIR__, 2) . '/src/Toolkits/PagesToolkit.php', $files);
     }
 

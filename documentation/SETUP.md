@@ -111,6 +111,30 @@ The seed clears Concrete's cache at the end of every successful run (also `--res
 
 The editor's rights are set per page through Concrete's API, and the site's simple permission model is enough: advanced permissions don't need to be switched on.
 
+### Clearing the dev chats (`clear_dev_chats.php`)
+
+Dev chats are disposable (P2.5): chat history has no compatibility across the Neuron 3 → 4 upgrade or its rollback. `documentation/fixtures/clear_dev_chats.php` deletes every stored chat; the messages in `KatalysisNeuronAiChatMessages` go with them (the foreign key cascades). It refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host. Run it from the package folder:
+
+```bash
+# dry run (the default): how many chats and message rows there are
+php ../../concrete/bin/concrete c5:exec documentation/fixtures/clear_dev_chats.php
+
+# delete them, after a backup (documentation/fixtures/backup_dev_db.sh <task-id>)
+php ../../concrete/bin/concrete c5:exec documentation/fixtures/clear_dev_chats.php -- --apply
+```
+
+### What the model receives (`show_prompt.php`)
+
+`tests/Support/show_prompt.php` (P2.4) prints what the model would be given for one user message: the system prompt, the user message with its page tag, and the tools offered, external toolkits included. It runs one real agent turn with a fake model, so there is no AI provider call, no API key is read and nothing is written to the database. It refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host, and everything it prints goes through `SecretRedactor`. Run it from the package folder; options go after `--`:
+
+```bash
+# /neuron-test/headings as neuron_chat_editor, message "Hello"
+php ../../concrete/bin/concrete c5:exec tests/Support/show_prompt.php
+
+# another page, user or message
+php ../../concrete/bin/concrete c5:exec tests/Support/show_prompt.php -- --path=/neuron-test/columns --user=neuron_chat_editor --message="Summarise this page"
+```
+
 ### Full database snapshot (local only, never in git)
 
 A script reset is enough in most cases. To take a snapshot before a task, run `documentation/fixtures/backup_dev_db.sh <task-id>` from the package folder. It writes `$NEURON_BACKUP_DIR/<database>_before_<task-id>_<timestamp>.sql` (mode 600), reads the connection from `database.php` and accepts only a local host. The manual commands below do the same. For a full restore, keep snapshots outside the repo (Glyn uses `~/Herd/backups/`). The dev database is `prodb` on `127.0.0.1:3307`; the password is in `httpdocs/application/config/database.php`. A snapshot contains user password hashes and chat history, so don't copy it anywhere shared.

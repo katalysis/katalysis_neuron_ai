@@ -8,6 +8,7 @@ use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Package\PackageService;
 use Concrete\Core\Page\Page;
 use Doctrine\ORM\EntityManagerInterface;
+use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\PageContextTag;
@@ -144,19 +145,20 @@ final class PageContextTagTest extends ConcreteTestCase
 
         $agent = $this->agentOn($this->columns);
         $agent->setChatId($chatId);
-        $history = $agent->resolveState()->getChatHistory();
+        $history = $agent->getChatHistory();
         $history->addMessage(new UserMessage($agent->tagMessage('What page am I on?')));
         $history->addMessage(new AssistantMessage('Columns.'));
 
-        $row = $this->app()->make(Connection::class)->fetchAssociative('SELECT chatHistory, firstMessage, lastMessage FROM KatalysisNeuronAiChats WHERE id = ?', [$chatId]);
+        $row = $this->app()->make(Connection::class)->fetchAssociative('SELECT firstMessage, lastMessage FROM KatalysisNeuronAiChats WHERE id = ?', [$chatId]);
+        $stored = (new ChatMessageStore($this->app()->make(Connection::class)))->transcriptJson(ChatMessageStore::threadFor($chatId));
 
         // Stored for the model, which needs the page on later turns ...
-        $this->assertStringContainsString('[Current page for this message: ', (string) $row['chatHistory']);
+        $this->assertStringContainsString('[Current page for this message: ', $stored);
         // ... but not in what people see: the chat list's first and last message, and the history the panel loads.
         $this->assertSame('What page am I on?', $row['firstMessage']);
         $this->assertSame('What page am I on?', $row['lastMessage']);
 
-        $shown = json_decode(PageContextTag::stripFromHistoryJson((string) $row['chatHistory']), true);
+        $shown = json_decode(PageContextTag::stripFromHistoryJson($stored), true);
         $this->assertSame('What page am I on?', $shown[0]['content'][0]['content']);
         $this->assertSame('Columns.', $shown[1]['content'][0]['content']);
         $this->assertStringNotContainsString('Current page for this message', json_encode($shown));
@@ -168,14 +170,14 @@ final class PageContextTagTest extends ConcreteTestCase
 
         $turnOne = $this->agentOn($this->columns);
         $turnOne->setChatId($chatId);
-        $turnOne->resolveState()->getChatHistory()->addMessage(new UserMessage($turnOne->tagMessage('First')));
-        $turnOne->resolveState()->getChatHistory()->addMessage(new AssistantMessage('Ok.'));
+        $turnOne->getChatHistory()->addMessage(new UserMessage($turnOne->tagMessage('First')));
+        $turnOne->getChatHistory()->addMessage(new AssistantMessage('Ok.'));
 
         $this->entityManager()->clear();
         $turnTwo = new ConcreteCmsAgent();
         $turnTwo->setChatId($chatId);
 
-        $first = $turnTwo->resolveState()->getChatHistory()->getMessages()[0];
+        $first = $turnTwo->getChatHistory()->getMessages()[0];
         $this->assertSame($this->expectedTag() . "\n\nFirst", $first->getContent());
     }
 }
