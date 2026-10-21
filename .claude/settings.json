@@ -51,7 +51,6 @@
       "Read(//**/application/config/database.php)",
       "Read(//**/application/config/generated_overrides/katalysis.php)",
       "Edit(/vendor/**)",
-      "Write(/vendor/**)",
       "Bash(git push --force *)",
       "Bash(git push * --force*)",
       "Bash(git push -f *)",
