@@ -91,6 +91,16 @@ final class BashGuardTest extends TestCase
             'config hooksPath' => ['git config core.hooksPath /dev/null'],
             'config unset hooksPath' => ['git config --unset core.hooksPath'],
             'config local hookspath' => ['git config --local core.hookspath x'],
+            'config set hooksPath' => ['git config set core.hooksPath /dev/null'],
+            'config add hooksPath' => ['git config --add core.hooksPath x'],
+            'hooksPath via -c before a config read' => ['git -c core.hooksPath=/dev/null config core.hooksPath'],
+            // The integration branches (WP-1b): PRs only, like development.
+            'integration branch' => ['git push origin integration/neuron4'],
+            'task branch to integration' => ['git push origin task/x:integration/neuron4'],
+            'task branch to full integration ref' => ['git push origin task/x:refs/heads/integration/neuron4'],
+            'delete integration' => ['git push origin --delete integration/neuron4'],
+            'colon delete integration' => ['git push origin :integration/neuron4'],
+            'plus integration' => ['git push origin +integration/neuron4'],
             // Destructive SQL, in any case and any wrapper.
             'drop database in -e' => ['mysql -uroot -e "DROP DATABASE prodb"'],
             'drop table lower case' => ["mysql prodb -e 'drop table Pages'"],
@@ -141,7 +151,83 @@ final class BashGuardTest extends TestCase
             'phpunit' => ['php tools/phpunit/vendor/bin/phpunit --exclude-group slow'],
             'docs' => ['cat documentation/SETUP.md'],
             'environment word' => ['grep -rn environment src'],
+            // Reading core.hooksPath matches the deny rule, which blocks only setting it (WP-1b).
+            'config read hooksPath' => ['git config core.hooksPath'],
+            'config get hooksPath' => ['git config --get core.hooksPath'],
+            'config get subcommand hooksPath' => ['git config get core.hooksPath'],
+            'task branch named like integration' => ['git push origin task/integration-notes'],
+            'fetch integration' => ['git fetch origin integration/neuron4'],
+            'switch to integration' => ['git switch integration/neuron4'],
+            'curl the dev site' => ['curl -sI https://katalysis-pro.test/'],
         ];
+    }
+
+    /** @return array<string, array{string}> */
+    public static function askedCommands(): array
+    {
+        return [
+            // The scenario runner costs money, however it is written (WP-1b).
+            'from the package folder' => ['php ../../concrete/bin/concrete c5:exec tests/Eval/run_scenarios.php -- --scenario=10'],
+            'from httpdocs' => ['php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php'],
+            'cd prefix' => ['cd ../.. && php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php -- --repeat=3'],
+            'absolute path' => ['/usr/local/bin/php /Users/x/Herd/site/httpdocs/concrete/bin/concrete c5:exec /Users/x/Herd/site/httpdocs/packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php'],
+            'heredoc' => ["sh <<'EOF'\nphp ../../concrete/bin/concrete c5:exec tests/Eval/run_scenarios.php\nEOF"],
+            'quoted in pieces' => ['php ../../concrete/bin/concrete c5:exec tests/Eval/run_"scen"arios.php'],
+            'escaped' => ['php ../../concrete/bin/concrete c5:exec tests/Eval/run\_scenarios.php'],
+            // curl anywhere but the dev site, or sending or saving data (WP-1b).
+            'curl another host' => ['curl https://example.com/'],
+            'curl a host that starts like the dev site' => ['curl https://katalysis-pro.test.example.com/'],
+            'curl userinfo trick' => ['curl https://katalysis-pro.test@example.com/'],
+            'curl a second URL' => ['curl https://katalysis-pro.test/ https://example.com/'],
+            'curl post' => ['curl -d @notes.txt https://katalysis-pro.test/'],
+            'curl upload' => ['curl -T notes.txt https://katalysis-pro.test/'],
+            'curl output to a file' => ['curl -o page.html https://katalysis-pro.test/'],
+            'curl config file' => ['curl -K other.cfg https://katalysis-pro.test/'],
+            'curl variable' => ['curl $URL'],
+        ];
+    }
+
+    #[DataProvider('askedCommands')]
+    public function testAsks(string $command): void
+    {
+        $this->assertNull(\NeuronBashGuard::check($command, static fn (): string => 'task/x'), $command);
+        $this->assertNotNull(\NeuronBashGuard::askReason($command), $command);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function curlCommandsNotAsked(): array
+    {
+        return [
+            'head' => ['curl -sI https://katalysis-pro.test/'],
+            'http with a path' => ['curl -s http://katalysis-pro.test/index.php/dashboard?x=1'],
+            'no scheme' => ['curl katalysis-pro.test'],
+            'status code only' => ["curl -s -o /dev/null -w '%{http_code}' https://katalysis-pro.test/"],
+            'header and timeout' => ['curl -sSL -k -H "Accept: application/json" --max-time 10 https://katalysis-pro.test/ccm/api/v1/system/info'],
+            'piped' => ['curl -s https://katalysis-pro.test/ | grep -c title'],
+        ];
+    }
+
+    #[DataProvider('curlCommandsNotAsked')]
+    public function testDoesNotAskForCurlToTheDevSite(string $command): void
+    {
+        $this->assertNull(\NeuronBashGuard::askReason($command), $command);
+    }
+
+    public function testPlainPushIsBlockedOnAnIntegrationBranch(): void
+    {
+        $current = static fn (): string => 'integration/neuron4';
+        $this->assertNotNull(\NeuronBashGuard::check('git push', $current));
+        $this->assertNotNull(\NeuronBashGuard::check('git push origin HEAD', $current));
+    }
+
+    public function testHookAsksWithJsonForTheScenarioRunner(): void
+    {
+        [$code, , $stdout] = $this->runHook(['tool_name' => 'Bash', 'tool_input' => ['command' => 'cd ../.. && php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_scenarios.php'], 'cwd' => sys_get_temp_dir()]);
+        $this->assertSame(0, $code);
+        $output = json_decode($stdout, true);
+        $this->assertSame('PreToolUse', $output['hookSpecificOutput']['hookEventName'] ?? null);
+        $this->assertSame('ask', $output['hookSpecificOutput']['permissionDecision'] ?? null);
+        $this->assertStringContainsString('scenario', $output['hookSpecificOutput']['permissionDecisionReason'] ?? '');
     }
 
     #[DataProvider('blockedCommands')]
@@ -189,8 +275,9 @@ final class BashGuardTest extends TestCase
 
     public function testHookExitsZeroWhenAllowed(): void
     {
-        [$code] = $this->runHook(['tool_name' => 'Bash', 'tool_input' => ['command' => 'git status'], 'cwd' => sys_get_temp_dir()]);
+        [$code, , $stdout] = $this->runHook(['tool_name' => 'Bash', 'tool_input' => ['command' => 'git status'], 'cwd' => sys_get_temp_dir()]);
         $this->assertSame(0, $code);
+        $this->assertSame('', $stdout);
     }
 
     public function testHookIgnoresOtherTools(): void
@@ -207,7 +294,7 @@ final class BashGuardTest extends TestCase
 
     /**
      * @param array<string, mixed>|string $input
-     * @return array{int, string}
+     * @return array{int, string, string}
      */
     private function runHook(array|string $input): array
     {
@@ -219,11 +306,11 @@ final class BashGuardTest extends TestCase
         $this->assertIsResource($process);
         fwrite($pipes[0], is_string($input) ? $input : (string) json_encode($input));
         fclose($pipes[0]);
-        stream_get_contents($pipes[1]);
+        $stdout = (string) stream_get_contents($pipes[1]);
         $stderr = (string) stream_get_contents($pipes[2]);
         fclose($pipes[1]);
         fclose($pipes[2]);
 
-        return [proc_close($process), $stderr];
+        return [proc_close($process), $stderr, $stdout];
     }
 }
