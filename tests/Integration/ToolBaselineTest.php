@@ -17,7 +17,8 @@ use Katalysis\NeuronAi\Tools\ToolNameResolver;
  * tests/Support/tool-baseline-v3.json was captured on `development` (Neuron 3.15.26) before the conversion, by
  * capture_tool_baseline.php. Each tool's name, description, properties and provider payload, each toolkit's guidelines,
  * and what the agent offers from the core toolkits must be the same, in the same order. A difference is a question for
- * review, never a reason to edit the file (P2.3 plan section 3).
+ * review, never a reason to edit the file (P2.3 plan section 3). A tool changed on purpose since then is listed, with
+ * its task and reason, in ToolBaseline::DELIBERATE_CHANGES (BF-5 decision 5); the capture itself is never edited.
  *
  * Read-only: builds tools and never calls one, the AI provider or an API key.
  */
@@ -74,11 +75,30 @@ final class ToolBaselineTest extends ConcreteTestCase
         foreach ($expected as $i => $toolkit) {
             $this->assertSame($toolkit['guidelines'], $actual[$i]['guidelines'], "Guidelines of {$toolkit['toolkit']}");
             foreach ($toolkit['tools'] as $j => $tool) {
-                $this->assertSame($tool, $actual[$i]['tools'][$j], "{$toolkit['toolkit']}::{$tool['name']}");
+                $key = "{$toolkit['toolkit']}::{$tool['name']}";
+                if (isset(ToolBaseline::DELIBERATE_CHANGES[$key])) {
+                    // Changed on purpose (the reason is in the list): it must really differ, or the entry is stale.
+                    $this->assertNotSame($tool, $actual[$i]['tools'][$j], "{$key} is listed as changed but matches the v3 capture");
+                    continue;
+                }
+                $this->assertSame($tool, $actual[$i]['tools'][$j], $key);
+            }
+        }
+    }
+
+    public function testEveryDeliberateChangeNamesATool(): void
+    {
+        $names = [];
+        foreach (ToolBaseline::definitions(ToolBaseline::coreToolkits()) as $toolkit) {
+            foreach ($toolkit['tools'] as $tool) {
+                $names[] = $toolkit['toolkit'] . '::' . $tool['name'];
             }
         }
 
-        $this->assertSame($expected, $actual);
+        foreach (ToolBaseline::DELIBERATE_CHANGES as $key => $reason) {
+            $this->assertContains($key, $names);
+            $this->assertNotSame('', trim($reason));
+        }
     }
 
     public function testTheCoreToolkitsAreOfferedAsOnNeuron3(): void

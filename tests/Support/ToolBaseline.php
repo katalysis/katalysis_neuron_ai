@@ -36,6 +36,17 @@ final class ToolBaseline
     public const FILE = __DIR__ . '/tool-baseline-v3.json';
 
     /**
+     * Tools whose definition was changed on purpose after the v3 capture, with the task and the reason. ToolBaselineTest
+     * holds every other tool to the capture, and checks that each tool listed here really differs from it.
+     *
+     * @var array<string, string> "Toolkit::tool" => reason
+     */
+    public const DELIBERATE_CHANGES = [
+        'PagesToolkit::update_block_in_page_area' => 'BF-5: changeMode, textFields and replacedText inputs; the description says existing text is kept',
+        'PagesToolkit::batch_update_page_content' => 'BF-5: changeMode keep_text by default, freeform removed; replacedText per block',
+    ];
+
+    /**
      * Every core toolkit: the ones the agent registers, in its order, then AttributesToolkit (not registered, P1.8a).
      *
      * @return list<ToolkitInterface>
