@@ -1,0 +1,683 @@
+{
+    "captured": {
+        "branch": "development",
+        "commit": "b268f3b",
+        "neuron": "3.15.26",
+        "katalysis_pro": "themeintegrationtemplates c3be692",
+        "date": "2026-10-22T10:47Z"
+    },
+    "guidelines": "Use these tools to manage Katalysis Pro entities. For people imports, prefer update_person when matching existing records, or add_person (which now performs safe upsert behavior). When an image source is a Concrete files path (for example /application/files/.../image.jpg), provide imagePath so the tool can resolve the real Concrete file ID before saving. For bulk resets, use delete_all_people in a single call instead of many delete_person calls.",
+    "tools": [
+        {
+            "name": "list_people",
+            "description": "List Katalysis Pro people with optional search and active filtering",
+            "properties": [
+                {
+                    "name": "limit",
+                    "type": "integer",
+                    "description": "Maximum number of people to return (default: 20, max: 100)",
+                    "required": false
+                },
+                {
+                    "name": "activeOnly",
+                    "type": "boolean",
+                    "description": "If true, only return active people (default: true)",
+                    "required": false
+                },
+                {
+                    "name": "search",
+                    "type": "string",
+                    "description": "Optional name, job title, or email substring to search",
+                    "required": false
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "list_people",
+                    "description": "List Katalysis Pro people with optional search and active filtering",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of people to return (default: 20, max: 100)"
+                            },
+                            "activeOnly": {
+                                "type": "boolean",
+                                "description": "If true, only return active people (default: true)"
+                            },
+                            "search": {
+                                "type": "string",
+                                "description": "Optional name, job title, or email substring to search"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            }
+        },
+        {
+            "name": "get_person",
+            "description": "Get one Katalysis Pro person by ID",
+            "properties": [
+                {
+                    "name": "personID",
+                    "type": "integer",
+                    "description": "The person ID (sID)",
+                    "required": true
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "get_person",
+                    "description": "Get one Katalysis Pro person by ID",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "personID": {
+                                "type": "integer",
+                                "description": "The person ID (sID)"
+                            }
+                        },
+                        "required": [
+                            "personID"
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "name": "add_person",
+            "description": "Create or update a Katalysis Pro person (upsert by person ID, email, or exact name)",
+            "properties": [
+                {
+                    "name": "personID",
+                    "type": "integer",
+                    "description": "Optional person ID (sID) to update directly",
+                    "required": false
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "description": "Person full name",
+                    "required": true
+                },
+                {
+                    "name": "jobTitle",
+                    "type": "string",
+                    "description": "Job title",
+                    "required": false
+                },
+                {
+                    "name": "email",
+                    "type": "string",
+                    "description": "Email address",
+                    "required": false
+                },
+                {
+                    "name": "phone",
+                    "type": "string",
+                    "description": "Phone number",
+                    "required": false
+                },
+                {
+                    "name": "mobile",
+                    "type": "string",
+                    "description": "Mobile number",
+                    "required": false
+                },
+                {
+                    "name": "shortBiography",
+                    "type": "string",
+                    "description": "Short biography",
+                    "required": false
+                },
+                {
+                    "name": "biography",
+                    "type": "string",
+                    "description": "Full biography",
+                    "required": false
+                },
+                {
+                    "name": "qualification",
+                    "type": "string",
+                    "description": "Qualifications",
+                    "required": false
+                },
+                {
+                    "name": "active",
+                    "type": "boolean",
+                    "description": "Whether person is active (default: true)",
+                    "required": false
+                },
+                {
+                    "name": "featured",
+                    "type": "boolean",
+                    "description": "Whether person is featured (default: false)",
+                    "required": false
+                },
+                {
+                    "name": "imageID",
+                    "type": "integer",
+                    "description": "File ID to use as profile image",
+                    "required": false
+                },
+                {
+                    "name": "imagePath",
+                    "type": "string",
+                    "description": "Concrete file path to resolve to file ID (for example /application/files/.../image.jpg)",
+                    "required": false
+                },
+                {
+                    "name": "copyImageFromPersonID",
+                    "type": "integer",
+                    "description": "Copy profile image from an existing person ID",
+                    "required": false
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "add_person",
+                    "description": "Create or update a Katalysis Pro person (upsert by person ID, email, or exact name)",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "personID": {
+                                "type": "integer",
+                                "description": "Optional person ID (sID) to update directly"
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": "Person full name"
+                            },
+                            "jobTitle": {
+                                "type": "string",
+                                "description": "Job title"
+                            },
+                            "email": {
+                                "type": "string",
+                                "description": "Email address"
+                            },
+                            "phone": {
+                                "type": "string",
+                                "description": "Phone number"
+                            },
+                            "mobile": {
+                                "type": "string",
+                                "description": "Mobile number"
+                            },
+                            "shortBiography": {
+                                "type": "string",
+                                "description": "Short biography"
+                            },
+                            "biography": {
+                                "type": "string",
+                                "description": "Full biography"
+                            },
+                            "qualification": {
+                                "type": "string",
+                                "description": "Qualifications"
+                            },
+                            "active": {
+                                "type": "boolean",
+                                "description": "Whether person is active (default: true)"
+                            },
+                            "featured": {
+                                "type": "boolean",
+                                "description": "Whether person is featured (default: false)"
+                            },
+                            "imageID": {
+                                "type": "integer",
+                                "description": "File ID to use as profile image"
+                            },
+                            "imagePath": {
+                                "type": "string",
+                                "description": "Concrete file path to resolve to file ID (for example /application/files/.../image.jpg)"
+                            },
+                            "copyImageFromPersonID": {
+                                "type": "integer",
+                                "description": "Copy profile image from an existing person ID"
+                            }
+                        },
+                        "required": [
+                            "name"
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "name": "update_person",
+            "description": "Update an existing Katalysis Pro person by person ID, email, or exact name",
+            "properties": [
+                {
+                    "name": "personID",
+                    "type": "integer",
+                    "description": "Person ID (sID)",
+                    "required": false
+                },
+                {
+                    "name": "email",
+                    "type": "string",
+                    "description": "Exact email used to match the person",
+                    "required": false
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "description": "Exact full name used to match the person",
+                    "required": false
+                },
+                {
+                    "name": "jobTitle",
+                    "type": "string",
+                    "description": "Job title",
+                    "required": false
+                },
+                {
+                    "name": "phone",
+                    "type": "string",
+                    "description": "Phone number",
+                    "required": false
+                },
+                {
+                    "name": "mobile",
+                    "type": "string",
+                    "description": "Mobile number",
+                    "required": false
+                },
+                {
+                    "name": "shortBiography",
+                    "type": "string",
+                    "description": "Short biography",
+                    "required": false
+                },
+                {
+                    "name": "biography",
+                    "type": "string",
+                    "description": "Full biography",
+                    "required": false
+                },
+                {
+                    "name": "qualification",
+                    "type": "string",
+                    "description": "Qualifications",
+                    "required": false
+                },
+                {
+                    "name": "active",
+                    "type": "boolean",
+                    "description": "Whether person is active",
+                    "required": false
+                },
+                {
+                    "name": "featured",
+                    "type": "boolean",
+                    "description": "Whether person is featured",
+                    "required": false
+                },
+                {
+                    "name": "imageID",
+                    "type": "integer",
+                    "description": "Concrete file ID to set as profile image",
+                    "required": false
+                },
+                {
+                    "name": "imagePath",
+                    "type": "string",
+                    "description": "Concrete file path to resolve to file ID",
+                    "required": false
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "update_person",
+                    "description": "Update an existing Katalysis Pro person by person ID, email, or exact name",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "personID": {
+                                "type": "integer",
+                                "description": "Person ID (sID)"
+                            },
+                            "email": {
+                                "type": "string",
+                                "description": "Exact email used to match the person"
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": "Exact full name used to match the person"
+                            },
+                            "jobTitle": {
+                                "type": "string",
+                                "description": "Job title"
+                            },
+                            "phone": {
+                                "type": "string",
+                                "description": "Phone number"
+                            },
+                            "mobile": {
+                                "type": "string",
+                                "description": "Mobile number"
+                            },
+                            "shortBiography": {
+                                "type": "string",
+                                "description": "Short biography"
+                            },
+                            "biography": {
+                                "type": "string",
+                                "description": "Full biography"
+                            },
+                            "qualification": {
+                                "type": "string",
+                                "description": "Qualifications"
+                            },
+                            "active": {
+                                "type": "boolean",
+                                "description": "Whether person is active"
+                            },
+                            "featured": {
+                                "type": "boolean",
+                                "description": "Whether person is featured"
+                            },
+                            "imageID": {
+                                "type": "integer",
+                                "description": "Concrete file ID to set as profile image"
+                            },
+                            "imagePath": {
+                                "type": "string",
+                                "description": "Concrete file path to resolve to file ID"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            }
+        },
+        {
+            "name": "delete_person",
+            "description": "Delete a Katalysis Pro person by ID, email, or exact name",
+            "properties": [
+                {
+                    "name": "personID",
+                    "type": "integer",
+                    "description": "Person ID (sID)",
+                    "required": false
+                },
+                {
+                    "name": "email",
+                    "type": "string",
+                    "description": "Exact email address",
+                    "required": false
+                },
+                {
+                    "name": "name",
+                    "type": "string",
+                    "description": "Exact full name",
+                    "required": false
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "delete_person",
+                    "description": "Delete a Katalysis Pro person by ID, email, or exact name",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "personID": {
+                                "type": "integer",
+                                "description": "Person ID (sID)"
+                            },
+                            "email": {
+                                "type": "string",
+                                "description": "Exact email address"
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": "Exact full name"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            }
+        },
+        {
+            "name": "delete_all_people",
+            "description": "Delete all Katalysis Pro people records in one operation. Supports dry-run preview.",
+            "properties": [
+                {
+                    "name": "confirm",
+                    "type": "string",
+                    "description": "Safety phrase: type exactly DELETE ALL PEOPLE",
+                    "required": true
+                },
+                {
+                    "name": "dryRun",
+                    "type": "boolean",
+                    "description": "If true, only return what would be deleted (default: false)",
+                    "required": false
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "delete_all_people",
+                    "description": "Delete all Katalysis Pro people records in one operation. Supports dry-run preview.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "confirm": {
+                                "type": "string",
+                                "description": "Safety phrase: type exactly DELETE ALL PEOPLE"
+                            },
+                            "dryRun": {
+                                "type": "boolean",
+                                "description": "If true, only return what would be deleted (default: false)"
+                            }
+                        },
+                        "required": [
+                            "confirm"
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "name": "resolve_file_id_from_path",
+            "description": "Resolve a Concrete file ID from a Concrete files path (for example /application/files/.../image.jpg)",
+            "properties": [
+                {
+                    "name": "filePath",
+                    "type": "string",
+                    "description": "Concrete file path to resolve",
+                    "required": true
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "resolve_file_id_from_path",
+                    "description": "Resolve a Concrete file ID from a Concrete files path (for example /application/files/.../image.jpg)",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "filePath": {
+                                "type": "string",
+                                "description": "Concrete file path to resolve"
+                            }
+                        },
+                        "required": [
+                            "filePath"
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "name": "list_places",
+            "description": "List Katalysis Pro places with optional search and active filtering",
+            "properties": [
+                {
+                    "name": "limit",
+                    "type": "integer",
+                    "description": "Maximum number of places to return (default: 20, max: 100)",
+                    "required": false
+                },
+                {
+                    "name": "activeOnly",
+                    "type": "boolean",
+                    "description": "If true, only return active places (default: true)",
+                    "required": false
+                },
+                {
+                    "name": "search",
+                    "type": "string",
+                    "description": "Optional place name, town, county, postcode, or email search",
+                    "required": false
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "list_places",
+                    "description": "List Katalysis Pro places with optional search and active filtering",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of places to return (default: 20, max: 100)"
+                            },
+                            "activeOnly": {
+                                "type": "boolean",
+                                "description": "If true, only return active places (default: true)"
+                            },
+                            "search": {
+                                "type": "string",
+                                "description": "Optional place name, town, county, postcode, or email search"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            }
+        },
+        {
+            "name": "get_place",
+            "description": "Get one Katalysis Pro place by ID",
+            "properties": [
+                {
+                    "name": "placeID",
+                    "type": "integer",
+                    "description": "The place ID (sID)",
+                    "required": true
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "get_place",
+                    "description": "Get one Katalysis Pro place by ID",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "placeID": {
+                                "type": "integer",
+                                "description": "The place ID (sID)"
+                            }
+                        },
+                        "required": [
+                            "placeID"
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "name": "list_reviews",
+            "description": "List Katalysis Pro reviews with optional search and active filtering",
+            "properties": [
+                {
+                    "name": "limit",
+                    "type": "integer",
+                    "description": "Maximum number of reviews to return (default: 20, max: 100)",
+                    "required": false
+                },
+                {
+                    "name": "activeOnly",
+                    "type": "boolean",
+                    "description": "If true, only return active reviews (default: true)",
+                    "required": false
+                },
+                {
+                    "name": "search",
+                    "type": "string",
+                    "description": "Optional review search by author, source, organization, or extract",
+                    "required": false
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "list_reviews",
+                    "description": "List Katalysis Pro reviews with optional search and active filtering",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of reviews to return (default: 20, max: 100)"
+                            },
+                            "activeOnly": {
+                                "type": "boolean",
+                                "description": "If true, only return active reviews (default: true)"
+                            },
+                            "search": {
+                                "type": "string",
+                                "description": "Optional review search by author, source, organization, or extract"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            }
+        },
+        {
+            "name": "get_review",
+            "description": "Get one Katalysis Pro review by ID",
+            "properties": [
+                {
+                    "name": "reviewID",
+                    "type": "integer",
+                    "description": "The review ID (sID)",
+                    "required": true
+                }
+            ],
+            "payload": {
+                "type": "function",
+                "function": {
+                    "name": "get_review",
+                    "description": "Get one Katalysis Pro review by ID",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reviewID": {
+                                "type": "integer",
+                                "description": "The review ID (sID)"
+                            }
+                        },
+                        "required": [
+                            "reviewID"
+                        ]
+                    }
+                }
+            }
+        }
+    ]
+}
