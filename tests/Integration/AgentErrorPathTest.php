@@ -15,12 +15,22 @@ use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Security\InjectionNotice;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Chat\ChatMessageStore;
+use NeuronAI\Agent\AgentResources;
+use NeuronAI\Agent\AgentState;
+use NeuronAI\Agent\Middleware\AgentMiddleware;
+use NeuronAI\Agent\Nodes\AgentNodeInterface;
+use NeuronAI\Agent\Nodes\ToolNode;
+use NeuronAI\Chat\History\HistoryTrimmer;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\ToolCallMessage;
+use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Tools\ToolCall;
+use NeuronAI\Workflow\Events\Event;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * P2.6 (plans/P2.6.md §4, §8.2): a failed turn is stored as it was on Neuron 3, the user's message and the fixed error
@@ -184,5 +194,106 @@ final class AgentErrorPathTest extends ConcreteTestCase
         $agent = (new ConcreteCmsAgent())->setAiProvider(new FakeAIProvider(new AssistantMessage('Unreachable.')));
 
         $this->assertSame(self::ERROR_REPLY, $agent->handleUserMessage('Hello'));
+    }
+
+    // ---- BF-9: a chat never gets permanently stuck (plans/BF-9.md §3, §6) -------------------------------------------
+
+    /**
+     * A middleware that throws after Neuron's ToolNode has run for the $failOn-th time in the turn: a tool round that
+     * fails after its tools ran (as the scanner's middleware could).
+     */
+    private static function failingToolRound(int $failOn): AgentMiddleware
+    {
+        return new class ($failOn) extends AgentMiddleware {
+            private int $runs = 0;
+
+            public function __construct(private readonly int $failOn)
+            {
+            }
+
+            protected function afterAgentNode(AgentNodeInterface $node, Event $result, AgentState $state, AgentResources $resources): void
+            {
+                if (++$this->runs >= $this->failOn) {
+                    throw new \RuntimeException('The tool round went wrong.');
+                }
+            }
+        };
+    }
+
+    /**
+     * The stored rows as they are, without the load-time repair, plus the next turn's message, through Neuron's own
+     * check: a failed turn must leave an order Neuron accepts by itself.
+     */
+    private function assertStoredOrderIsSendableWithoutRepair(int $chatId): void
+    {
+        $rows = (new ChatMessageStore($this->db()))->loadAll(ChatMessageStore::threadFor($chatId));
+        (new HistoryTrimmer())->trim([...$rows, new UserMessage('Next question.')], PHP_INT_MAX);
+        $this->addToAssertionCount(1);
+    }
+
+    public function testAFailureAfterTwoToolRoundsIsClosedWithTheErrorReplyAndTheNextTurnWorks(): void
+    {
+        // The case BF-5's investigation reproduced: Neuron has committed the first tool pair when the third call fails.
+        $chatId = $this->newChat();
+        $headings = '/neuron-test/headings';
+
+        $this->assertSame(self::ERROR_REPLY, $this->turn($chatId, self::failingProvider(3, self::readPage($headings), self::readPage($headings)), 'Read it twice.'));
+
+        $stored = $this->stored($chatId);
+        $this->assertSame(['user', 'assistant:tool_call', 'user:tool_call_result', 'assistant'], array_column($stored, 0));
+        $this->assertSame(self::ERROR_REPLY, $stored[3][1]);
+        $callRow = json_decode((string) $this->db()->fetchOne("SELECT meta FROM KatalysisNeuronAiChatMessages WHERE chatId = ? AND type = 'tool_call'", [$chatId]), true);
+        $this->assertNotNull($callRow['tools'][0]['result'] ?? null, 'a stored call from a normal round carries its result (plans/BF-9.md §2)');
+        $this->assertStoredOrderIsSendableWithoutRepair($chatId);
+
+        $provider = new FakeAIProvider(new AssistantMessage('Answered.'));
+        $this->assertSame('Answered.', $this->turn($chatId, $provider, 'Try again.'));
+        $provider->assertCallCount(1);
+        $sent = $provider->getRecorded()[0]->messages;
+        (new HistoryTrimmer())->trim($sent, PHP_INT_MAX);
+        foreach ($sent as $message) {
+            $this->assertStringNotContainsString('Recovered', (string) $message->getContent(), 'nothing needed repairing');
+        }
+    }
+
+    /**
+     * @return array<string, array{?int, ?int, int}> provider call that fails, tool round that fails, tool rounds asked for
+     */
+    public static function failurePoints(): array
+    {
+        return [
+            'the first provider call' => [1, null, 0],
+            'the second call, after one tool round' => [2, null, 1],
+            'the third call, after two tool rounds' => [3, null, 2],
+            'the fourth call, after three tool rounds' => [4, null, 3],
+            'tool round 1' => [null, 1, 1],
+            'tool round 2' => [null, 2, 2],
+        ];
+    }
+
+    #[DataProvider('failurePoints')]
+    public function testEveryFailurePointLeavesAChatTheNextTurnCanUse(?int $failingCall, ?int $failingRound, int $rounds): void
+    {
+        $chatId = $this->newChat();
+        $responses = [];
+        for ($i = 0; $i < $rounds; $i++) {
+            $responses[] = self::readPage('/neuron-test/headings');
+        }
+        $responses[] = new AssistantMessage('Done.');
+        $provider = $failingCall !== null ? self::failingProvider($failingCall, ...$responses) : new FakeAIProvider(...$responses);
+
+        $agent = (new ConcreteCmsAgent())->setChatId($chatId)->setAiProvider($provider);
+        if ($failingRound !== null) {
+            $agent->addMiddleware(ToolNode::class, self::failingToolRound($failingRound));
+        }
+
+        $this->assertSame(self::ERROR_REPLY, $agent->handleUserMessage('Read it.'));
+        $stored = $this->stored($chatId);
+        $this->assertSame(['assistant', self::ERROR_REPLY], array_slice(end($stored), 0, 2), 'the failed turn ends with the error reply');
+        $this->assertStoredOrderIsSendableWithoutRepair($chatId);
+
+        $next = new FakeAIProvider(new AssistantMessage('Next answered.'));
+        $this->assertSame('Next answered.', $this->turn($chatId, $next, 'Next.'));
+        $next->assertCallCount(1);
     }
 }

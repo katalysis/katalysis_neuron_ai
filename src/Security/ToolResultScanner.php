@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Security;
 
+use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\ToolKind;
@@ -13,6 +14,7 @@ use NeuronAI\Agent\Middleware\AgentMiddleware;
 use NeuronAI\Agent\Nodes\AgentNodeInterface;
 use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
 use NeuronAI\Chat\Messages\ToolResultMessage;
+use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\ToolOutput;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -185,6 +187,57 @@ final class ToolResultScanner
                 }
             }
         };
+    }
+
+    /**
+     * The middleware for Neuron's ChatNode (register it with addMiddleware(ChatNode::class, ...)), BF-9. A tool result the
+     * store rebuilt from a stored call (ChatMessageStore::isRecovered()) is about to reach the model for the first time:
+     * no stored message of the person's comes after it yet. Before the provider call, it scans that result, in the
+     * history Neuron is about to send, so flagged text keeps its flag and this turn's reply carries the notice. Later
+     * turns don't scan it again, as for any flagged result already answered in the history.
+     */
+    public function recoveredResultMiddleware(): AgentMiddleware
+    {
+        return new class ($this) extends AgentMiddleware {
+            /** @var \WeakMap<ToolResultMessage, true> */
+            private \WeakMap $scanned;
+
+            public function __construct(private readonly ToolResultScanner $scanner)
+            {
+                $this->scanned = new \WeakMap();
+            }
+
+            protected function beforeAgentNode(AgentNodeInterface $node, Event $event, AgentState $state, AgentResources $resources): void
+            {
+                $messages = $resources->history->getMessages();
+                for ($i = count($messages) - 1; $i >= 0; $i--) {
+                    $message = $messages[$i];
+                    if ($message::class === UserMessage::class && !ChatMessageStore::isRecovered($message)) {
+                        break;
+                    }
+                    if (!$message instanceof ToolResultMessage || !ChatMessageStore::isRecovered($message) || isset($this->scanned[$message])) {
+                        continue;
+                    }
+                    $this->scanned[$message] = true;
+                    foreach ($message->getToolCalls() as $call) {
+                        if ($call->hasResult()) {
+                            $call->setResult($this->scanner->scanRecoveredResult($call->getName(), $call->getResult()));
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    /**
+     * @internal For recoveredResultMiddleware(). A rebuilt result was never seen by the wrapper this turn, so it is
+     * always scanned.
+     */
+    public function scanRecoveredResult(string $toolName, string|ToolOutput $result): string|ToolOutput
+    {
+        $scanned = $this->inspect($toolName, $result);
+
+        return $scanned instanceof ToolOutput ? $scanned : (is_array($scanned) ? (string) json_encode($scanned) : (string) $scanned);
     }
 
     /**

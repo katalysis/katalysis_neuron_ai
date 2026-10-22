@@ -3,14 +3,16 @@
 namespace Katalysis\NeuronAi;
 
 use NeuronAI\Agent\Agent;
+use NeuronAI\Agent\Nodes\ChatNode;
 use NeuronAI\Agent\Nodes\ToolNode;
+use NeuronAI\Chat\History\HistoryTrimmer;
+use NeuronAI\Exceptions\ChatHistoryException;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\SystemMessage;
-use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
@@ -70,6 +72,8 @@ class ConcreteCmsAgent extends Agent
 
         // Scans the results the scanner's wrapper didn't, such as those of tools we don't build (P2.2).
         $this->addMiddleware(ToolNode::class, $this->toolResultScanner()->resultMiddleware());
+        // Scans a tool result the store rebuilt, the first time it is sent (BF-9).
+        $this->addMiddleware(ChatNode::class, $this->toolResultScanner()->recoveredResultMiddleware());
     }
 
     /**
@@ -617,6 +621,18 @@ INST);
         $userMessage = new UserMessage($message);
 
         try {
+            $this->checkOrderBeforeProvider($userMessage);
+        } catch (ChatHistoryException $e) {
+            // Nothing is stored: storing the message would fail the same check.
+            \Concrete\Core\Support\Facade\Log::warning(
+                'Katalysis Neuron AI: the chat can\'t be sent in this order; the turn was refused before the provider call: '
+                . SecretRedactor::redact($e->getMessage())
+            );
+
+            return self::ERROR_REPLY;
+        }
+
+        try {
             $response = $this->chat($userMessage)->getMessage();
 
             $this->saveTurnNotice();
@@ -633,11 +649,38 @@ INST);
     }
 
     /**
+     * Neuron checks the order of the conversation only when it commits a turn, after the provider call (BF-9). This runs
+     * the same check on the chat as the store hands it over, plus the new message, before any provider call, so a chat
+     * whose order can't be sent costs nothing. After the store's repair, only a tool call waiting for approval (P3.6)
+     * followed by a new message gets here. No thread: chat() refuses the turn itself.
+     *
+     * @throws ChatHistoryException
+     */
+    private function checkOrderBeforeProvider(UserMessage $userMessage): void
+    {
+        $thread = $this->getThreadId();
+        if ($thread === null) {
+            return;
+        }
+
+        // The store's quiet load, so a repair is logged once, by Neuron's own load.
+        $store = $this->resolveMessageStore();
+        $messages = $store instanceof ChatMessageStore ? $store->loadActiveQuietly($thread) : $this->getChatHistory()->getMessages();
+
+        (new HistoryTrimmer())->trim([...$messages, $userMessage], PHP_INT_MAX);
+    }
+
+    /**
      * Stores a failed turn as Neuron 3 did: the user's message and ERROR_REPLY (P2.6, plans/P2.6.md §4). Neuron 4
      * commits the user's message only after the first provider call succeeds, and a tool call with its result only
-     * after the next one, so a failed turn has stored nothing, or only the user's message. Adding the reply keeps the
-     * person's message after a reload and leaves the chat in an order the model accepts. The tools that ran before
-     * the failure are not recorded (P3.6). Never throws.
+     * after the next one, so a failed turn has stored nothing, only the user's message, or (failing after its second
+     * tool round or later, BF-9) the user's message and its earlier tool pairs, ending in a tool result. Adding the reply
+     * keeps the person's message after a reload and leaves the chat in an order the model accepts (after a tool result,
+     * the assistant speaks). The tools of the round that failed are not recorded (P3.6). Never throws.
+     *
+     * When the stored chat ends in a tool result (or the person's message, already stored), the store's view ends in its
+     * placeholder reply, which has no row: the error reply is stored in its place, directly, since adding it to the view
+     * would put two replies in a row.
      */
     private function storeFailedTurn(UserMessage $userMessage): void
     {
@@ -654,8 +697,11 @@ INST);
 
             $messages = $history->getMessages();
             $last = end($messages);
-            if ($last instanceof UserMessage && !$last instanceof ToolResultMessage) {
+            $store = $this->resolveMessageStore();
+            if ($last instanceof UserMessage) {
                 $history->addMessage(new AssistantMessage(self::ERROR_REPLY));
+            } elseif ($last instanceof AssistantMessage && ChatMessageStore::isRecovered($last) && $store instanceof ChatMessageStore) {
+                $store->append($this->getThreadId(), new AssistantMessage(self::ERROR_REPLY));
             }
 
             // The turn read flagged content before it failed, so the recovery message carries the flag too.

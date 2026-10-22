@@ -7,6 +7,7 @@ namespace Katalysis\NeuronAi\Chat;
 use Concrete\Core\Database\Connection\Connection;
 use Katalysis\NeuronAi\PageContextTag;
 use Katalysis\NeuronAi\Security\SecretRedactor;
+use NeuronAI\Chat\History\HistoryTrimmer;
 use NeuronAI\Chat\History\MessageStoreInterface;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
@@ -29,12 +30,16 @@ use NeuronAI\Exceptions\ChatHistoryException;
  * upgradeRow(), the one place a future format change is handled. Once real installs exist, a format change also adds a
  * one-off batch migration to the package's upgrade().
  *
- * The repair: Neuron 4 refuses a conversation with two plain user messages, or two plain assistant replies, in a row,
- * but only when the turn is committed, after a paid provider call. Two requests on one chat at once (two tabs) can store
- * both shapes. loadActive() puts a placeholder between them, in memory only, before Neuron builds the request: loading
- * never writes. The placeholder is the same on every load (its ID comes from the message after it), and archive()
- * counts it as Neuron does, so the stored rows and Neuron's view of them always agree. A thread waiting for approval
- * (ending in a tool call) is left alone.
+ * The repair: Neuron 4 checks the order of a conversation only when a turn is committed, after a paid provider call, so
+ * a stored order it refuses would fail every later turn (BF-9). loadActive() repairs it in memory, before Neuron builds
+ * the request: loading never writes. Two plain user messages or two plain assistant replies in a row (two tabs, P2.5)
+ * get a placeholder between them; a tool result with a user message (or nothing) after it gets a placeholder reply (a
+ * turn that failed or timed out after a tool round); a tool call that carries its results but has no result message (a
+ * write that failed between the two rows) gets its result message rebuilt from those results. Any order still refused
+ * after that is sent from the earliest user message Neuron accepts (logged with how many messages were left out).
+ * Placeholders are the same on every load (their IDs come from the messages around them), and archive() counts them as
+ * Neuron does, so the stored rows and Neuron's view of them always agree. A tool call with a call that has no result is
+ * waiting for approval or an external result (P3.6): it is never touched, wherever it is.
  *
  * Writes also keep the chat list's columns on the Chat row: the first and last message the person typed (page tag
  * stripped) and how many messages they sent.
@@ -47,11 +52,23 @@ final class ChatMessageStore implements MessageStoreInterface
     private const CHATS = 'KatalysisNeuronAiChats';
     private const PREFIX = 'chat-';
     private const PLACEHOLDER_ID = 'msg_recovered_';
+    /** In the ID of a placeholder at the end of the thread, which takes its ID from the message before it. */
+    private const AT_END = 'end_';
     private const RECOVERED_REPLY = "[Recovered: the assistant's reply to this message was not saved]";
     private const RECOVERED_MESSAGE = '[Recovered: the message for this reply was not saved]';
+    private const RECOVERED_TOOL_REPLY = "[Recovered: the assistant's reply after this tool result was not saved]";
+
+    /**
+     * The result message of each loaded tool call whose stored row holds every call's result, rebuilt from that row.
+     * Neuron's deserializer drops the results from a tool call (a call record needs none), but the row keeps them.
+     *
+     * @var \WeakMap<ToolCallMessage, ToolResultMessage>
+     */
+    private \WeakMap $ranCalls;
 
     public function __construct(private readonly Connection $db)
     {
+        $this->ranCalls = new \WeakMap();
     }
 
     public static function threadFor(int $chatId): string
@@ -65,6 +82,48 @@ final class ChatMessageStore implements MessageStoreInterface
         $messages = $this->deserialize($this->rows('chatId = ? AND archivedAt IS NULL', [$chatId]));
 
         return $this->repair($messages, $chatId);
+    }
+
+    /**
+     * loadActive() without its log lines, for a check that loads the same view again before Neuron does (the agent's
+     * check before the provider, BF-9), so a repair is logged once per turn.
+     *
+     * @return list<Message>
+     */
+    public function loadActiveQuietly(string $threadId): array
+    {
+        $chatId = $this->chatId($threadId);
+
+        return $this->repair($this->deserialize($this->rows('chatId = ? AND archivedAt IS NULL', [$chatId])), $chatId, false);
+    }
+
+    /**
+     * Whether a message is one the repair made in memory (a placeholder or a rebuilt tool result): it has no row.
+     */
+    public static function isRecovered(Message $message): bool
+    {
+        return str_starts_with($message->getId(), self::PLACEHOLDER_ID);
+    }
+
+    /**
+     * Whether a list of messages, followed by the next turn's user message, is an order Neuron accepts: its own check
+     * (HistoryTrimmer::trim() validates the order; an unbounded window never trims). A list ending in a tool call that is
+     * waiting (P3.6) is checked without the next message, which can't follow it.
+     *
+     * @param Message[] $messages
+     */
+    private function isSendable(array $messages): bool
+    {
+        $last = end($messages);
+        $next = $last instanceof ToolCallMessage && $this->isWaiting($last) ? [] : [new UserMessage('')];
+
+        try {
+            (new HistoryTrimmer())->trim([...$messages, ...$next], PHP_INT_MAX);
+
+            return true;
+        } catch (ChatHistoryException) {
+            return false;
+        }
     }
 
     public function loadAll(string $threadId, ?int $limit = null, ?string $before = null): array
@@ -238,11 +297,19 @@ final class ChatMessageStore implements MessageStoreInterface
             $row = $this->upgradeRow($row);
             $data = json_decode((string) $row['meta'], true);
 
-            return $deserializer->deserialize(array_merge(is_array($data) ? $data : [], [
+            $message = $deserializer->deserialize(array_merge(is_array($data) ? $data : [], [
                 '__id' => $row['messageId'],
                 'role' => $row['role'],
                 'content' => $row['content'] !== null ? json_decode((string) $row['content'], true) : null,
             ]));
+
+            $tools = is_array($data['tools'] ?? null) ? $data['tools'] : [];
+            if ($message instanceof ToolCallMessage && $tools !== [] && !in_array(null, array_column($tools, 'result'), true)
+                && count(array_column($tools, 'result')) === count($tools)) {
+                $this->ranCalls[$message] = $deserializer->deserialize(['role' => 'user', 'type' => 'tool_call_result', 'tools' => $tools, 'content' => null]);
+            }
+
+            return $message;
         }, $rows);
     }
 
@@ -269,8 +336,10 @@ final class ChatMessageStore implements MessageStoreInterface
 
     /**
      * Puts a placeholder between two plain user messages, or two plain assistant replies, in a row, and before a plain
-     * assistant reply that opens the context (what a trim can leave after a repaired pair). Tool calls and their
-     * results are not touched.
+     * assistant reply that opens the context (what a trim can leave after a repaired pair). Puts a placeholder reply
+     * after a tool result that a user message, or nothing, follows. Rebuilds the result message of a tool call that
+     * carries its results but has none. Then, if Neuron would still refuse the order, starts the view at the earliest
+     * user message from which it accepts it (fallback()). A waiting tool call is never touched.
      *
      * @param list<Message> $messages
      * @return list<Message>
@@ -281,7 +350,9 @@ final class ChatMessageStore implements MessageStoreInterface
         $previousRole = 'assistant';
         $positions = [];
 
-        foreach ($messages as $message) {
+        foreach ($messages as $index => $message) {
+            $next = $messages[$index + 1] ?? null;
+
             if (self::isPlain($message) && $message->getRole() === $previousRole) {
                 $placeholder = $previousRole === 'user'
                     ? new AssistantMessage(self::RECOVERED_REPLY)
@@ -292,6 +363,34 @@ final class ChatMessageStore implements MessageStoreInterface
             }
             $repaired[] = $message;
             $previousRole = self::isPlain($message) ? $message->getRole() : null;
+
+            // A call committed without its result row: its row holds the results the tools returned.
+            if ($message instanceof ToolCallMessage && !$this->isWaiting($message) && !$next instanceof ToolResultMessage) {
+                $result = $this->ranCalls[$message];
+                $result->setId(self::PLACEHOLDER_ID . $message->getId());
+                $positions[] = count($repaired);
+                $repaired[] = $result;
+                $message = $result;
+            }
+
+            // The assistant speaks after a tool result: a user message (or the next turn's) can't come next.
+            if ($message instanceof ToolResultMessage && ($next === null || (self::isPlain($next) && $next->getRole() === 'user'))) {
+                $placeholder = new AssistantMessage(self::RECOVERED_TOOL_REPLY);
+                $placeholder->setId(self::PLACEHOLDER_ID . ($next === null ? self::AT_END . $message->getId() : $next->getId()));
+                $positions[] = count($repaired);
+                $repaired[] = $placeholder;
+                $previousRole = 'assistant';
+            }
+        }
+
+        // A thread ending in the person's message (a turn that timed out before its reply was stored): the next turn's
+        // message comes after it.
+        $last = end($repaired);
+        if ($last !== false && self::isPlain($last) && $last->getRole() === 'user') {
+            $placeholder = new AssistantMessage(self::RECOVERED_REPLY);
+            $placeholder->setId(self::PLACEHOLDER_ID . self::AT_END . $last->getId());
+            $positions[] = count($repaired);
+            $repaired[] = $placeholder;
         }
 
         if ($log && $positions !== []) {
@@ -302,12 +401,62 @@ final class ChatMessageStore implements MessageStoreInterface
             )));
         }
 
-        return $repaired;
+        return $this->fallback($repaired, $chatId, $log);
+    }
+
+    /**
+     * The general rule (BF-9): an order Neuron refuses never fails every later turn. If the repaired view would still
+     * be refused, the model's view starts at the earliest plain user message from which Neuron accepts it, or is empty.
+     * The messages before it stay stored and in the transcript. A view holding a waiting tool call is left as it is: the
+     * agent refuses the turn before the provider instead.
+     *
+     * @param list<Message> $messages
+     * @return list<Message>
+     */
+    private function fallback(array $messages, int $chatId, bool $log): array
+    {
+        if ($this->isSendable($messages)) {
+            return $messages;
+        }
+        foreach ($messages as $message) {
+            if ($message instanceof ToolCallMessage && $this->isWaiting($message)) {
+                return $messages;
+            }
+        }
+
+        $start = count($messages);
+        foreach ($messages as $index => $message) {
+            if ($index > 0 && $message::class === UserMessage::class && $this->isSendable(array_slice($messages, $index))) {
+                $start = $index;
+                break;
+            }
+        }
+
+        if ($log) {
+            \Concrete\Core\Support\Facade\Log::notice(SecretRedactor::redact(sprintf(
+                'Katalysis Neuron AI: chat %d still has messages in an order the model refuses after the repair; the model\'s view starts at position %d, %d messages left out (nothing stored or deleted).',
+                $chatId,
+                $start,
+                $start
+            )));
+        }
+
+        return array_slice($messages, $start);
     }
 
     private static function isPlain(Message $message): bool
     {
         return !$message instanceof ToolCallMessage && !$message instanceof ToolResultMessage;
+    }
+
+    /**
+     * A tool call waiting for approval or an external result (P3.6): Neuron writes it before the call runs, so its row
+     * has a call with no result. A call from a normal tool round is committed after it ran, and its row holds every
+     * result. A tool call that didn't come from a row counts as waiting: it is never touched.
+     */
+    private function isWaiting(ToolCallMessage $message): bool
+    {
+        return !isset($this->ranCalls[$message]);
     }
 
     /**
