@@ -185,7 +185,7 @@ class NeuronProvider implements CapabilityProvider
 | EPRA rules in `instructions()` | `use_when` in the descriptors, plus EPRA guidelines |
 | `KatalysisProEntitiesToolkit` (extends Neuron classes, guarded by `class_exists`) | A `katalysis_pro` `CapabilityProvider` registered via the event. No Neuron classes. |
 | `PeopleToolkit` in core (duplicates katalysis_pro's) | Removed from core. People belongs to `katalysis_pro`. |
-| `ExternalToolkitRegistry` (never loaded) | Replaced by the event and `CapabilityRegistry`. Keep a shim for one release. |
+| `ExternalToolkitRegistry` (loaded since P1.6; `registerToolDefinitions()` since P2.8) | Replaced by the event and `CapabilityRegistry` in P3.10. Keep `registerToolkitFactory()` and `registerToolDefinitions()` as a shim for one release. |
 
 ## Payoff for later phases
 - **Tier 3 generator:** every package the generator produces also produces its own descriptors and provider. Everything it builds can be edited by the assistant from day one.

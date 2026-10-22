@@ -184,7 +184,49 @@ final class BashGuardTest extends TestCase
             'curl output to a file' => ['curl -o page.html https://katalysis-pro.test/'],
             'curl config file' => ['curl -K other.cfg https://katalysis-pro.test/'],
             'curl variable' => ['curl $URL'],
+            // A push in another repository: the guard can't see that repository's branch (P2.8).
+            'push in another repo, bare' => ['git -C ../katalysis_pro push'],
+            'push in another repo, task branch' => ['git -C ../katalysis_pro push -u origin task/P2.8-x'],
+            'push in another repo, absolute path' => ['git -C /Users/x/Herd/site/httpdocs/packages/katalysis_pro push origin HEAD'],
+            'push in another repo, quoted path' => ['git -C "../katalysis pro" push'],
+            'push with -c before -C' => ['git -c color.ui=never -C ../katalysis_pro push'],
+            'push with --git-dir' => ['git --git-dir=../katalysis_pro/.git push'],
+            'push with --work-tree' => ['git --work-tree ../katalysis_pro push origin task/x'],
+            'push in another repo after a pipe' => ['true && git -C ../katalysis_pro push'],
         ];
+    }
+
+    /** @return array<string, array{string}> */
+    public static function gitElsewhereNotAsked(): array
+    {
+        return [
+            'status in another repo' => ['git -C ../katalysis_pro status -sb'],
+            'commit in another repo' => ['git -C ../katalysis_pro commit -m "P2.8: x"'],
+            'log in another repo' => ['git -C ../katalysis_pro log --oneline -3'],
+            'push here' => ['git push -u origin task/x'],
+            'a path named push' => ['git -C push status'],
+        ];
+    }
+
+    #[DataProvider('gitElsewhereNotAsked')]
+    public function testDoesNotAskForOtherGitCommandsInAnotherRepository(string $command): void
+    {
+        $this->assertNull(\NeuronBashGuard::askReason($command), $command);
+    }
+
+    public function testAPushToAProtectedBranchInAnotherRepositoryIsStillBlocked(): void
+    {
+        $this->assertNotNull(\NeuronBashGuard::check('git -C ../katalysis_pro push origin main', static fn (): string => 'task/x'));
+        $this->assertNotNull(\NeuronBashGuard::check('git -C ../katalysis_pro push --force origin task/x', static fn (): string => 'task/x'));
+    }
+
+    public function testHookAsksWithJsonForAPushInAnotherRepository(): void
+    {
+        [$code, , $stdout] = $this->runHook(['tool_name' => 'Bash', 'tool_input' => ['command' => 'git -C ../katalysis_pro push'], 'cwd' => sys_get_temp_dir()]);
+        $this->assertSame(0, $code);
+        $output = json_decode($stdout, true);
+        $this->assertSame('ask', $output['hookSpecificOutput']['permissionDecision'] ?? null);
+        $this->assertStringContainsString('another repository', $output['hookSpecificOutput']['permissionDecisionReason'] ?? '');
     }
 
     #[DataProvider('askedCommands')]

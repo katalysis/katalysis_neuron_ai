@@ -177,6 +177,7 @@ php tools/phpunit/vendor/bin/phpunit --testsuite integration
 - Tests are read-only unless they say otherwise. A test that writes must clean up after itself.
 - Test content comes from the seed script above (`neuron_editor`, `/neuron-test`).
 - Before Concrete boots, `ConcreteBoot` also refuses to run if the site's `database.php` points at a host that is not local (127.0.0.1, localhost, ::1 or a unix socket).
+- **`katalysis_pro` must match this package** (P2.8). `katalysis_pro` is a separate git clone in `httpdocs/packages/katalysis_pro`. On Neuron 4 (`integration/neuron4` and the branches from it, and `development` once P2.9 has merged), it needs its `ToolDefinition` version: its `task/P2.8-tooldefinitions` branch until that is merged into `themeintegrationtemplates`. On Neuron 3 (`development` before P2.9), it needs its older toolkit (`themeintegrationtemplates`). A mismatched pair fails safe on the site: there's no error page, the `katalysis_pro` tools just aren't offered, and on Neuron 4 the settings page shows the skip. In the tests, it fails: `KatalysisProToolsTest`, `PromptBaselineTest` and the `katalysis_pro` cases of `ToolRegistryTest` and `ToolResultScanningTest` name the reason.
 
 ## Running the scenario runner (dev site only, costs money)
 
