@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Integration;
 
+use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
@@ -15,6 +16,7 @@ use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\HttpClient\HttpResponse;
 use NeuronAI\HttpClient\StreamInterface;
+use NeuronAI\Agent\Observability\ToolCalled;
 use NeuronAI\Observability\ListenerRegistry;
 use NeuronAI\Observability\ObservabilityEvent;
 use NeuronAI\Providers\AIProviderInterface;
@@ -89,15 +91,20 @@ final class OutboundDataTest extends ConcreteTestCase
     }
 
     /**
-     * Fails unless the agent has no listener and no external dispatcher. Reads Neuron internals (HandleDispatcher): if
-     * a Neuron upgrade renames them, this fails, and the upgrade must check observability again.
+     * Fails unless the agent has no listener other than its own TurnChanges on ToolCalled (BF-7: it keeps the pages a
+     * turn changed in memory for the chat response and sends nothing anywhere; the request tests below run with it
+     * attached), and no external dispatcher. Reads Neuron internals (HandleDispatcher): if a Neuron upgrade renames
+     * them, this fails, and the upgrade must check observability again.
      */
     private function assertNothingAttached(ConcreteCmsAgent $agent): void
     {
         $registry = (new \ReflectionProperty(Workflow::class, 'listeners'))->getValue($agent);
         if ($registry !== null) {
             $this->assertInstanceOf(ListenerRegistry::class, $registry);
-            $this->assertSame([], (new \ReflectionProperty(ListenerRegistry::class, 'listeners'))->getValue($registry), 'no listener');
+            $listeners = (new \ReflectionProperty(ListenerRegistry::class, 'listeners'))->getValue($registry);
+            $this->assertSame([ToolCalled::class], array_keys($listeners), 'no listener but TurnChanges');
+            $this->assertCount(1, $listeners[ToolCalled::class], 'no listener but TurnChanges');
+            $this->assertInstanceOf(TurnChanges::class, $listeners[ToolCalled::class][0], 'no listener but TurnChanges');
         }
         $this->assertNull((new \ReflectionProperty(Workflow::class, 'externalDispatcher'))->getValue($agent), 'no forwarding dispatcher');
     }
