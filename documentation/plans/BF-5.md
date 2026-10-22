@@ -46,7 +46,7 @@ Checked every registered tool (`ConcreteCmsAgent::coreToolkits()`; `AttributesTo
 ## 4. Audit: write tools that can replace block or page text
 | # | Tool | What text it can change | Text check today | In BF-5 |
 |---|---|---|---|---|
-| W1 | `update_block_in_page_area` (`PagesToolkit.php:2377-2483`) | Any column of one block, **whole row replaced** (`performSave` builds a fresh record, so an omitted column goes back to its default); saved twice (P3.3 item) | **None** | **Yes**: the shared check, strict by default (§5.1), checked before the draft is made; omitted columns kept (§5.3); result reports the check (§5.2). |
+| W1 | `update_block_in_page_area` (`PagesToolkit.php:2377-2483`) | Any column of one block. A column left out of `value` is cleared when the block's own `save()` defaults it (the content, feature and search blocks do; corrected during implementation: `performSave` itself keeps unset columns); saved twice (P3.3 item) | **None** | **Yes**: the shared check, strict by default (§5.1), checked before the draft is made; omitted columns kept (§5.3); result reports the check (§5.2). |
 | W2 | `batch_update_page_content` (:548-803) | Any column of any block, whole row replaced | Yes, but the default `changeMode` is `freeform`, which checks nothing | **Yes**: same default and rules as W1 (Question 1); omitted columns kept. |
 | W3 | `batch_update_content_headings` (:994-1300) | `content` of Content blocks, heading tags only | Yes, fixed formatting-only check (:1232-1236) | Uses the shared normaliser (stricter, §5.1); nothing else. |
 | W4 | `add_block_to_page_area` | Adds a block; no existing text replaced. Risk: copying from a shortened read (scenario 07's shape) | No | No check (there is no "before"); covered by the read fixes. |
