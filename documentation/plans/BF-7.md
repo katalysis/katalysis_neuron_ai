@@ -1,6 +1,6 @@
 # BF-7 plan: an AI edit behaves like a manual edit
 
-Status: **for review (Glyn).** Significant task: it touches the write tools (a new refusal in every page write tool, the version state in their results), the agent (a tool-call listener), the chat response and the panel. Branch `task/BF-7-ai-edit-like-manual` from `development`, PR into `development`.
+Status: **approved (Glyn, 2026-10-22); decisions in §11, which override the sections above where they differ.** Significant task: it touches the write tools (a new refusal in every page write tool, the version state in their results), the agent (a tool-call listener), the chat response and the panel. Branch `task/BF-7-ai-edit-like-manual` from `development`, PR into `development`.
 
 ## 1. Goal
 An assistant edit works like a manual edit in Concrete: it lands in the same unpublished version that edit mode shows, the editor sees it at once (the panel reloads the page), it goes live only when someone clicks Publish, and it is refused while another user has the page in edit mode.
@@ -170,3 +170,13 @@ These are server-side replays, not browser runs: the browser checks in §7.3 con
 5. **Reload timing:** about 1.5 s after the reply, so the notice can be read. Or reload at once?
 6. **Scenarios:** confirm 05 ×3 and 10 ×3 after the change (about $0.36, cap $1.00). Should I also run 07 ×3 and 17 ×3 (about $0.40), and a "before" run (about $0.36)?
 7. **Tracking scope:** only successful page writes are recorded. File and topic writes (not page versions) aren't in `changes`. Fine for BF-7?
+
+## 11. Decisions (Glyn, approving the plan, 2026-10-22)
+1. **Wording.** The tool result carries the full facts: version *N*, unpublished, live through "Publish Changes" in edit mode or "Approve Version" outside it, undo through Page Versions. The reply should be one short natural line, for example "Done. You can see it on the page now; it goes live when you publish." That guidance goes in the tool result's wording (or a tool description), not in a new prompt rule.
+   - Consequence, noted for review: scenarios 05's and 10's secondary reply checks ask for "draft/unpublished/…" and "undo/…/previous version". A reply in the short form above matches neither, so those checks may stay partial. Not a regression by the merge rule; the regexes are not changed in BF-7 (that needs its own commit and your approval).
+2. **Undo through Page Versions:** agreed.
+3. **An editor open on the target block:** if the panel can reliably tell which block an editor is open on, it sends those block IDs with the message and the write tools refuse them, with a test. If it can't, keep the notice and add the prevention as a follow-up BF task. The PR says which.
+4. **Superuser refused** while another user is editing: agreed.
+5. **Reload after about 1.5 s:** fine.
+6. **Scenarios:** 05, 10, 07 and 17, ×3 each, after the change only. Cap $1.50.
+7. **Only page writes in `changes`:** fine.
