@@ -148,11 +148,26 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
   - **Optional, free, as admin:**
     12. Set the model to `gpt-nonexistent` and send "Hello" → the reply "I ran into an error processing that request. Please try again.", with no key, path or trace. Reload → "Hello" and the reply are both there. Send again → same reply, no 500. Restore `gpt-4o`. In Reports > Logs, the "Neuron AI Error" lines hold no `sk-` key.
   - **After:** `seed_test_content.php --reset`.
+- **Browser check results (Glyn, 2026-10-22): 10 of 12 fine.** Two issues and a note:
+  1. **Check 7, the panel stays on the saved-chats view after "Delete current chat".** Only the saved-list icon shows, and the button back to the chat doesn't work. **Not a P2.6 regression; it happens on `development` too.**
+     - **The cause is in the panel, not the reply.**
+       - The delete reply's shape is unchanged (`success`, `deleted`, `sessionId`), and the panel reads only `success`.
+       - `chat-panel.js` on `development` and on this branch differ only in the D3 error-preview lines.
+       - `showChatView()` relies on `restoreMessages()` to replace the list. `restoreMessages()` only does that when `localStorage` holds a saved history, and "Delete current chat" (like "New chat") removes it.
+       - So after opening the list, "Back to chat" removes the list-mode class and resets the icon, but leaves the list in the messages area. Clicking the icon again opens the list again.
+     - **Reproduced** with the real `chat-panel.js` from both branches in a Node harness with a fake DOM: delete, open the list, back. Both versions still show the list. The harness wasn't committed: it is not a test the suite can run.
+     - **Not fixed here** (Phase 2, and not a regression). Proposed: a small BF task, below.
+  2. **Check 9, the reply says the meta title "has been successfully set", with no mention of a draft.** The version was correctly left unapproved. **v3 says the same.**
+     - Every recorded scenario 10 and 19 reply since the P1.5 baseline (3.15.26, 30 runs) says "has been (successfully) set". This is scenario 10's known `partial`, its secondary B-REP-1 reply check.
+     - The tool result gives the model nothing else to go on. `set_page_attribute_value` returns `{"success":true,"message":"Attribute 'meta_title' set to '…' on page 'Headings'", "page": …, "attribute": …}`, with no version or draft state.
+     - **Recorded against B-WRT-3 (and B-REP-1 (c)). No behaviour change in Phase 2.** Fix proposed for P3.7 (rule 5): the tool result itself says "saved as an unapproved draft (version N), not live until approved". Added to DELIVERY_PLAN P3.7 in a `PLAN:` commit.
+  3. **Note:** page URLs are sometimes in code formatting and sometimes plain text. Recorded for P3.7, in the same `PLAN:` commit.
 - Who / tool / model: Glyn; Claude Code (VS Code); claude-opus-5-5
 - Time: 23:13Z (`/start-task`) to 23:33Z (PR), about 20 min elapsed by the clock, including the plan review. Own time: not recorded.
 - Scenario spend: $0.13
 - Plan changes proposed:
   - P3.6 to include the per-turn tool tracking that would let a failed turn's stored reply name the write tools that ran, and the page they ran on.
+  - **A new BF task for browser check 7** (small; its own PR into `development`, then synced): "Back to chat" must always show the chat. `showChatView()` should clear the list and show the welcome message when there is no saved history, rather than leave the list in place. The test is a check of the panel script, or a browser check if no JS test setup is wanted. Glyn decides whether, and when.
 - Found during implementation (in the PR):
   1. The runner test is a case in `SeedResetTest`, not a new class. A run resets the fixture, which changes its IDs, and a `ConcreteTestCase` subclass would fail the leak check.
   2. In tests, the Doctrine entity manager has to be cleared between controller calls, as each new HTTP request does. Without that, a call reads a stale `Chat` entity whose summary columns the store had updated through DBAL. Production is unaffected.
