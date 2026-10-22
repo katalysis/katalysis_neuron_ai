@@ -211,6 +211,21 @@ final class AgentRepairBeforeProviderTest extends ConcreteTestCase
         ), 'the repair is logged once per turn, not again by the check before the provider');
     }
 
+    public function testAChatWhoseLastTurnTimedOutBeforeItsFirstToolPairAnswersTheNextTurn(): void
+    {
+        // The person's message was committed after the first provider call; the process died before anything else.
+        $chatId = $this->newChat();
+        $this->storeAll($chatId, [new UserMessage('Read the page.')]);
+
+        $provider = new FakeAIProvider(new AssistantMessage('Answered.'));
+        $agent = (new ConcreteCmsAgent())->setChatId($chatId)->setAiProvider($provider);
+
+        $this->assertSame('Answered.', $agent->handleUserMessage('Are you there?'));
+        $provider->assertCallCount(1);
+        $this->assertSame(['user', 'assistant', 'user'], self::roles($provider->getRecorded()[0]->messages));
+        $this->assertCount(3, $this->rows($chatId));
+    }
+
     public function testARebuiltResultWithFlaggedTextGoesThroughTheScannerAndTheTurnShowsTheNotice(): void
     {
         // The database failed after the call's row: its result is rebuilt from the call. The text addressed to the

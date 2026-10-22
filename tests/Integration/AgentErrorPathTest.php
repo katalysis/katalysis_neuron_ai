@@ -242,9 +242,8 @@ final class AgentErrorPathTest extends ConcreteTestCase
         $stored = $this->stored($chatId);
         $this->assertSame(['user', 'assistant:tool_call', 'user:tool_call_result', 'assistant'], array_column($stored, 0));
         $this->assertSame(self::ERROR_REPLY, $stored[3][1]);
-        $call = (new ChatMessageStore($this->db()))->loadAll(ChatMessageStore::threadFor($chatId))[1];
-        $this->assertInstanceOf(ToolCallMessage::class, $call);
-        $this->assertTrue($call->getToolCalls()[0]->hasResult(), 'a stored call from a normal round carries its result (plans/BF-9.md §2)');
+        $callRow = json_decode((string) $this->db()->fetchOne("SELECT meta FROM KatalysisNeuronAiChatMessages WHERE chatId = ? AND type = 'tool_call'", [$chatId]), true);
+        $this->assertNotNull($callRow['tools'][0]['result'] ?? null, 'a stored call from a normal round carries its result (plans/BF-9.md §2)');
         $this->assertStoredOrderIsSendableWithoutRepair($chatId);
 
         $provider = new FakeAIProvider(new AssistantMessage('Answered.'));

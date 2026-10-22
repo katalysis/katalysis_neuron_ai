@@ -499,6 +499,19 @@ final class ChatMessageStoreTest extends ConcreteTestCase
         $this->assertSame($before, $this->checksum($thread), 'loading never writes');
     }
 
+    public function testAChatEndingInTheUsersMessageGetsAReplyPlaceholderAtTheEnd(): void
+    {
+        // A turn that timed out after its first provider call, before its first tool pair was saved.
+        $thread = $this->newThread();
+        $this->appendAll($thread, [new UserMessage('One.'), new AssistantMessage('Reply one.'), new UserMessage('Two.')]);
+
+        $messages = $this->store()->loadActive($thread);
+
+        $this->assertSame(['user', 'assistant', 'user', 'recovered'], self::kinds($messages));
+        $this->assertSame('msg_recovered_end_' . $messages[2]->getId(), $messages[3]->getId());
+        $this->assertSendable($messages);
+    }
+
     public function testAToolResultFollowedByAUserMessageGetsAReplyPlaceholderBetween(): void
     {
         // The two-tab shape: another request committed its question and reply after this one's tool result.
