@@ -76,7 +76,9 @@ final class AgentPageContextTest extends ConcreteTestCase
      */
     private function agentOn(?array $context, ?InMemoryMessageStore $store = null, ?string $thread = null): array
     {
-        $provider = new FakeAIProvider(...array_fill(0, 5, new AssistantMessage('OK.')));
+        // A new reply object per turn: Neuron skips a message whose ID it already holds, so one shared object would be
+        // stored only once and leave later turns in an order Neuron refuses.
+        $provider = new FakeAIProvider(...array_map(static fn (): AssistantMessage => new AssistantMessage('OK.'), range(1, 5)));
         $agent = (new ConcreteCmsAgent())
             ->setMessageStore($store ?? new InMemoryMessageStore())
             ->setThreadId($thread ?? 'p19-' . bin2hex(random_bytes(4)))
