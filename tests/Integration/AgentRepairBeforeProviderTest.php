@@ -28,8 +28,9 @@ use NeuronAI\Tools\ToolCall;
  * P2.5 (plans/P2.5.md §6, §8.2): a stored chat with two user messages in a row is repaired as it loads, before the
  * provider is called. Real turns of the agent, with Neuron's FakeAIProvider as the model: no AI provider call, no API key.
  *
- * The control test shows why: on Neuron 4's own store the same chat reaches the provider unrepaired, and the turn then
- * fails when it is committed (P2.1 findings §6.4), after a paid call in real use.
+ * The control test shows why: Neuron 4's own store doesn't repair the same chat. Until BF-9 it reached the provider and
+ * the turn failed when it was committed (P2.1 findings §6.4), after a paid call in real use; since BF-9 the agent checks
+ * the order before the provider and the turn fails at no cost.
  */
 final class AgentRepairBeforeProviderTest extends ConcreteTestCase
 {
@@ -118,7 +119,7 @@ final class AgentRepairBeforeProviderTest extends ConcreteTestCase
         ));
     }
 
-    public function testControlNeuronsOwnStoreSendsTheBrokenChatAndTheTurnFails(): void
+    public function testControlNeuronsOwnStoreDoesNotRepairAndTheTurnFailsBeforeTheProvider(): void
     {
         $store = new InMemoryMessageStore();
         $thread = 'p25-control-' . bin2hex(random_bytes(4));
@@ -131,9 +132,8 @@ final class AgentRepairBeforeProviderTest extends ConcreteTestCase
 
         $reply = $agent->handleUserMessage('Third question.');
 
-        $provider->assertCallCount(1);
-        $this->assertSame(['user', 'user', 'assistant', 'user'], self::roles($provider->getRecorded()[0]->messages), 'the provider was called with the broken chat');
-        $this->assertSame('I ran into an error processing that request. Please try again.', $reply, 'and the turn failed after the call');
+        $provider->assertCallCount(0);
+        $this->assertSame('I ran into an error processing that request. Please try again.', $reply, 'the turn failed before the provider was called (BF-9)');
         $this->assertCount(3, $store->loadAll($thread), 'nothing was stored');
     }
 
