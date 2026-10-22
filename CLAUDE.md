@@ -2,7 +2,7 @@
 
 A Concrete CMS 9.3+ package (PHP 8.1+) that adds an AI assistant to the CMS. It's built on Neuron AI (`neuron-core/neuron-ai`, bundled in `vendor/`). It's on 3.15.26 now, and an upgrade to 4.x is planned in Phase 2 of the delivery plan.
 
-Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integration branch: `development`, except where `DELIVERY_PLAN.md` names an `integration/*` branch for a task (P2.2–P2.6 and P2.8 use `integration/neuron4`): those task branches branch from it and PR into it. `main`, `development` and `integration/*` are protected: changes go in only through PRs, with no force pushes and no deletion.
+Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integration branch: `development`, except where `DELIVERY_PLAN.md` names an `integration/*` branch for a task: those task branches branch from it and PR into it. In Phase 2, P2.2–P2.8 used `integration/neuron4`, which P2.9 merged into `development` (PR #47) and which was then deleted. `main`, `development` and any `integration/*` branch are protected: changes go in only through PRs, with no force pushes and no deletion.
 
 **Tooling:** Glyn and Alex use the Claude Code VS Code extension with this package folder (`httpdocs/packages/katalysis_neuron_ai`) as the workspace root, so this file, `.claude/settings.json` (permission rules and hooks) and `.claude/commands/` apply. Copilot is no longer used. First-time setup: `documentation/SETUP.md`, "New developer setup".
 
@@ -89,7 +89,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
    - A dependency upgrade gets its own PR.
    - It must not be combined with refactoring.
    - It must keep scenario results the same.
-   - On an integration branch, the dependency change is its own commit, and the integration merge (e.g. P2.9) carries the "scenario results unchanged" check.
+   - On an integration branch, the dependency change is its own commit, and the integration merge (as P2.9 did) carries the "scenario results unchanged" check.
 9. **Don't touch secrets:** API keys live in Concrete config (`katalysis.ai.*`) and must never be logged or returned to the frontend.
 
 ## Testing
