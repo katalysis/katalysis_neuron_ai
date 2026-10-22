@@ -170,8 +170,11 @@ final class PageContextTagTest extends ConcreteTestCase
 
         $turnOne = $this->agentOn($this->columns);
         $turnOne->setChatId($chatId);
-        $turnOne->getChatHistory()->addMessage(new UserMessage($turnOne->tagMessage('First')));
-        $turnOne->getChatHistory()->addMessage(new AssistantMessage('Ok.'));
+        // One history for the turn, as Neuron writes a turn: a fresh load of a chat ending in the person's message adds
+        // the store's placeholder reply after it (BF-9).
+        $history = $turnOne->getChatHistory();
+        $history->addMessage(new UserMessage($turnOne->tagMessage('First')));
+        $history->addMessage(new AssistantMessage('Ok.'));
 
         $this->entityManager()->clear();
         $turnTwo = new ConcreteCmsAgent();
