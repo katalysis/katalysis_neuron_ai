@@ -33,8 +33,10 @@ use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
+use Katalysis\NeuronAi\Tools\Utilities\TextIntegrity;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use NeuronAI\Tools\ArrayProperty;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -478,17 +480,15 @@ class PagesToolkit extends AbstractToolkit
                                 $blockTypeName = $block->getBlockTypeName();
                                 
                                 // Try to extract a preview of content
-                                $contentPreview = null;
+                                $preview = ['contentPreview' => null];
                                 try {
                                     if (method_exists($controller, 'getContent')) {
-                                        $content = $controller->getContent();
-                                        $contentPreview = HtmlToText::preview($content, 200);
+                                        $preview = $this->blockPreviewFields((string) $controller->getContent());
                                     } elseif (method_exists($controller, 'getSearchableContent')) {
-                                        $content = $controller->getSearchableContent();
-                                        $contentPreview = HtmlToText::preview($content, 200);
+                                        $preview = $this->blockPreviewFields((string) $controller->getSearchableContent());
                                     }
                                 } catch (\Exception $e) {
-                                    $contentPreview = "[Error extracting content: " . $e->getMessage() . "]";
+                                    $preview = ['contentPreview' => "[Error extracting content: " . $e->getMessage() . "]"];
                                 }
                                 
                                 $blockData[] = [
@@ -497,8 +497,7 @@ class PagesToolkit extends AbstractToolkit
                                     'blockTypeName' => $blockTypeName,
                                     'blockName' => $block->getBlockName(),
                                     'displayOrder' => $block->getBlockDisplayOrder(),
-                                    'contentPreview' => $contentPreview,
-                                ];
+                                ] + $preview;
                                 $totalBlocks++;
                             } catch (\Exception $e) {
                                 $errors[] = "Error reading block in area '{$handle}': " . $e->getMessage();
@@ -531,12 +530,12 @@ class PagesToolkit extends AbstractToolkit
                 'totalBlocks' => $totalBlocks,
                 'areaCount' => count($areas),
                 'areas' => $areas,
-                'note' => 'contentPreview values are intentionally truncated previews for discovery only. Do not use contentPreview as source content for updates.',
-            ];
+                'note' => 'contentPreview values are shortened previews for finding blocks; a block marked contentPreviewShortened has more text. Do not use contentPreview as source content for updates: get_block_data returns a block\'s full stored fields, and get_page_content the full text of the page.',
+            ] + $this->subAreaSummary($page);
 
             if (!empty($errors)) {
                 $result['errors'] = $errors;
-                $result['note'] = 'Some errors occurred during block inspection. See errors array.';
+                $result['warning'] = 'Some errors occurred during block inspection. See errors array.';
             }
 
             return $result;
@@ -562,14 +561,14 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'blocks',
             PropertyType::ARRAY,
-            'Array of block updates. Each item must have: areaHandle (string), blockID (number from current version), value (object with block data)',
+            'Array of block updates. Each item must have: areaHandle (string), blockID (number from current version), value (object with block data). With changeMode "scoped_text", each item also has textFields (fields whose text may change) and replacedText (the stored text the change replaces or removes, word for word). Fields left out of value keep their stored values.',
             true
         ));
 
         $tool->addProperty(new ToolProperty(
             'changeMode',
             PropertyType::STRING,
-            'Text safety mode: "freeform" (default), "formatting_only" (text must remain identical), or "scoped_text" (text changes only in explicitly allowed textFields per block)',
+            'Text safety mode: "keep_text" (default: existing text must stay; text may be added), "formatting_only" (text must remain identical), or "scoped_text" (text may change only in each block\'s textFields, and stored text may go only if it is listed in that block\'s replacedText)',
             false
         ));
 
@@ -583,7 +582,7 @@ class PagesToolkit extends AbstractToolkit
         $tool->setHandler($this->guarded(function (
             ?int $pageID = null,
             ?array $blocks = [],
-            ?string $changeMode = 'freeform',
+            ?string $changeMode = null,
             ?bool $continueOnError = true
         ): array {
             if (!$pageID) {
@@ -594,10 +593,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("blocks must be a non-empty array. Provide at least one block update.");
             }
 
-            $mode = strtolower(trim((string) ($changeMode ?? 'freeform')));
-            if (!in_array($mode, ['freeform', 'formatting_only', 'scoped_text'], true)) {
-                throw new \RuntimeException("changeMode must be one of: freeform, formatting_only, scoped_text");
-            }
+            $mode = TextIntegrity::mode($changeMode);
 
             // Validate block update structure
             $updates = [];
@@ -626,11 +622,20 @@ class PagesToolkit extends AbstractToolkit
                     $textFields = array_values(array_filter(array_map(static fn($v) => is_string($v) ? trim($v) : '', $block['textFields']), static fn($v) => $v !== ''));
                 }
 
+                $replacedText = null;
+                if (isset($block['replacedText'])) {
+                    if (!is_array($block['replacedText'])) {
+                        throw new \RuntimeException("blocks[{$index}].replacedText must be an array of the stored text being replaced when provided");
+                    }
+                    $replacedText = array_values(array_filter($block['replacedText'], 'is_string'));
+                }
+
                 $updates[] = [
                     'areaHandle' => $block['areaHandle'],
                     'blockID' => $block['blockID'],
                     'value' => $block['value'],
                     'textFields' => $textFields,
+                    'replacedText' => $replacedText,
                 ];
             }
 
@@ -690,11 +695,13 @@ class PagesToolkit extends AbstractToolkit
             $successCount = 0;
             $failureCount = 0;
 
-            foreach ($remapped as $update) {
+            foreach ($remapped as $index => $update) {
                 $areaHandle = $update['areaHandle'];
                 $newBlockID = $update['newBlockID'];
                 $value = $update['value'];
-                $textFields = $update['textFields'] ?? null;
+                // The remap returns one entry per update, in order, without the text options: take them from the request.
+                $textFields = $updates[$index]['textFields'] ?? null;
+                $replacedText = $updates[$index]['replacedText'] ?? null;
 
                 try {
                     // Get the area and block
@@ -720,25 +727,28 @@ class PagesToolkit extends AbstractToolkit
                     $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
                     $beforeRecord = $this->getBlockTableRecord($dbTable, $newBlockID);
 
-                    $textPolicy = $this->evaluateTextChangePolicy($beforeRecord, $value, $mode, $textFields);
-                    if (!($textPolicy['ok'] ?? false)) {
-                        throw new \RuntimeException((string) ($textPolicy['message'] ?? 'Text safety policy rejected this update'));
-                    }
-
-                    $watchedFields = $textPolicy['watchedFields'] ?? [];
-                    $beforeChecksums = $this->buildTextChecksumMap($beforeRecord, $watchedFields);
-
                     $normalizedValue = $this->normalizeCustomBlockPayload($block->getBlockTypeHandle(), (array) ($value ?? []));
                     if ($block->getBlockTypeHandle() === 'epra_resources_list' && !array_key_exists('slide', $normalizedValue)) {
                         // Preserve existing repeatable rows for layout-only updates in batch mode.
                         $normalizedValue['slide'] = $this->loadEpraResourceEntries((int) $newBlockID);
                     }
+                    // Fields the update leaves out keep their stored values (BF-5).
+                    $kept = TextIntegrity::keepOmittedFields($beforeRecord, $normalizedValue);
+                    $normalizedValue = $kept['value'];
+
+                    $textPolicy = TextIntegrity::evaluate($beforeRecord, $normalizedValue, $mode, $textFields, $replacedText);
+                    if (!$textPolicy['ok']) {
+                        throw new \RuntimeException($textPolicy['message']);
+                    }
+
+                    $watchedFields = $textPolicy['watchedFields'];
+                    $beforeChecksums = TextIntegrity::checksums($beforeRecord, $watchedFields);
 
                     // Update the block
                     $block->update($normalizedValue);
 
                     $afterRecord = $this->getBlockTableRecord($dbTable, $newBlockID);
-                    $afterChecksums = $this->buildTextChecksumMap($afterRecord, $watchedFields);
+                    $afterChecksums = TextIntegrity::checksums($afterRecord, $watchedFields);
 
                     $blockResults[] = [
                         'areaHandle' => $areaHandle,
@@ -747,6 +757,8 @@ class PagesToolkit extends AbstractToolkit
                         'blockType' => $block->getBlockTypeHandle(),
                         'changeMode' => $mode,
                         'watchedTextFields' => $watchedFields,
+                        'textCheck' => $textPolicy['fields'],
+                        'keptFields' => $kept['keptFields'],
                         'textChecksumsBefore' => $beforeChecksums,
                         'textChecksumsAfter' => $afterChecksums,
                         'ok' => true,
@@ -870,120 +882,6 @@ class PagesToolkit extends AbstractToolkit
         } catch (\Throwable $e) {
             return [];
         }
-    }
-
-    /**
-     * @param array<string, mixed> $beforeRecord
-     * @param array<string, mixed> $proposedValue
-     * @param string $mode
-     * @param array<int, string>|null $requestedFields
-     * @return array{ok:bool,message:string,watchedFields:array<int,string>}
-     */
-    private function evaluateTextChangePolicy(array $beforeRecord, array $proposedValue, string $mode, ?array $requestedFields = null): array
-    {
-        if ($mode === 'freeform') {
-            return [
-                'ok' => true,
-                'message' => 'freeform mode',
-                'watchedFields' => $this->resolveWatchedTextFields($beforeRecord, $proposedValue, $requestedFields),
-            ];
-        }
-
-        $watchedFields = $this->resolveWatchedTextFields($beforeRecord, $proposedValue, $requestedFields);
-        if ($mode === 'scoped_text' && empty($requestedFields)) {
-            return [
-                'ok' => false,
-                'message' => 'scoped_text mode requires textFields for each block update',
-                'watchedFields' => $watchedFields,
-            ];
-        }
-
-        $allowedSet = array_fill_keys($requestedFields ?? [], true);
-
-        foreach ($watchedFields as $field) {
-            if (!array_key_exists($field, $proposedValue)) {
-                continue;
-            }
-
-            $beforeText = $this->normalizeTextForComparison($beforeRecord[$field] ?? null);
-            $afterText = $this->normalizeTextForComparison($proposedValue[$field] ?? null);
-
-            if ($mode === 'formatting_only' && $beforeText !== $afterText) {
-                return [
-                    'ok' => false,
-                    'message' => "formatting_only violation in field '{$field}': textual content changed",
-                    'watchedFields' => $watchedFields,
-                ];
-            }
-
-            if ($mode === 'scoped_text' && $beforeText !== $afterText && !isset($allowedSet[$field])) {
-                return [
-                    'ok' => false,
-                    'message' => "scoped_text violation in field '{$field}': field is not in allowed textFields",
-                    'watchedFields' => $watchedFields,
-                ];
-            }
-        }
-
-        return [
-            'ok' => true,
-            'message' => 'text policy passed',
-            'watchedFields' => $watchedFields,
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $beforeRecord
-     * @param array<string, mixed> $proposedValue
-     * @param array<int, string>|null $requestedFields
-     * @return array<int, string>
-     */
-    private function resolveWatchedTextFields(array $beforeRecord, array $proposedValue, ?array $requestedFields = null): array
-    {
-        if (!empty($requestedFields)) {
-            return array_values(array_unique(array_filter($requestedFields, static fn($f) => is_string($f) && $f !== '')));
-        }
-
-        $fields = [];
-        foreach ($proposedValue as $field => $value) {
-            if (!is_string($field)) {
-                continue;
-            }
-            if (!is_string($value)) {
-                continue;
-            }
-            if (array_key_exists($field, $beforeRecord) && is_string($beforeRecord[$field] ?? null)) {
-                $fields[] = $field;
-            }
-        }
-
-        return array_values(array_unique($fields));
-    }
-
-    private function normalizeTextForComparison($value): string
-    {
-        if (!is_string($value)) {
-            return '';
-        }
-
-        $text = html_entity_decode(strip_tags($value), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $text = preg_replace('/\s+/u', ' ', $text) ?: '';
-        return trim($text);
-    }
-
-    /**
-     * @param array<string, mixed> $record
-     * @param array<int, string> $fields
-     * @return array<string, string>
-     */
-    private function buildTextChecksumMap(array $record, array $fields): array
-    {
-        $checksums = [];
-        foreach ($fields as $field) {
-            $checksums[$field] = sha1($this->normalizeTextForComparison($record[$field] ?? null));
-        }
-
-        return $checksums;
     }
 
     protected function makeCreatePageTool(): Tool
@@ -1229,8 +1127,8 @@ class PagesToolkit extends AbstractToolkit
                         continue;
                     }
 
-                    $beforeText = $this->normalizeTextForComparison($content);
-                    $afterText = $this->normalizeTextForComparison($transformedContent);
+                    $beforeText = TextIntegrity::normalize($content);
+                    $afterText = TextIntegrity::normalize($transformedContent);
                     if ($beforeText !== $afterText) {
                         throw new \RuntimeException("text integrity check failed for '{$headingText}' (body text changed)");
                     }
@@ -1254,7 +1152,7 @@ class PagesToolkit extends AbstractToolkit
                         'targetTag' => $targetTag,
                         'matchMode' => $matchMode,
                         'textChecksumBefore' => sha1($beforeText),
-                        'textChecksumAfter' => sha1($this->normalizeTextForComparison($afterContent)),
+                        'textChecksumAfter' => sha1(TextIntegrity::normalize($afterContent)),
                     ];
 
                     if (isset($pendingHeadings[$headingKey])) {
@@ -1881,7 +1779,7 @@ class PagesToolkit extends AbstractToolkit
      */
     private function findMatchingHeadingTextInContent(string $content, array $pendingHeadings): ?array
     {
-        $plain = $this->normalizeHeadingLookupText($this->normalizeTextForComparison($content));
+        $plain = $this->normalizeHeadingLookupText(TextIntegrity::normalize($content));
         foreach ($pendingHeadings as $key => $text) {
             if ($key === '') {
                 continue;
@@ -2378,7 +2276,7 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'update_block_in_page_area',
-            'Update an existing block in a specific page area'
+            'Update an existing block in a specific page area, in a draft. Existing text is kept unless changeMode says otherwise, and fields left out of value keep their stored values. Read the full block with get_block_data first.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -2409,11 +2307,35 @@ class PagesToolkit extends AbstractToolkit
             true
         ));
 
+        $tool->addProperty(new ToolProperty(
+            'changeMode',
+            PropertyType::STRING,
+            'Text safety mode: "keep_text" (default: existing text must stay; text may be added), "formatting_only" (text must remain identical), or "scoped_text" (text may change only in textFields, and stored text may go only if it is listed in replacedText)',
+            false
+        ));
+
+        $tool->addProperty(new ArrayProperty(
+            'textFields',
+            'With changeMode "scoped_text": the fields whose text may change, e.g. ["content"]',
+            false,
+            new ToolProperty('field', PropertyType::STRING, 'A field name of the block', true)
+        ));
+
+        $tool->addProperty(new ArrayProperty(
+            'replacedText',
+            'With changeMode "scoped_text": the stored text the change replaces or removes, word for word, one string per paragraph or heading',
+            false,
+            new ToolProperty('text', PropertyType::STRING, 'Stored text, as get_block_data returns it', true)
+        ));
+
         $tool->setHandler($this->guarded(function (
             ?int $pageID = null,
             ?string $areaHandle = null,
             ?int $blockID = null,
-            ?array $value = []
+            ?array $value = [],
+            ?string $changeMode = null,
+            ?array $textFields = null,
+            ?array $replacedText = null
         ): array {
             if (!$pageID || !$areaHandle || !$blockID) {
                 throw new \RuntimeException('pageID, areaHandle, and blockID are required');
@@ -2457,6 +2379,19 @@ class PagesToolkit extends AbstractToolkit
                 // Preserve existing repeatable rows for layout-only updates (e.g., gridStructure changes).
                 $body['slide'] = $this->loadEpraResourceEntries((int) $blockID);
             }
+
+            // The text check, on the block as it is stored now, before any draft exists (BF-5): a refusal changes nothing.
+            $mode = TextIntegrity::mode($changeMode);
+            $controller = $block->getController();
+            $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
+            $beforeRecord = $this->getBlockTableRecord($dbTable, (int) $block->getBlockID());
+            $kept = TextIntegrity::keepOmittedFields($beforeRecord, $body);
+            $body = $kept['value'];
+            $textPolicy = TextIntegrity::evaluate($beforeRecord, $body, $mode, $textFields, $replacedText);
+            if (!$textPolicy['ok']) {
+                throw new \RuntimeException($textPolicy['message']);
+            }
+
             $validation = $this->validateBlock($block, $body);
             if ($validation instanceof JsonResponse) {
                 $validationBody = (string) $validation->getContent();
@@ -2476,7 +2411,17 @@ class PagesToolkit extends AbstractToolkit
             $updatedBlock = Application::getFacadeApplication()->executeCommand($command);
             $blockToEdit->update($body);
 
-            return $this->serializeBlock($updatedBlock, true);
+            $afterRecord = $this->getBlockTableRecord($dbTable, (int) $updatedBlock->getBlockID());
+
+            return $this->serializeBlock($updatedBlock, true) + [
+                'textCheck' => [
+                    'mode' => $mode,
+                    'fields' => $textPolicy['fields'],
+                    'keptFields' => $kept['keptFields'],
+                    'checksumsBefore' => TextIntegrity::checksums($beforeRecord, $textPolicy['watchedFields']),
+                    'checksumsAfter' => TextIntegrity::checksums($afterRecord, $textPolicy['watchedFields']),
+                ],
+            ];
         }));
 
         return $tool;
@@ -3044,6 +2989,7 @@ class PagesToolkit extends AbstractToolkit
         if ($includeDetails) {
             $data['attributes'] = $this->getPageAttributeMap($page);
             $data['areas'] = $this->getPageAreaSnapshot($page);
+            $data += $this->subAreaSummary($page);
         }
 
         return $data;
@@ -3215,7 +3161,7 @@ class PagesToolkit extends AbstractToolkit
 
         $preview = $this->extractBlockPreview($block);
         if ($preview !== null && $preview !== '') {
-            $data['contentPreview'] = HtmlToText::preview($preview, 200);
+            $data += $this->blockPreviewFields($preview);
         }
 
         if ($includeDetails) {
@@ -3228,6 +3174,45 @@ class PagesToolkit extends AbstractToolkit
         }
 
         return $data;
+    }
+
+    /**
+     * A block's text preview, marked when it is shortened, with the tool that returns the full text (BF-5, B-TRU-7).
+     *
+     * @return array{contentPreview: string, contentPreviewShortened?: array{fullLength: int, fullTextTool: string}}
+     */
+    private function blockPreviewFields(string $text): array
+    {
+        $info = HtmlToText::previewInfo($text, 200);
+        $fields = ['contentPreview' => $info['preview']];
+        if ($info['shortened']) {
+            $fields['contentPreviewShortened'] = ['fullLength' => $info['fullLength'], 'fullTextTool' => 'get_block_data'];
+        }
+
+        return $fields;
+    }
+
+    /**
+     * How many blocks the page version has in container and layout columns. The area lists that use
+     * Area::getHandleList() (top-level areas only) leave them out, so the result says so (BF-5 R11).
+     *
+     * @return array{subAreaBlocks: int, subAreaNote?: string}
+     */
+    protected function subAreaSummary(Page $page): array
+    {
+        $count = (int) Application::getFacadeApplication()->make('database')->connection()->fetchOne(
+            'SELECT COUNT(*) FROM CollectionVersionBlocks cvb
+             JOIN Areas a ON a.cID = cvb.cID AND a.arHandle = cvb.arHandle
+             WHERE cvb.cID = ? AND cvb.cvID = ? AND a.arParentID > 0',
+            [(int) $page->getCollectionID(), (int) $page->getVersionID()]
+        );
+
+        $summary = ['subAreaBlocks' => $count];
+        if ($count > 0) {
+            $summary['subAreaNote'] = "{$count} block(s) in container or layout columns are not listed here; get_page_content lists them.";
+        }
+
+        return $summary;
     }
 
     private function extractBlockPreview(Block $block): ?string

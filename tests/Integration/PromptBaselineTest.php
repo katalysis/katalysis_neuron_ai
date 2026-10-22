@@ -14,7 +14,8 @@ use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 
 /**
  * P2.4: the system prompt and the tagged user message the model receives on Neuron 4 are exactly what it received on
- * Neuron 3 (tests/Support/prompt-baseline-v3.json, captured on `development` before P2.4).
+ * Neuron 3 (tests/Support/prompt-baseline-v3.json, captured on `development` before P2.4), apart from the lines listed in
+ * APPROVED_DIFFERENCES (BF-5) and, with katalysis_pro, APPROVED_WITH_EXTERNAL_DIFFERENCES (P2.8).
  *
  * A real turn of the agent (handleUserMessage) with Neuron's FakeAIProvider as the model and an in-memory history: no
  * provider call, no API key, nothing written. The core toolkits alone (P2.4), and with katalysis_pro (P2.8).
@@ -44,7 +45,34 @@ final class PromptBaselineTest extends ConcreteTestCase
         Request::getInstance()->setCustomRequestUser(-1);
     }
 
-    public function testTheCorePromptIsExactlyTheV3Prompt(): void
+    /**
+     * The lines of both captures changed on purpose after v3, each approved by Glyn: zero-based line number =>
+     * [v3 text, new text]. Every other line must be identical.
+     */
+    private const APPROVED_DIFFERENCES = [
+        // BF-5 decision 4: the page snapshot's heading says its lines are shortened previews (plans/BF-5.md R10).
+        8 => [
+            'Current Page Content Snapshot:',
+            'Current Page Content Snapshot (shortened previews of some blocks, not the full page; get_page_content returns the full text):',
+        ],
+    ];
+
+    /**
+     * @param list<string> $capture
+     * @param array<int, array{string, string}> $differences
+     * @return list<string> the capture with the approved differences applied
+     */
+    private function withApproved(array $capture, array $differences): array
+    {
+        foreach ($differences as $line => [$v3, $now]) {
+            $this->assertSame($v3, $capture[$line] ?? null, "line {$line} of the capture is not the one the approval names");
+            $capture[$line] = $now;
+        }
+
+        return $capture;
+    }
+
+    public function testTheCorePromptIsExactlyTheV3PromptExceptTheApprovedDifferences(): void
     {
         $baseline = json_decode((string) file_get_contents(PromptBaseline::FILE), true);
         $this->assertIsArray($baseline, 'prompt-baseline-v3.json is missing or not JSON');
@@ -73,9 +101,9 @@ final class PromptBaselineTest extends ConcreteTestCase
         $this->assertSame($expected['systemMessage'], $actual['systemMessage'], 'the system message\'s shape');
         // Line by line, so a failure shows which lines differ. If only the page lines differ, the fixture page changed.
         $this->assertSame(
-            implode("\n", $expected['system']),
+            implode("\n", $this->withApproved($expected['system'], self::APPROVED_DIFFERENCES)),
             implode("\n", $actual['system']),
-            'the system prompt must be byte-identical to v3 (Current Page lines differ? the seed fixture changed: recapture on purpose)'
+            'the system prompt must be byte-identical to v3 apart from the approved differences (Current Page lines differ? the seed fixture changed: recapture on purpose)'
         );
     }
 
@@ -124,11 +152,7 @@ final class PromptBaselineTest extends ConcreteTestCase
         $this->assertSame($expected['user'], $actual['user'], 'the user message with its page tag');
         $this->assertSame($expected['systemMessage'], $actual['systemMessage'], 'the system message\'s shape');
 
-        $approved = $expected['system'];
-        foreach (self::APPROVED_WITH_EXTERNAL_DIFFERENCES as $line => [$v3, $p28]) {
-            $this->assertSame($v3, $approved[$line] ?? null, "line {$line} of the capture is not the one the approval names");
-            $approved[$line] = $p28;
-        }
+        $approved = $this->withApproved($expected['system'], self::APPROVED_DIFFERENCES + self::APPROVED_WITH_EXTERNAL_DIFFERENCES);
         $this->assertSame(
             implode("\n", $approved),
             implode("\n", $actual['system']),

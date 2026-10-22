@@ -399,7 +399,8 @@ INST);
 
         $contentLines = $this->getPageContentLines($page);
         if (!empty($contentLines)) {
-            $lines[] = 'Current Page Content Snapshot:';
+            // BF-5: the lines below are shortened previews, so the heading says so and names the tool for the full text.
+            $lines[] = 'Current Page Content Snapshot (shortened previews of some blocks, not the full page; get_page_content returns the full text):';
             foreach ($contentLines as $contentLine) {
                 $lines[] = '- ' . $contentLine;
             }

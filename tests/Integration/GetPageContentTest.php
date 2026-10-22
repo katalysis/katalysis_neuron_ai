@@ -114,6 +114,10 @@ final class GetPageContentTest extends ConcreteTestCase
             'areaHandle' => 'Main',
             'blockID' => $first['blockID'],
             'value' => ['content' => '<p>Draft only edit</p>'],
+            // BF-5: replacing a block's whole text is an intended rewrite, so it names the text it replaces.
+            'changeMode' => 'scoped_text',
+            'textFields' => ['content'],
+            'replacedText' => ['Seed Heading Two', 'This paragraph sits under the h2 heading.'],
         ]);
 
         $recent = $this->readContent($cID, 'recent');
