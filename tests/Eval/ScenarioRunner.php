@@ -14,7 +14,10 @@ use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Entity\Chat;
 use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\ToolCallMessage;
+use NeuronAI\Chat\Messages\ToolResultMessage;
+use NeuronAI\Tools\ToolOutput;
 
 /**
  * Runs one scenario once: reset the fixture, act as the scenario's user, play the turns
@@ -32,7 +35,7 @@ final class ScenarioRunner
     /** The session key controllers/chat.php stores the panel's page context under. */
     public const SESSION_KEY = 'katalysis_neuron_ai_page_context';
     /** What ConcreteCmsAgent::handle() returns when something went wrong inside it. */
-    public const AGENT_ERROR_REPLY = 'I ran into an error processing that request. Please try again.';
+    public const AGENT_ERROR_REPLY = ConcreteCmsAgent::ERROR_REPLY;
 
     private const MAX_TEXT = 1000;
 
@@ -88,9 +91,10 @@ final class ScenarioRunner
             foreach ($scenario['turns'] as $i => $turn) {
                 $page = (string) ($turn['current_page'] ?? $page);
 
-                // Every turn is a new request, as over HTTP (controllers/chat.php, getOrRestoreAgent): a new agent, its
-                // history read back from the chat row (the entity cache is cleared so it really comes from the database),
-                // and then the page context.
+                // Every turn is a new request, as over HTTP (controllers/chat.php, agentForThisRequest): a new agent,
+                // bound to the chat before anything else (Neuron 4 runs no turn without a thread, and binds an agent's
+                // thread once), its history read back from the chat's rows (the entity cache is cleared so it really
+                // comes from the database), and then the page context.
                 $this->entityManager()->clear();
                 $agent = ($this->agentFactory)();
                 $agent->setChatId($chatId);
@@ -98,14 +102,14 @@ final class ScenarioRunner
 
                 $before = $this->snapshots->take();
                 $logMark = $this->maxLogID();
-                $historyBefore = count($this->messages($agent));
+                $idsBefore = $this->messageIds($agent);
 
                 $turnStarted = microtime(true);
                 $reply = $agent->handleUserMessage((string) $turn['say']);
                 $turnSeconds = microtime(true) - $turnStarted;
 
                 $after = $this->snapshots->take();
-                $newMessages = array_slice($this->messages($agent), $historyBefore);
+                $newMessages = $this->newMessages($agent, $idsBefore);
                 $calls = $this->toolCalls($newMessages);
                 $turnUsage = $this->usage($newMessages);
                 $logErrors = $this->errorLogs($logMark);
@@ -267,31 +271,65 @@ final class ScenarioRunner
     }
 
     /**
-     * @return list<\NeuronAI\Chat\Messages\Message>
+     * The chat's active messages, read back from its rows (Neuron 4's getChatHistory(), P2.6).
+     *
+     * @return list<Message>
      */
     private function messages(ConcreteCmsAgent $agent): array
     {
-        return array_values($agent->resolveState()->getChatHistory()->getMessages());
+        return array_values($agent->getChatHistory()->getMessages());
     }
 
     /**
-     * @param list<\NeuronAI\Chat\Messages\Message> $messages
+     * @return array<string, true> the IDs of the chat's messages before a turn
+     */
+    private function messageIds(ConcreteCmsAgent $agent): array
+    {
+        return array_fill_keys(array_map(static fn (Message $m): string => $m->getId(), $this->messages($agent)), true);
+    }
+
+    /**
+     * The turn's messages: those whose IDs were not there before it. Not "the ones after the old count": Neuron 4
+     * archives the oldest messages when it trims, and the store's repair adds placeholders, so counts shift.
+     *
+     * @param array<string, true> $idsBefore
+     * @return list<Message>
+     */
+    private function newMessages(ConcreteCmsAgent $agent, array $idsBefore): array
+    {
+        return array_values(array_filter($this->messages($agent), static fn (Message $m): bool => !isset($idsBefore[$m->getId()])));
+    }
+
+    /**
+     * On Neuron 4 a call's result is not on the ToolCallMessage: it is on the ToolResultMessage that follows, matched
+     * by call ID. A ToolOutput result is recorded as its JSON, which ToolKind reads (P2.3).
+     *
+     * @param list<Message> $messages
      *
      * @return list<array{name: string, inputs: array<string, mixed>, result: string, ok: bool}>
      */
     private function toolCalls(array $messages): array
     {
+        $results = [];
+        foreach ($messages as $message) {
+            if (!$message instanceof ToolResultMessage) {
+                continue;
+            }
+            foreach ($message->getToolCalls() as $settled) {
+                if ($settled->hasResult()) {
+                    $value = $settled->getResult();
+                    $results[(string) $settled->getCallId()] = $value instanceof ToolOutput ? (string) json_encode($value) : $value;
+                }
+            }
+        }
+
         $calls = [];
         foreach ($messages as $message) {
             if (!$message instanceof ToolCallMessage) {
                 continue;
             }
-            foreach ($message->getTools() as $tool) {
-                try {
-                    $result = $tool->getResult();
-                } catch (\Throwable) {
-                    $result = '';
-                }
+            foreach ($message->getToolCalls() as $tool) {
+                $result = $results[(string) $tool->getCallId()] ?? '';
                 $calls[] = [
                     'name' => $tool->getName(),
                     'inputs' => $tool->getInputs(),

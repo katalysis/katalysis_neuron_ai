@@ -274,14 +274,8 @@
                 if (contentType.indexOf('application/json') !== -1) {
                     data = await response.json();
                 } else {
-                    const responseText = await response.text();
-                    const compactText = responseText.replace(/\s+/g, ' ').trim();
-                    const preview = compactText.slice(0, 240) || 'Empty response body';
-
-                    throw new Error(
-                        'Server returned ' + response.status + ' ' + response.statusText +
-                        ' with non-JSON content: ' + preview
-                    );
+                    // The status only: the body of an error page can hold a path or a stack trace (P2.6).
+                    throw new Error('Server returned ' + response.status + ' ' + response.statusText + '.');
                 }
                 
                 // Remove loading indicator

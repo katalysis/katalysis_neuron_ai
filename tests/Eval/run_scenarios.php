@@ -11,6 +11,9 @@
  *
  *   --scenario=ID[,ID...]  run only these scenarios (an id, or its number: "05" selects "05-h3-to-h2")
  *   --repeat=N             run each scenario N times (default 1), each from a fresh reset
+ *   --fake                 a free dry run: the model is Neuron's FakeAIProvider (DryRunAgent), so no provider is called
+ *                          and no API key is needed. The checks mostly fail; what it shows is that the runner works
+ *                          (P2.6). Its result files are not committed.
  *
  * For every run it resets the fixture (seed_test_content.php --reset), acts as the scenario's user, plays the
  * turns through the real agent in this process, checks the result and writes documentation/eval-results/<timestamp>.md
@@ -28,6 +31,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Support\Facade\Config;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Eval\DatabaseGuard;
+use Katalysis\NeuronAi\Tests\Eval\DryRunAgent;
 use Katalysis\NeuronAi\Tests\Eval\Expectations;
 use Katalysis\NeuronAi\Tests\Eval\Fixture;
 use Katalysis\NeuronAi\Tests\Eval\ResultsWriter;
@@ -72,13 +76,16 @@ return (function () use ($args, $output): int {
     // ---- Options ---------------------------------------------------------------------------------------------
     $filter = null;
     $repeat = 1;
+    $fake = false;
     foreach ($args as $arg) {
         if (preg_match('/^--scenario=(.+)$/', $arg, $m) === 1) {
             $filter = $m[1];
         } elseif (preg_match('/^--repeat=(\d+)$/', $arg, $m) === 1 && (int) $m[1] >= 1 && (int) $m[1] <= 20) {
             $repeat = (int) $m[1];
+        } elseif ($arg === '--fake') {
+            $fake = true;
         } else {
-            return $fail('Unknown or invalid option "' . $arg . '". Options (after "--"): --scenario=ID[,ID...]  --repeat=N (1 to 20)', 2);
+            return $fail('Unknown or invalid option "' . $arg . '". Options (after "--"): --scenario=ID[,ID...]  --repeat=N (1 to 20)  --fake', 2);
         }
     }
 
@@ -94,7 +101,7 @@ return (function () use ($args, $output): int {
     if ($scenarios === []) {
         return $fail('No scenario matches "' . $filter . '". Available: ' . implode(', ', array_keys($all)), 2);
     }
-    if (trim((string) Config::get('katalysis.ai.open_ai_key', '')) === '') {
+    if (!$fake && trim((string) Config::get('katalysis.ai.open_ai_key', '')) === '') {
         return $fail('No OpenAI key is configured (katalysis.ai.open_ai_key), so the agent cannot run. Set it in Dashboard > System > AI > Neuron AI Settings.');
     }
 
@@ -106,7 +113,9 @@ return (function () use ($args, $output): int {
         $app,
         new Fixture($siteDir, $packageDir . '/documentation/fixtures/seed_test_content.php'),
         new SnapshotBuilder($app->make(Connection::class), (int) Page::getHomePageID()),
-        static fn (): ConcreteCmsAgent => new ConcreteCmsAgent()
+        $fake
+            ? static fn (): ConcreteCmsAgent => DryRunAgent::make()
+            : static fn (): ConcreteCmsAgent => new ConcreteCmsAgent()
     );
 
     $leftover = $runner->deleteChats();
@@ -120,7 +129,12 @@ return (function () use ($args, $output): int {
     $results = ['meta' => [], 'scenarios' => []];
     $exitCode = 0;
 
-    $output->writeln(sprintf('Running %d scenario(s) x %d. This calls the AI provider.', count($scenarios), $repeat));
+    $output->writeln(sprintf(
+        'Running %d scenario(s) x %d. %s',
+        count($scenarios),
+        $repeat,
+        $fake ? 'Dry run: the model is a fake, no provider is called.' : 'This calls the AI provider.'
+    ));
 
     try {
         foreach ($scenarios as $id => $scenario) {
@@ -197,7 +211,7 @@ return (function () use ($args, $output): int {
         'durationSec' => round(microtime(true) - $started, 1),
         'repeat' => $repeat,
         'filter' => $filter,
-        'model' => 'openai ' . (string) Config::get('katalysis.ai.open_ai_model', 'gpt-4o'),
+        'model' => $fake ? DryRunAgent::MODEL : 'openai ' . (string) Config::get('katalysis.ai.open_ai_model', 'gpt-4o'),
         'temperature' => $temperature,
         'commit' => $commit . ($dirty ? ' (uncommitted changes)' : ''),
         'neuronVersion' => $neuronVersion,

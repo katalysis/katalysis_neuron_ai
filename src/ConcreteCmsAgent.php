@@ -8,7 +8,9 @@ use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\SystemMessage;
+use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
@@ -39,6 +41,9 @@ use Concrete\Core\Attribute\Key\CollectionKey;
 
 class ConcreteCmsAgent extends Agent
 {
+    /** What handle() returns, and stores, when a turn fails. The scenario runner recognises it. */
+    public const ERROR_REPLY = 'I ran into an error processing that request. Please try again.';
+
     private ?array $runtimePageContext = null;
     private ?ToolResultScanner $toolResultScanner = null;
     private ?ExternalToolkitBuild $externalToolkits = null;
@@ -607,42 +612,57 @@ INST);
     {
         $this->startTurn();
 
+        // Send message and get response using Neuron AI's built-in chat method
+        $userMessage = new UserMessage($message);
+
         try {
-            // Send message and get response using Neuron AI's built-in chat method
-            $userMessage = new UserMessage($message);
             $response = $this->chat($userMessage)->getMessage();
 
             $this->saveTurnNotice();
-            
+
             return $response->getContent();
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             // A provider error body can quote part of the API key (B-SEC-1), so redact before logging.
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
 
-            // Keep message alternation valid when the provider fails after a user message is added.
-            // Without this, subsequent requests can fail with "Invalid message sequence".
-            try {
-                $chatHistory = $this->resolveState()->getChatHistory();
-                $messages = $chatHistory->getMessages();
+            $this->storeFailedTurn($userMessage);
 
-                if (!empty($messages)) {
-                    $lastMessage = end($messages);
-                    if ($lastMessage && $lastMessage->getRole() === 'user') {
-                        $chatHistory->addMessage(new AssistantMessage(
-                            'I ran into an error processing that request. Please try again.'
-                        ));
-                    }
-                }
+            return self::ERROR_REPLY;
+        }
+    }
 
-                // The turn read flagged content before it failed, so the recovery message carries the flag too.
-                $this->saveTurnNotice();
-            } catch (\Throwable $historyError) {
-                \Concrete\Core\Support\Facade\Log::warning(
-                    'Failed to append fallback assistant message after provider error: ' . $historyError->getMessage()
-                );
+    /**
+     * Stores a failed turn as Neuron 3 did: the user's message and ERROR_REPLY (P2.6, plans/P2.6.md §4). Neuron 4
+     * commits the user's message only after the first provider call succeeds, and a tool call with its result only
+     * after the next one, so a failed turn has stored nothing, or only the user's message. Adding the reply keeps the
+     * person's message after a reload and leaves the chat in an order the model accepts. The tools that ran before
+     * the failure are not recorded (P3.6). Never throws.
+     */
+    private function storeFailedTurn(UserMessage $userMessage): void
+    {
+        try {
+            if ($this->getThreadId() === null) {
+                return;
             }
 
-            return "I ran into an error processing that request. Please try again.";
+            $history = $this->getChatHistory();
+            $stored = array_map(static fn (Message $m): string => $m->getId(), $history->getMessages());
+            if (!in_array($userMessage->getId(), $stored, true)) {
+                $history->addMessage($userMessage);
+            }
+
+            $messages = $history->getMessages();
+            $last = end($messages);
+            if ($last instanceof UserMessage && !$last instanceof ToolResultMessage) {
+                $history->addMessage(new AssistantMessage(self::ERROR_REPLY));
+            }
+
+            // The turn read flagged content before it failed, so the recovery message carries the flag too.
+            $this->saveTurnNotice();
+        } catch (\Throwable $historyError) {
+            \Concrete\Core\Support\Facade\Log::warning(
+                'Failed to store the failed turn: ' . SecretRedactor::redact($historyError->getMessage())
+            );
         }
     }
 
