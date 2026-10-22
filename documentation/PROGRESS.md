@@ -103,7 +103,7 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 - After review (same day):
   - **The model setting:** the first paid scenario attempt stopped at the provider. The dev site's `katalysis.ai.open_ai_model` read `gpt-40` (Glyn's typo from the P2.6 check), and OpenAI returned 404 `model_not_found`, so no usage. Glyn fixed it to `gpt-4o`. P3.8 now validates the model on save (`PLAN:` commit).
   - **katalysis/katalysis_pro#41 merged.**
-  - **Settings page (Glyn, browser):** no skipped-toolkit warning with #42 checked out.
+  - **Settings page (Glyn, browser):** with #42 checked out, saving shows only "AI settings have been updated.", with no skipped-toolkit warning. Saving `gpt-40` gave the same message as saving `gpt-4o`: the typo was accepted silently (the P3.8 item).
   - **`PLAN:` commit:**
     - P3.8: the model setting is validated on save
     - P3.5: `katalysis_pro`'s raw exception text goes through `SecretRedactor`
