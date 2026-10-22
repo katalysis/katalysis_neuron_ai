@@ -131,7 +131,8 @@ final class ChatMessageStoreTest extends ConcreteTestCase
         $this->appendAll($thread, [$question, new AssistantMessage('First reply.'), new UserMessage('Second question.')]);
         $this->store()->append($thread, $question);
 
-        $this->assertSame(['First question.', 'First reply.', 'Second question.'], self::texts($this->store()->loadActive($thread)));
+        // loadAll(): loadActive() adds a placeholder reply after the final question (BF-9), which is not what this checks.
+        $this->assertSame(['First question.', 'First reply.', 'Second question.'], self::texts($this->store()->loadAll($thread)));
         $this->assertCount(3, $this->rows($thread), 'appending the same message ID again stores nothing');
         $this->assertSame($question->getId(), $this->store()->loadActive($thread)[0]->getId());
     }
