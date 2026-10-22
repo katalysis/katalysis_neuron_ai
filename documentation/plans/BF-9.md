@@ -1,6 +1,6 @@
 # BF-9 plan: a chat never gets permanently stuck
 
-Status: **draft, waiting for approval.** Significant task: it changes what the store hands Neuron (stored data, the P2.5 repair) and the agent's error path (P2.6). Branch `task/BF-9-chat-never-stuck` from `development`, PR into `development`.
+Status: **approved (Glyn, 2026-10-22); decisions in §10, which override the sections above where they differ.** Significant task: it changes what the store hands Neuron (stored data, the P2.5 repair) and the agent's error path (P2.6). Branch `task/BF-9-chat-never-stuck` from `development`, PR into `development`.
 
 ## 1. Goal
 No stored chat can fail every later turn: a failed turn always leaves an order Neuron accepts, a chat already in a bad order is repaired as it loads, and any order that still can't be sent fails before the provider is called, so a stuck chat costs nothing.
@@ -91,3 +91,15 @@ Tiers: fast after every change; full before the PR. All new tests are short (a f
 - **Q4.** A BEHAVIOUR_SPEC entry ("a failed or interrupted turn never stops later turns; a chat that can't be sent fails before the provider is called")? It would make this a spec'd behaviour for later phases. **Recommend: yes, one entry**, if you agree it belongs there.
 - **R3 drops context** in the shapes it handles: the model loses the turns before the cut. Only for shapes nothing else covers (rare interleavings, hand-edited rows); the alternative is a chat that never works again.
 - **Deletions:** none planned beyond a changed condition in `storeFailedTurn()`.
+
+## 10. Decisions (Glyn, 2026-10-22, on approving this plan)
+These override the sections above where they differ.
+- **§6 test 10:** approved. The control test changes to zero provider calls, in its own commit.
+- **Q1, rebuild:** approved. A rebuilt result must not bring flagged content back without the notice. The copy keeps the flag the scanner already put in the stored result (`suspectedInstructions`). The turn that first sends it (no stored user message after it yet) also passes it through the scanner, so that turn's reply carries the notice. Later turns don't repeat it, as for any flagged result already in the history. Test: a stored call whose result holds flagged text.
+  - How: a middleware before Neuron's `ChatNode` scans the recovered results in the history Neuron is about to send (the same message objects). The store has no scanner, so it can't do this itself.
+- **Q2, the P3.6 note:** approved, and the panel must show a clear "waiting for approval" message in that case, not the generic error. Recorded as a proposal in the PROGRESS entry for P3.6. Not built here: no tool needs approval yet, so there is nothing to approve.
+- **Q3:** silence the pre-flight's duplicate repair log line.
+- **Q4:** add the BEHAVIOUR_SPEC entry: a failed turn never stops later turns (B-ERR-5).
+- **R3 log:** when the fallback starts the model's view at a later user message, the log line says how many messages it left out.
+- **Implementation note (found while writing the tests):** `storeFailedTurn()` reads the history through the repaired view, which ends in R1's placeholder after a stored tool result, not in the tool result itself. Adding the error reply through the history would then put two assistant messages in a row. So in that case the error reply is appended to the store directly, taking the placeholder's place. The stored rows then end in the tool result followed by the error reply, a valid order without any repair.
+- **R3 and a waiting tool call:** R3 never cuts a context that holds a waiting tool call (§6 test 5). The pre-flight stops the paid call instead.
