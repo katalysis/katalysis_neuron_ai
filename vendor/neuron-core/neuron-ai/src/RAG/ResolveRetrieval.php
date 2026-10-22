@@ -6,15 +6,34 @@ namespace NeuronAI\RAG;
 
 use NeuronAI\RAG\Retrieval\RetrievalInterface;
 use NeuronAI\RAG\Retrieval\SimilarityRetrieval;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 
 trait ResolveRetrieval
 {
     protected RetrievalInterface $retrieval;
 
-    public function setRetrieval(RetrievalInterface $retrieval): RAG
+    protected ?FilterExpression $configuredRetrievalScope = null;
+
+    public function setRetrieval(RetrievalInterface $retrieval): static
     {
         $this->retrieval = $retrieval;
         return $this;
+    }
+
+    public function setRetrievalScope(?FilterExpression $scope): static
+    {
+        $this->configuredRetrievalScope = $scope;
+        return $this;
+    }
+
+    protected function retrievalScope(): ?FilterExpression
+    {
+        return null;
+    }
+
+    final public function resolveRetrievalScope(): ?FilterExpression
+    {
+        return $this->configuredRetrievalScope ?? $this->retrievalScope();
     }
 
     /**
@@ -23,13 +42,13 @@ trait ResolveRetrieval
     protected function retrieval(): RetrievalInterface
     {
         return new SimilarityRetrieval(
-            $this->resolveVectorStore(),
-            $this->resolveEmbeddingsProvider()
+            vectorStore: $this->resolveVectorStore(),
+            embeddingProvider: $this->resolveEmbeddingsProvider()
         );
     }
 
-    public function resolveRetrieval(): RetrievalInterface
+    final public function resolveRetrieval(): RetrievalInterface
     {
-        return $this->retrieval ??= $this->retrieval();
+        return $this->retrieval ?? $this->retrieval();
     }
 }

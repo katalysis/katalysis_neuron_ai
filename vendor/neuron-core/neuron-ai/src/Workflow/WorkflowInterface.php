@@ -4,61 +4,81 @@ declare(strict_types=1);
 
 namespace NeuronAI\Workflow;
 
-use NeuronAI\Observability\ObserverInterface;
-use NeuronAI\Workflow\Events\Event;
-use NeuronAI\Workflow\Executor\WorkflowExecutorInterface;
-use NeuronAI\Workflow\Interrupt\InterruptRequest;
-use NeuronAI\Workflow\Middleware\WorkflowMiddleware;
-use NeuronAI\Workflow\Persistence\PersistenceInterface;
+use Generator;
+use NeuronAI\Workflow\Executor\ExecutionRequest;
+use NeuronAI\Workflow\Interrupt\InputTranslatorInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
 
+/**
+ * @template-covariant TState of WorkflowState
+ *
+ * The application-facing contract of a workflow. Configuration is
+ * concrete-class API on {@see Workflow}.
+ */
 interface WorkflowInterface
 {
     /**
-     * @deprecated Use init() instead
+     * @return TState
      */
-    public function start(?InterruptRequest $resumeRequest = null): WorkflowHandlerInterface;
-
-    public function init(?InterruptRequest $resumeRequest = null): WorkflowHandlerInterface;
-
-    public function setPersistence(PersistenceInterface $persistence, ?string $resumeToken = null): WorkflowInterface;
-
-    public function bootstrap(): static;
-
-    public function getStartEvent(): Event;
-
-    public function setStartEvent(Event $event): WorkflowInterface;
-
-    public function setState(WorkflowState $state): WorkflowInterface;
-
-    public function resolveState(): WorkflowState;
-
-    public function addNode(NodeInterface $node): Workflow;
+    public function run(?ExecutionRequest $request = null): WorkflowState;
 
     /**
-     * @param NodeInterface[] $nodes
+     * The run holding the workflow ID, or null when none does.
+     *
+     * @phpstan-impure Every call reads the run as persistence holds it now.
      */
-    public function addNodes(array $nodes): Workflow;
-
-    public function getNodeForEvent(string $eventClass): NodeInterface;
-
-    public function addGlobalMiddleware(WorkflowMiddleware|array $middleware): WorkflowInterface;
-
-    public function addMiddleware(string|array $node, WorkflowMiddleware|array $middleware): WorkflowInterface;
-
-    public function getMiddlewareForNode(NodeInterface $node): array;
+    public function inspect(): ?WorkflowRunSnapshot;
 
     /**
-     * @return array<string, NodeInterface>
+     * @param array<array-key, mixed> $payload
+     * @return PendingExecution<TState>
      */
-    public function getEventNodeMap(): array;
+    public function submitInputs(array $payload, ?InputTranslatorInterface $translator = null): PendingExecution;
 
-    public function getWorkflowId(): string;
+    /** Conditionally purge a retained completed generation. */
+    public function acknowledge(string $expectedRunId): void;
 
-    public function getResumeToken(): string;
+    /**
+     * Discard the run holding the workflow ID so a new one can ignite: a
+     * paused, failed, or unleased run is deleted; a retained completion or a
+     * run under a fresh lease is refused. Optional run and attempt fences
+     * protect explicit replacement. False when nothing is in flight.
+     */
+    public function abandon(?string $expectedRunId = null, ?int $expectedExecutionAttempt = null): bool;
 
-    public function export(): string;
+    /**
+     * Keep the terminal result until the coordinating caller acknowledges it.
+     * Disabled by default, so manually managed workflows clean up immediately.
+     */
+    public function retainCompletionUntilAcknowledged(bool $retain = true): static;
 
-    public function observe(ObserverInterface $observer): WorkflowInterface;
+    /**
+     * @return Generator<int, object, mixed, TState>
+     */
+    public function events(?ExecutionRequest $request = null): Generator;
 
-    public function setExecutor(WorkflowExecutorInterface $executor): WorkflowInterface;
+    /**
+     * The instance address, or null until one is bound or declared. Executing,
+     * inspecting or answering an instance without one throws.
+     */
+    public function getWorkflowId(): ?string;
+
+    /**
+     * A copy bound to $workflowId; the receiver is never modified, so one
+     * definition can serve every workflow ID.
+     */
+    public function for(string $workflowId): static;
+
+    /**
+     * Register a PSR-14 listener for a specific event class.
+     *
+     * @param class-string $eventClass
+     * @param callable(object): void $listener
+     */
+    public function subscribe(string $eventClass, callable $listener): static;
+
+    /**
+     * Forward this workflow's events to an external PSR-14 dispatcher.
+     */
+    public function setEventDispatcher(EventDispatcherInterface $dispatcher): static;
 }

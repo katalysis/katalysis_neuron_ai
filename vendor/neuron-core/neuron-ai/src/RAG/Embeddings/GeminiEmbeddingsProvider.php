@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace NeuronAI\RAG\Embeddings;
 
 use NeuronAI\Exceptions\HttpException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
+
+use function rtrim;
 
 class GeminiEmbeddingsProvider extends AbstractEmbeddingsProvider
 {
@@ -22,13 +24,12 @@ class GeminiEmbeddingsProvider extends AbstractEmbeddingsProvider
         protected array $config = [],
         ?HttpClientInterface $httpClient = null,
     ) {
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->baseUri)
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'x-goog-api-key' => $this->key,
-            ]);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'x-goog-api-key' => $this->key,
+        ];
     }
 
     /**
@@ -38,13 +39,14 @@ class GeminiEmbeddingsProvider extends AbstractEmbeddingsProvider
     {
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: "{$this->model}:embedContent",
+                uri: rtrim($this->baseUri, '/') . "/{$this->model}:embedContent",
                 body: [
                     'content' => [
                         'parts' => [['text' => $text]],
                     ],
                     ...$this->config,
-                ]
+                ],
+                headers: $this->httpHeaders,
             )
         )->json();
 

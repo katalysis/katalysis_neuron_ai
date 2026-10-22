@@ -4,37 +4,50 @@ declare(strict_types=1);
 
 namespace NeuronAI\Console\Evaluation;
 
-use NeuronAI\Evaluation\BaseEvaluator;
+use Closure;
+use DateTimeImmutable;
+use DateTimeZone;
+use NeuronAI\Console\Command;
+use NeuronAI\Evaluation\Cache\FileEvaluationCache;
 use NeuronAI\Evaluation\Config\ConfigLoader;
 use NeuronAI\Evaluation\Config\EvaluationOutputResolver;
-use NeuronAI\Evaluation\Discovery\EvaluatorDiscovery;
+use NeuronAI\Evaluation\Contracts\EvaluatorInterface;
+use NeuronAI\Evaluation\EvaluatorDiscovery;
 use NeuronAI\Evaluation\Output\OutputPipeline;
-use NeuronAI\Evaluation\Runner\EvaluatorSummary;
+use NeuronAI\Evaluation\Runner\EvaluationReport;
+use NeuronAI\Evaluation\Runner\EvaluatorReport;
 use NeuronAI\Evaluation\Runner\EvaluatorRunner;
+use NeuronAI\Evaluation\Runner\EvaluationResults;
 use ReflectionClass;
-use ReflectionException;
-use Throwable;
 use RuntimeException;
+use Throwable;
 
-use function array_merge;
+use function addcslashes;
 use function array_shift;
+use function array_values;
 use function count;
 use function end;
 use function explode;
 use function str_starts_with;
 use function substr;
 
-class EvaluationCommand
+class EvaluationCommand extends Command
 {
-    private readonly EvaluatorDiscovery $discovery;
-    private readonly EvaluatorRunner $runner;
+    protected ?Closure $resolver;
 
+    /**
+     * @param EvaluatorRunner|null $runner Defaults to the 'runner' entry of evaluation.php.
+     * @param callable|null $resolver Builds evaluators and output drivers given as class
+     *        names, e.g. through the application's container: fn (string $class): object.
+     *        Defaults to the 'resolver' entry of evaluation.php.
+     */
     public function __construct(
-        private readonly ?ConfigLoader $configLoader = new ConfigLoader(),
-        private readonly ?EvaluationOutputResolver $driverResolver = new EvaluationOutputResolver()
+        protected readonly ConfigLoader $configLoader = new ConfigLoader(),
+        protected readonly EvaluatorDiscovery $discovery = new EvaluatorDiscovery(),
+        protected readonly ?EvaluatorRunner $runner = null,
+        ?callable $resolver = null,
     ) {
-        $this->discovery = new EvaluatorDiscovery();
-        $this->runner = new EvaluatorRunner();
+        $this->resolver = $resolver !== null ? $resolver(...) : null;
     }
 
     /**
@@ -55,24 +68,38 @@ class EvaluationCommand
             return 1;
         }
 
+        if ($options['concurrency'] < 1) {
+            $this->printError("Concurrency must be a positive integer");
+            return 1;
+        }
+
         try {
-            return $this->executeEvaluations($options['path'], $options['verbose']);
+            return $this->executeEvaluations(
+                $options['path'],
+                $options['verbose'],
+                $options['concurrency'],
+                $options['cache'] || $options['fresh'],
+                $options['fresh']
+            );
         } catch (Throwable $e) {
-            $this->printError($e->getMessage());
+            $this->printError($this->escapeControlCharacters($e->getMessage()));
             return 1;
         }
     }
 
     /**
      * @param array<string> $args
-     * @return array{path: string, verbose: bool, help: bool}
+     * @return array{path: string, verbose: bool, help: bool, concurrency: int, cache: bool, fresh: bool}
      */
-    private function parseArguments(array $args): array
+    protected function parseArguments(array $args): array
     {
         $options = [
             'path' => '',
             'verbose' => false,
             'help' => false,
+            'concurrency' => 1,
+            'cache' => false,
+            'fresh' => false,
         ];
 
         // Skip script name
@@ -85,7 +112,13 @@ class EvaluationCommand
                 $options['verbose'] = true;
             } elseif (str_starts_with($arg, '--path=')) {
                 $options['path'] = substr($arg, 7); // Remove '--path='
-            } elseif (!str_starts_with($arg, '-') && empty($options['path'])) {
+            } elseif (str_starts_with($arg, '--concurrency=')) {
+                $options['concurrency'] = (int) substr($arg, 14); // Remove '--concurrency='
+            } elseif ($arg === '--cache') {
+                $options['cache'] = true;
+            } elseif ($arg === '--fresh') {
+                $options['fresh'] = true;
+            } elseif (empty($options['path']) && !str_starts_with($arg, '-')) {
                 $options['path'] = $arg;
             }
         }
@@ -93,17 +126,23 @@ class EvaluationCommand
         return $options;
     }
 
-    private function executeEvaluations(string $path, bool $verbose): int
+    protected function executeEvaluations(string $path, bool $verbose, int $concurrency, bool $cache, bool $fresh): int
     {
-        // Load output drivers from config and create pipeline
-        $driverConfigs = $this->configLoader->getOutputDrivers();
-        $drivers = $this->driverResolver->resolve($driverConfigs);
-        $pipeline = new OutputPipeline($drivers);
-
-        // Print header
         echo "Neuron AI Evaluation Runner\n\n";
 
-        // Discover evaluators
+        if ($concurrency > 1 && !EvaluatorRunner::supportsConcurrency()) {
+            echo "Parallel execution requires the pcntl and posix extensions and spatie/fork. Running sequentially.\n\n";
+            $concurrency = 1;
+        }
+
+        $resolver = $this->resolver ?? $this->configLoader->getResolver() ?? $this->instantiate(...);
+        $runner = $this->runner ?? $this->configLoader->getRunner() ?? new EvaluatorRunner();
+
+        if ($cache) {
+            $runner = $runner->withCache(new FileEvaluationCache($this->configLoader->getCachePath()), $fresh);
+        }
+
+        $evaluationStartedAt = new DateTimeImmutable("now", new DateTimeZone("UTC"));
         $evaluatorClasses = $this->discovery->discover($path);
 
         if ($evaluatorClasses === []) {
@@ -111,105 +150,144 @@ class EvaluationCommand
             return 1;
         }
 
-        $totalFailures = 0;
-        $evaluatorCount = 1;
-        $totalEvaluators = count($evaluatorClasses);
+        $reports = [];
+        $total = count($evaluatorClasses);
 
-        foreach ($evaluatorClasses as $evaluatorClass) {
+        foreach (array_values($evaluatorClasses) as $index => $evaluatorClass) {
             if ($verbose) {
-                echo "Running {$this->getShortClassName($evaluatorClass)}... [{$evaluatorCount}/{$totalEvaluators}]\n";
+                echo "Running {$this->getShortClassName($evaluatorClass)}... [" . ($index + 1) . "/{$total}]\n";
             }
+
+            $startedAt = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+            $namespace = null;
 
             try {
-                $evaluator = $this->createEvaluator($evaluatorClass);
-
-                $summary = $this->runner->run($evaluator);
-
-                // Print progress symbols
-                if (!$verbose) {
-                    foreach ($summary->getResults() as $result) {
-                        echo $result->isPassed() ? '.' : 'F';
-                    }
-                }
-
-                if ($summary->hasFailures()) {
-                    $totalFailures += $summary->getFailedCount();
-                }
-
+                $evaluator = $this->createEvaluator($evaluatorClass, $resolver);
+                $namespace = $evaluator->namespace();
+                $results = $runner->run($evaluator, $concurrency);
             } catch (Throwable $e) {
-                $this->printError("Failed to run {$evaluatorClass}: " . $e->getMessage());
-                $totalFailures++;
+                $finishedAt = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+                $error = $this->describeError($e);
+                $this->printError($this->escapeControlCharacters("Failed to run {$evaluatorClass}: {$error}"));
+                $reports[] = new EvaluatorReport(
+                    $evaluatorClass,
+                    new EvaluationResults([]),
+                    $startedAt,
+                    $finishedAt,
+                    $error,
+                    $namespace,
+                );
+                continue;
             }
 
-            $evaluatorCount++;
-        }
+            $finishedAt = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
-        // Final output through the pipeline (includes all configured drivers)
-        $pipeline->output($this->createOverallSummary($evaluatorClasses));
-
-        return $totalFailures > 0 ? 1 : 0;
-    }
-
-    private function createEvaluator(string $className): BaseEvaluator
-    {
-        try {
-            $reflection = new ReflectionClass($className);
-            $constructor = $reflection->getConstructor();
-
-            if ($constructor === null || $constructor->getNumberOfRequiredParameters() === 0) {
-                return $reflection->newInstance();
+            if (!$verbose) {
+                $this->printProgress($results);
             }
 
-            throw new RuntimeException(
-                "Evaluator {$className} requires constructor parameters. " .
-                "Please ensure evaluators can be instantiated without arguments."
+            $reports[] = new EvaluatorReport(
+                $evaluatorClass,
+                $results,
+                $startedAt,
+                $finishedAt,
+                namespace: $namespace,
             );
+        }
 
-        } catch (ReflectionException $e) {
-            throw new RuntimeException("Cannot instantiate evaluator {$className}: " . $e->getMessage(), $e->getCode(), $e);
+        $report = new EvaluationReport(
+            $reports,
+            $evaluationStartedAt,
+            new DateTimeImmutable("now", new DateTimeZone("UTC")),
+        );
+        $this->outputSummary($report, $resolver);
+
+        return $report->hasFailures() ? 1 : 0;
+    }
+
+    protected function printProgress(EvaluationResults $results): void
+    {
+        foreach ($results->getResults() as $result) {
+            echo $result->isPassed() ? '.' : 'F';
         }
     }
 
-    private function getShortClassName(string $fullClassName): string
+    /**
+     * @param Closure(class-string): object $resolver
+     */
+    protected function outputSummary(EvaluationReport $report, Closure $resolver): void
+    {
+        // Build the pipeline only after all runs complete: drivers may hold live
+        // resources (e.g. DB connections) that must not exist at fork time
+        $drivers = (new EvaluationOutputResolver($resolver))->resolve($this->configLoader->getOutputDrivers());
+
+        (new OutputPipeline($drivers))->output($report);
+    }
+
+    /**
+     * @param class-string $className
+     * @param Closure(class-string): object $resolver
+     */
+    protected function createEvaluator(string $className, Closure $resolver): EvaluatorInterface
+    {
+        return $resolver($className);
+    }
+
+    /**
+     * The resolver when none is configured.
+     *
+     * @param class-string $className
+     */
+    protected function instantiate(string $className): object
+    {
+        $constructor = (new ReflectionClass($className))->getConstructor();
+
+        if ($constructor !== null && $constructor->getNumberOfRequiredParameters() > 0) {
+            throw new RuntimeException(
+                "{$className} requires constructor arguments: build it with a resolver, "
+                . "such as the 'resolver' entry of evaluation.php."
+            );
+        }
+
+        return new $className();
+    }
+
+    /**
+     * Same format as the runner's item errors: the class and the location
+     * tell an evaluator bug from a provider or framework failure.
+     */
+    protected function describeError(Throwable $e): string
+    {
+        $message = $e->getMessage() !== '' ? ": {$e->getMessage()}" : '';
+
+        return $e::class . "{$message} ({$e->getFile()}:{$e->getLine()})";
+    }
+
+    /**
+     * Exception messages can carry terminal control sequences (e.g. from a
+     * provider error body): show them as escapes instead. Newlines and tabs are kept.
+     */
+    protected function escapeControlCharacters(string $text): string
+    {
+        return addcslashes($text, "\0..\10\13..\37\177");
+    }
+
+    protected function getShortClassName(string $fullClassName): string
     {
         $parts = explode('\\', $fullClassName);
         return end($parts);
     }
 
-    private function createOverallSummary(array $evaluatorClasses): EvaluatorSummary
-    {
-        // This is a simplified overall summary - in a real implementation,
-        // you'd want to collect all individual results
-        $results = [];
-        $totalTime = 0.0;
-
-        foreach ($evaluatorClasses as $evaluatorClass) {
-            try {
-                $evaluator = $this->createEvaluator($evaluatorClass);
-                $summary = $this->runner->run($evaluator);
-
-                $results = array_merge($results, $summary->getResults());
-                $totalTime += $summary->getTotalExecutionTime();
-            } catch (Throwable) {
-                // Skip failed evaluators for overall summary
-            }
-        }
-
-        return new EvaluatorSummary($results, $totalTime);
-    }
-
-    private function printError(string $message): void
-    {
-        echo "Error: {$message}\n";
-    }
-
-    private function printUsage(): void
+    protected function printUsage(): void
     {
         echo "Usage:\n";
-        echo "  vendor/bin/evaluation <path> [options]\n\n";
+        echo "  vendor/bin/neuron evaluation <path> [options]\n\n";
         echo "Arguments:\n";
         echo "  path                   Path to directory containing evaluators\n\n";
         echo "Options:\n";
+        echo "  --concurrency=N        Run dataset items in N parallel processes (requires pcntl, posix and spatie/fork)\n";
+        echo "  --cache                Serve unchanged run() outputs from the evaluation cache (assertions always re-run)\n";
+        echo "  --fresh                Re-run everything and overwrite the evaluation cache\n";
         echo "  --verbose, -v          Show verbose output\n";
         echo "  --help, -h             Show this help message\n";
     }

@@ -20,6 +20,7 @@ use Katalysis\NeuronAi\Tools\Utilities\PageByName;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -56,12 +57,12 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeListPageAttributesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_page_attributes',
             'List all page attributes defined in the system with their handles, names, and types.'
         );
 
-        $tool->setCallable($this->guarded(function (): array {
+        $tool->setHandler($this->guarded(function (): array {
             $attributes = PageAttributeKey::getList();
             $results = [];
 
@@ -87,12 +88,12 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeListAttributeTypesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_attribute_types',
             'List all available attribute types that can be used when creating new attributes.'
         );
 
-        $tool->setCallable($this->guarded(function (): array {
+        $tool->setHandler($this->guarded(function (): array {
             $app = Application::getFacadeApplication();
             $types = AttributeType::getList();
             $results = [];
@@ -125,7 +126,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeGetAttributeDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_attribute_details',
             'Get detailed information about a specific page attribute by handle.'
         );
@@ -137,7 +138,7 @@ class AttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (?string $handle = null): array {
+        $tool->setHandler($this->guarded(function (?string $handle = null): array {
             if (!$handle) {
                 throw new \RuntimeException("Attribute handle is required");
             }
@@ -187,7 +188,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeCreatePageAttributeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_page_attribute',
             'Create a new page attribute with specified type and settings. Use list_attribute_types to see available types.'
         );
@@ -234,7 +235,7 @@ class AttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $name = null,
             ?string $type = null,
@@ -337,7 +338,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeUpdateSelectAttributeOptionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'update_select_attribute_options',
             'Update the options for an existing select/dropdown page attribute. Replaces all existing options.'
         );
@@ -356,7 +357,7 @@ class AttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?array $options = null
         ): array {
@@ -451,7 +452,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeSetPageAttributeValueTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'set_page_attribute_value',
             'Set the value of a page attribute for a specific page. Handles all attribute types including select/dropdown. Supports fuzzy matching for page names and option values.'
         );
@@ -491,7 +492,7 @@ class AttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $pageID = null,
             ?string $pagePath = null,
             ?string $pageName = null,
@@ -643,7 +644,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeListAttributeSetsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_attribute_sets',
             'List all attribute sets for a category (page, user, or file)'
         );
@@ -655,7 +656,7 @@ class AttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (?string $category = 'collection'): array {
+        $tool->setHandler($this->guarded(function (?string $category = 'collection'): array {
             // Get category service
             $app = Application::getFacadeApplication();
             $categoryService = $app->make(CategoryService::class);
@@ -699,7 +700,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeCreateAttributeSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_attribute_set',
             'Create a new attribute set in a category'
         );
@@ -725,7 +726,7 @@ class AttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $name = null,
             ?string $category = 'collection'
@@ -762,7 +763,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeDeleteAttributeSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'delete_attribute_set',
             'Delete an attribute set (attributes are not deleted, just ungrouped)'
         );
@@ -781,7 +782,7 @@ class AttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $category = 'collection'
         ): array {
@@ -820,7 +821,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeAddAttributeToSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'add_attribute_to_set',
             'Add an attribute to an attribute set'
         );
@@ -846,7 +847,7 @@ class AttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $attribute_handle = null,
             ?string $set_handle = null,
             ?string $category = 'collection'
@@ -901,7 +902,7 @@ class AttributesToolkit extends AbstractToolkit
 
     protected function makeRemoveAttributeFromSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'remove_attribute_from_set',
             'Remove an attribute from its attribute set (ungroup it)'
         );
@@ -920,7 +921,7 @@ class AttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $attribute_handle = null,
             ?string $category = 'collection'
         ): array {

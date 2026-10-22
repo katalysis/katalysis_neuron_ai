@@ -10,36 +10,38 @@ use NeuronAI\Tools\ArrayProperty;
 use NeuronAI\Tools\ObjectProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Tool;
+use NeuronAI\Tools\ToolOutput;
 use NeuronAI\Tools\ToolProperty;
 use PDO;
+use PDOException;
 use ReflectionException;
 
+use function implode;
 use function in_array;
 use function preg_match;
-use function preg_quote;
-use function preg_replace;
 use function str_starts_with;
+use function stripos;
 use function strtoupper;
-use function trim;
 
 /**
+ * The database enforces read-only access: each query runs alone in a read-only
+ * transaction that is always rolled back. The text rules only refuse what that
+ * transaction lets through, and each refuses more than MySQL would ever run.
+ *
  * @method static static make(PDO $pdo)
  */
 class MySQLSelectTool extends Tool
 {
     protected array $allowedStatements = ['SELECT', 'WITH', 'SHOW', 'DESCRIBE', 'EXPLAIN'];
 
-    protected array $forbiddenStatements = [
-        'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
-        'TRUNCATE', 'REPLACE', 'MERGE', 'CALL', 'EXECUTE',
-        'INTO', 'OUTFILE', 'DUMPFILE', 'LOAD_FILE',
-    ];
+    /**
+     * How a SELECT reads and writes the server's files, which a read-only transaction allows.
+     */
+    protected array $fileAccessKeywords = ['OUTFILE', 'DUMPFILE', 'LOAD_FILE'];
 
-    public function __construct(protected PDO $pdo)
-    {
-        parent::__construct(
-            'mysql_select_query',
-            'Use this tool only to run SELECT query against the MySQL database to gather information.
+    protected string $name = 'mysql_select_query';
+
+    protected ?string $description = 'Use this tool only to run SELECT query against the MySQL database to gather information.
 
 IMPORTANT: When table or column names are MySQL reserved keywords (e.g., character, order, group,
 index, key, value, date, time, etc.), you MUST wrap them in backticks (`) to avoid syntax errors.
@@ -50,8 +52,10 @@ Examples of correct usage:
 - SELECT user_id, `key`, value FROM settings WHERE `key` LIKE :pattern
 - SELECT COUNT(*) FROM `group` WHERE `group`.id IN (1, 2, 3)
 
-Always use backticks around identifiers that are reserved keywords.'
-        );
+Always use backticks around identifiers that are reserved keywords.';
+
+    public function __construct(protected PDO $pdo)
+    {
     }
 
     /**
@@ -65,7 +69,7 @@ Always use backticks around identifiers that are reserved keywords.'
             new ToolProperty(
                 name: 'query',
                 type: PropertyType::STRING,
-                description: 'The SELECT query. Use backticks (`) around table/column names that are MySQL reserved keywords (e.g., `character`, `order`, `group`, `index`, `key`, `value`, `date`, `time`). Use named placeholders (:parameter_name) for all dynamic values. Examples: "SELECT id, name FROM `character` WHERE type = :type", "SELECT * FROM `order` WHERE status = :status"',
+                description: 'The SELECT query. Use backticks (`) around table/column names that are MySQL reserved keywords (e.g., `character`, `order`, `group`, `index`, `key`, `value`, `date`, `time`). Use named placeholders (:parameter_name) for all dynamic values. Each placeholder name can be used only once: give each occurrence its own name, even for the same value (e.g., "WHERE name LIKE :name_term OR email LIKE :email_term"). Examples: "SELECT id, name FROM `character` WHERE type = :type", "SELECT * FROM `order` WHERE status = :status"',
                 required: true
             ),
             new ArrayProperty(
@@ -85,18 +89,68 @@ Always use backticks around identifiers that are reserved keywords.'
 
     /**
      * @param array<array{name: string, value: string}>|null $parameters
+     * @throws ToolException
      */
-    public function __invoke(string $query, ?array $parameters = []): string|array
+    public function __invoke(string $query, ?array $parameters = []): array|ToolOutput
     {
-        if (!$this->validateReadOnly($query)) {
-            return "The query was rejected for security reasons.
-            It looks like you are trying to run a write query using the read-only query tool.";
+        $refusal = $this->refusal($query);
+        if ($refusal !== null) {
+            return ToolOutput::error($refusal);
         }
 
+        $this->beginReadOnlyTransaction();
+
+        try {
+            return $this->fetchRows($query, $parameters ?? []);
+        } catch (PDOException $exception) {
+            return ToolOutput::error($exception->getMessage());
+        } finally {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+        }
+    }
+
+    protected function refusal(string $query): ?string
+    {
+        if (!in_array($this->getFirstKeyword($query), $this->allowedStatements, true)) {
+            return 'Start the query with one of these keywords, with nothing before it: ' . implode(', ', $this->allowedStatements) . '.';
+        }
+
+        if (preg_match('/;(?!\s*\z)/', $query) === 1) {
+            return "Send one statement per call. Pass values that contain ';' as parameters.";
+        }
+
+        foreach ($this->fileAccessKeywords as $keyword) {
+            if (stripos($query, (string) $keyword) !== false) {
+                return 'Reading or writing server files (' . implode(', ', $this->fileAccessKeywords) . ') is not allowed.';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @throws ToolException
+     */
+    protected function beginReadOnlyTransaction(): void
+    {
+        if ($this->pdo->inTransaction()) {
+            throw new ToolException("{$this->name} cannot guarantee read-only access inside an open transaction: give it its own database connection.");
+        }
+
+        if ($this->pdo->exec('START TRANSACTION READ ONLY') === false) {
+            throw new ToolException("{$this->name} could not start a read-only transaction.");
+        }
+    }
+
+    /**
+     * @param array<array{name: string, value: string}> $parameters
+     */
+    protected function fetchRows(string $query, array $parameters): array
+    {
         $statement = $this->pdo->prepare($query);
 
-        // Bind parameters if provided
-        $parameters ??= [];
         foreach ($parameters as $parameter) {
             $paramName = str_starts_with((string) $parameter['name'], ':') ? $parameter['name'] : ':' . $parameter['name'];
             $statement->bindValue($paramName, $parameter['value']);
@@ -106,48 +160,11 @@ Always use backticks around identifiers that are reserved keywords.'
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    protected function validateReadOnly(string $query): bool
-    {
-        // Remove comments and normalize whitespace
-        $cleanQuery = $this->sanitizeQuery($query);
-
-        // Check if it starts with allowed statements
-        $firstKeyword = $this->getFirstKeyword($cleanQuery);
-        if (!in_array($firstKeyword, $this->allowedStatements)) {
-            return false;
-        }
-
-        // Check for forbidden keywords that might be in subqueries
-        foreach ($this->forbiddenStatements as $forbidden) {
-            if (self::containsKeyword($cleanQuery, $forbidden)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    protected function sanitizeQuery(string $query): string
-    {
-        // Remove SQL comments
-        $query = preg_replace('/--.*$/m', '', $query);
-        $query = preg_replace('/\/\*.*?\*\//s', '', (string) $query);
-
-        // Normalize whitespace
-        return preg_replace('/\s+/', ' ', trim((string) $query));
-    }
-
     protected function getFirstKeyword(string $query): string
     {
-        if (preg_match('/^\s*(\w+)/i', $query, $matches)) {
+        if (preg_match('/^\s*(\w+)/', $query, $matches)) {
             return strtoupper($matches[1]);
         }
         return '';
-    }
-
-    protected function containsKeyword(string $query, string $keyword): bool
-    {
-        // Use word boundaries to avoid false positives
-        return preg_match('/\b' . preg_quote($keyword, '/') . '\b/i', $query) === 1;
     }
 }

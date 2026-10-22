@@ -18,7 +18,7 @@ class Controller extends Package
 {
     protected $pkgHandle = 'katalysis_neuron_ai';
     protected $appVersionRequired = '9.3';
-    protected $pkgVersion = '3.1.0';
+    protected $pkgVersion = '3.2.0';
     protected $pkgAutoloaderRegistries = [
         'src' => '\Katalysis\NeuronAi'
     ];

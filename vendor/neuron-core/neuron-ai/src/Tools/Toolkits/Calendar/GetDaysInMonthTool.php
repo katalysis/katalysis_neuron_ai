@@ -21,26 +21,22 @@ use const STR_PAD_LEFT;
 
 class GetDaysInMonthTool extends Tool
 {
-    public function __construct()
-    {
-        parent::__construct(
-            name: 'get_days_in_month',
-            description: 'Get the number of days in a specific month and year',
-        );
-    }
+    protected string $name = 'get_days_in_month';
+
+    protected ?string $description = 'Get the number of days in a specific month and year';
 
     protected function properties(): array
     {
         return [
             ToolProperty::make(
                 name: 'month',
-                type: PropertyType::NUMBER,
+                type: PropertyType::INTEGER,
                 description: 'Month number (1-12)',
                 required: true,
             ),
             ToolProperty::make(
                 name: 'year',
-                type: PropertyType::NUMBER,
+                type: PropertyType::INTEGER,
                 description: 'Year (4-digit year)',
                 required: true,
             ),
@@ -52,6 +48,10 @@ class GetDaysInMonthTool extends Tool
         try {
             if ($month < 1 || $month > 12) {
                 throw new InvalidArgumentException('Month must be between 1 and 12');
+            }
+
+            if ($year < 1) {
+                throw new InvalidArgumentException('Year must be greater than 0');
             }
 
             $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);

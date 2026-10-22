@@ -8,10 +8,7 @@ use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\Providers\ToolMapperInterface;
 use NeuronAI\Tools\ProviderToolInterface;
 use NeuronAI\Tools\ToolInterface;
-use NeuronAI\Tools\ToolPropertyInterface;
-use stdClass;
 
-use function array_reduce;
 use function array_merge;
 
 class ToolMapper implements ToolMapperInterface
@@ -36,28 +33,16 @@ class ToolMapper implements ToolMapperInterface
         $payload = [
             'toolSpec' => [
                 'name' => $tool->getName(),
-                'description' => $tool->getDescription(),
                 'inputSchema' => [
-                    'json' => [
-                        'type' => 'object',
-                        'properties' => new stdClass(),
-                        'required' => [],
-                    ],
+                    'json' => $tool->getInputSchema(),
                 ],
             ],
         ];
 
-        $properties = array_reduce($tool->getProperties(), function (array $carry, ToolPropertyInterface $property): array {
-            $carry[$property->getName()] = $property->getJsonSchema();
-            return $carry;
-        }, []);
-
-        if (!empty($properties)) {
-            $payload['toolSpec']['inputSchema']['json'] = [
-                'type' => 'object',
-                'properties' => $properties,
-                'required' => $tool->getRequiredProperties(),
-            ];
+        // Optional, but the SDK refuses a null or empty one
+        $description = $tool->getDescription();
+        if ($description !== null && $description !== '') {
+            $payload['toolSpec']['description'] = $description;
         }
 
         if ($tool->getParameters() !== []) {

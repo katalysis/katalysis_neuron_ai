@@ -5,58 +5,49 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Integration;
 
 use Concrete\Core\Database\Connection\Connection;
+use Concrete\Core\Http\Request;
 use Concrete\Core\Package\PackageService;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat;
-use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
+use Katalysis\NeuronAi\PageContextTag;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\PromptPreview;
+use NeuronAI\Chat\History\InMemoryMessageStore;
 use NeuronAI\Chat\Messages\AssistantMessage;
+use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\UserMessage;
+use NeuronAI\Testing\FakeAIProvider;
+use NeuronAI\Testing\RequestRecord;
 
 /**
- * P1.9: the page the user is on reaches the agent's instructions afresh every time the context is set, and a
- * restored chat history does not carry an old page context with it (B-CTX-1).
+ * P1.9: the page the user is on reaches the agent's instructions afresh on every turn, every user message carries the
+ * tag for its own page, and a restored chat history does not carry an old page context with it (B-CTX-1).
  *
- * Neuron builds the start event (and with it the instructions) once, on the first chat(), and keeps it. The
- * instructions hold the page context, so ConcreteCmsAgent::setRuntimePageContext() has to drop that cache.
+ * On Neuron 4 (P2.4) the prompt is built for every turn, so there is no cache to drop. These tests check that through
+ * what the provider is actually given: real turns of the agent, with Neuron's FakeAIProvider as the model and v4's
+ * in-memory history. No provider call, no API key. Test 4 has a database half (P2.5): the same turns on the Chat row
+ * store, a throwaway chat deleted afterwards, checking that the stored rows hold no instructions.
  *
- * These tests build the instructions but never call chat(), so they don't reach the AI provider or use an API key.
- * They write only chat rows whose session id starts with CHAT_PREFIX, and remove them afterwards.
- *
- * Needs the seeded dev site (/neuron-test/headings and /neuron-test/columns).
+ * Needs the seeded dev site (/neuron-test/headings, /neuron-test/columns and neuron_chat_editor).
  */
 final class AgentPageContextTest extends ConcreteTestCase
 {
-    private const CHAT_PREFIX = 'neuron-phpunit-p19-';
-
     /** @var array{id: int, path: string, title: string, url: string} */
     private array $headings;
     /** @var array{id: int, path: string, title: string, url: string} */
     private array $columns;
 
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-
-        // Concrete starts installed packages (and maps their entities) only when it runs a request. PHPUnit boots
-        // without that, so map this package's Chat entity here, the way Application::setupPackages() does.
-        $service = ConcreteBoot::boot()->make(PackageService::class);
-        $service->bootPackageEntityManager($service->getClass('katalysis_neuron_ai'));
-    }
     protected function setUp(): void
     {
         $this->headings = $this->contextFor('/neuron-test/headings');
         $this->columns = $this->contextFor('/neuron-test/columns');
+        PromptPreview::actAs('neuron_chat_editor');
     }
 
     protected function tearDown(): void
     {
-        $this->entityManager()->clear();
-        $this->app()->make(Connection::class)->executeStatement(
-            'DELETE FROM KatalysisNeuronAiChats WHERE sessionId LIKE ?',
-            [self::CHAT_PREFIX . '%']
-        );
+        Request::getInstance()->setCustomRequestUser(-1);
     }
 
     /**
@@ -77,123 +68,195 @@ final class AgentPageContextTest extends ConcreteTestCase
         ];
     }
 
-    private function entityManager(): EntityManagerInterface
-    {
-        return $this->app()->make(EntityManagerInterface::class);
-    }
-
-    private function createChat(): int
-    {
-        $chat = new Chat();
-        $chat->setSessionId(self::CHAT_PREFIX . bin2hex(random_bytes(6)));
-        $chat->setStarted(new \DateTime());
-        $chat->setCreatedDate(new \DateTime());
-        $chat->setCreatedBy(0);
-        $chat->setLocation($this->headings['path']);
-
-        $this->entityManager()->persist($chat);
-        $this->entityManager()->flush();
-
-        return (int) $chat->getId();
-    }
-
     /**
+     * An agent whose model is a FakeAIProvider that answers every turn, with the given history store and thread.
+     *
      * @param array<string, mixed>|null $context
+     * @return array{ConcreteCmsAgent, FakeAIProvider}
      */
-    private function agentOn(?array $context): ConcreteCmsAgent
+    private function agentOn(?array $context, ?InMemoryMessageStore $store = null, ?string $thread = null): array
     {
-        $agent = new ConcreteCmsAgent();
+        $provider = new FakeAIProvider(...array_fill(0, 5, new AssistantMessage('OK.')));
+        $agent = (new ConcreteCmsAgent())
+            ->setMessageStore($store ?? new InMemoryMessageStore())
+            ->setThreadId($thread ?? 'p19-' . bin2hex(random_bytes(4)))
+            ->setAiProvider($provider);
         $agent->setRuntimePageContext($context);
 
-        return $agent;
+        return [$agent, $provider];
     }
 
     /**
-     * The instructions the provider would be sent for the next chat().
+     * Runs a turn and returns what the provider was given for it.
      */
-    private function sentInstructions(ConcreteCmsAgent $agent): string
+    private function turn(ConcreteCmsAgent $agent, FakeAIProvider $provider, string $message = 'Hello'): RequestRecord
     {
-        return $agent->getStartEvent()->instructions;
+        $agent->handleUserMessage($message);
+        $recorded = $provider->getRecorded();
+
+        return end($recorded);
+    }
+
+    private function sentInstructions(RequestRecord $request): string
+    {
+        return (string) $request->systemPrompt?->getContent();
+    }
+
+    /**
+     * @return string[]
+     */
+    private function toolNames(RequestRecord $request): array
+    {
+        return array_map(static fn ($tool): string => $tool->getName(), $request->tools);
+    }
+
+    /**
+     * The text of the newest user message the provider was given.
+     */
+    private function newestUserText(RequestRecord $request): string
+    {
+        $users = array_values(array_filter($request->messages, static fn (Message $m): bool => $m instanceof UserMessage));
+
+        return (string) end($users)->getContent();
     }
 
     public function testNewPageContextReplacesTheOneFromAnEarlierTurn(): void
     {
-        $agent = $this->agentOn($this->headings);
-        $first = $this->sentInstructions($agent);
+        [$agent, $provider] = $this->agentOn($this->headings);
+        $first = $this->sentInstructions($this->turn($agent, $provider));
         $this->assertStringContainsString('Current Page Path: /neuron-test/headings', $first);
 
         $agent->setRuntimePageContext($this->columns);
 
-        $second = $this->sentInstructions($agent);
+        $request = $this->turn($agent, $provider);
+        $second = $this->sentInstructions($request);
         $this->assertStringContainsString('Current Page Path: /neuron-test/columns', $second);
         $this->assertStringContainsString('Current Page ID: ' . $this->columns['id'], $second);
         $this->assertStringNotContainsString('/neuron-test/headings', $second);
-        $this->assertSame($second, $agent->resolveInstructions(), 'the start event and resolveInstructions() must agree');
+        $this->assertStringStartsWith($agent->getInstructions()->getContent() . "\n<TOOLS-GUIDELINES>", $second, 'the instructions and what is sent must agree');
+        $this->assertStringStartsWith(PageContextTag::build($this->columns['id'], $this->columns['title'], $this->columns['path']) . "\n\n", $this->newestUserText($request), 'the newest message carries the new page\'s tag');
     }
 
     public function testToolGuidelinesAndToolListSurviveAContextChange(): void
     {
-        $agent = $this->agentOn($this->headings);
-        $this->sentInstructions($agent);
-        $toolNames = array_map(static fn ($tool): string => $tool->getName(), $agent->bootstrapTools());
+        [$agent, $provider] = $this->agentOn($this->headings);
+        $toolNames = $this->toolNames($this->turn($agent, $provider));
         $this->assertNotEmpty($toolNames);
 
         $agent->setRuntimePageContext($this->columns);
-        $instructions = $this->sentInstructions($agent);
+        $request = $this->turn($agent, $provider);
+        $instructions = $this->sentInstructions($request);
 
         $this->assertSame(1, substr_count($instructions, '<TOOLS-GUIDELINES>'), 'the guidelines block is added once, not stacked');
         $this->assertSame(1, substr_count($instructions, '</TOOLS-GUIDELINES>'));
-        $this->assertSame($toolNames, array_map(static fn ($tool): string => $tool->getName(), $agent->bootstrapTools()));
+        $this->assertSame($toolNames, $this->toolNames($request));
         $this->assertSame(count($toolNames), count(array_unique($toolNames)), 'no duplicate tool names');
     }
 
     public function testClearingOrRepeatingTheContextIsHarmless(): void
     {
-        $agent = $this->agentOn($this->columns);
-        $once = $this->sentInstructions($agent);
+        [$agent, $provider] = $this->agentOn($this->columns);
+        $once = $this->sentInstructions($this->turn($agent, $provider));
 
         $agent->setRuntimePageContext($this->columns);
-        $this->assertSame($once, $this->sentInstructions($agent), 'the same context twice gives the same instructions');
+        $this->assertSame($once, $this->sentInstructions($this->turn($agent, $provider)), 'the same context twice gives the same instructions');
 
-        // Under the CLI, no runtime context means no page lines (see ScenarioRunnerSupportTest).
+        // Under the CLI, no runtime context means no page lines (see ScenarioRunnerSupportTest), and no tag.
         $agent->setRuntimePageContext(null);
-        $cleared = $this->sentInstructions($agent);
+        $request = $this->turn($agent, $provider);
+        $cleared = $this->sentInstructions($request);
         $this->assertStringNotContainsString('Current Page', $cleared);
         $this->assertSame(1, substr_count($cleared, '<TOOLS-GUIDELINES>'));
+        $this->assertSame('Hello', $this->newestUserText($request), 'no page, no tag');
 
         $agent->setRuntimePageContext($this->headings);
-        $this->assertStringContainsString('Current Page Path: /neuron-test/headings', $this->sentInstructions($agent));
-        $this->assertStringNotContainsString('/neuron-test/columns', $this->sentInstructions($agent));
+        $headings = $this->sentInstructions($this->turn($agent, $provider));
+        $this->assertStringContainsString('Current Page Path: /neuron-test/headings', $headings);
+        $this->assertStringNotContainsString('/neuron-test/columns', $headings);
     }
 
     public function testRestoredHistoryDoesNotBringBackAnOldPageContext(): void
     {
-        $chatId = $this->createChat();
+        $store = new InMemoryMessageStore();
+        $thread = 'p19-' . bin2hex(random_bytes(4));
 
-        // Turn 1 "request": an agent on the headings page builds its instructions, and the exchange is stored.
-        $turnOne = $this->agentOn($this->headings);
-        $turnOne->setChatId($chatId);
-        $this->assertStringContainsString('/neuron-test/headings', $this->sentInstructions($turnOne));
-        $history = $turnOne->resolveState()->getChatHistory();
-        $history->addMessage(new UserMessage('Hello'));
-        $history->addMessage(new AssistantMessage('Hi, how can I help?'));
+        // Turn 1 "request": an agent on the headings page.
+        [$turnOne, $providerOne] = $this->agentOn($this->headings, $store, $thread);
+        $this->assertStringContainsString('/neuron-test/headings', $this->sentInstructions($this->turn($turnOne, $providerOne)));
 
-        // What is stored is the conversation only: neither the instructions nor the page context.
-        $stored = (string) $this->app()->make(Connection::class)->fetchOne('SELECT chatHistory FROM KatalysisNeuronAiChats WHERE id = ?', [$chatId]);
-        $this->assertStringContainsString('Hello', $stored);
-        foreach (['Current Page', 'neuron-test/headings', 'TOOLS-GUIDELINES', 'You are an AI assistant'] as $needle) {
-            $this->assertStringNotContainsString($needle, $stored, "the stored history must not contain \"{$needle}\"");
+        // What is stored is the conversation only: neither the instructions nor the page context lines.
+        $stored = $store->loadAll($thread);
+        $this->assertCount(2, $stored, 'the user message and the reply');
+        $storedText = implode("\n", array_map(static fn (Message $m): string => (string) $m->getContent(), $stored));
+        foreach (['Current Page', 'TOOLS-GUIDELINES', 'You are an AI assistant'] as $needle) {
+            $this->assertStringNotContainsString($needle, $storedText, "the stored history must not contain \"{$needle}\"");
         }
 
-        // Turn 2 "request": a new agent on the columns page, history read back from the row.
-        $this->entityManager()->clear();
-        $turnTwo = new ConcreteCmsAgent();
-        $turnTwo->setChatId($chatId);
-        $turnTwo->setRuntimePageContext($this->columns);
+        // Turn 2 "request": a new agent on the columns page, history read back from the same store and thread.
+        [$turnTwo, $providerTwo] = $this->agentOn($this->columns, $store, $thread);
+        $request = $this->turn($turnTwo, $providerTwo);
 
-        $this->assertCount(2, $turnTwo->resolveState()->getChatHistory()->getMessages(), 'the conversation itself is restored');
-        $instructions = $this->sentInstructions($turnTwo);
+        $this->assertCount(3, $request->messages, 'the conversation itself is restored, then the new message');
+        $instructions = $this->sentInstructions($request);
         $this->assertStringContainsString('Current Page Path: /neuron-test/columns', $instructions);
         $this->assertStringNotContainsString('/neuron-test/headings', $instructions);
+
+        // Each user message keeps the tag of the page it was sent from ("Earlier messages may refer to other pages").
+        $this->assertStringContainsString('/neuron-test/headings', (string) $request->messages[0]->getContent());
+        $this->assertStringContainsString('/neuron-test/columns', $this->newestUserText($request));
+    }
+
+    /**
+     * Test 4's database half (P2.5): the same two turns, each a new agent bound to one Chat row with setChatId(), the
+     * history read back from the row store.
+     */
+    public function testRestoredHistoryFromTheDatabaseDoesNotBringBackAnOldPageContext(): void
+    {
+        $service = $this->app()->make(PackageService::class);
+        $service->bootPackageEntityManager($service->getClass('katalysis_neuron_ai'));
+        $chat = (new Chat())->setSessionId('neuron-test-p25-' . bin2hex(random_bytes(4)))->setStarted(new \DateTime())->setCreatedDate(new \DateTime())->setCreatedBy(0);
+        $em = $this->app()->make(EntityManagerInterface::class);
+        $em->persist($chat);
+        $em->flush();
+        $chatId = (int) $chat->getId();
+        $db = $this->app()->make(Connection::class);
+        // A thread is bound once (Neuron 4), so these agents are bound to the chat from the start.
+        $agentOnChat = function (array $context) use ($chatId): array {
+            $provider = new FakeAIProvider(new AssistantMessage('OK.'));
+            $agent = (new ConcreteCmsAgent())->setChatId($chatId)->setAiProvider($provider);
+            $agent->setRuntimePageContext($context);
+
+            return [$agent, $provider];
+        };
+
+        try {
+            // Turn 1 "request": an agent on the headings page.
+            [$turnOne, $providerOne] = $agentOnChat($this->headings);
+            $this->assertStringContainsString('/neuron-test/headings', $this->sentInstructions($this->turn($turnOne, $providerOne)));
+
+            // What is stored is the conversation only: neither the instructions, nor the page context lines, nor the
+            // tool guidelines. The tag in the user message is meant to be there.
+            $rows = $db->fetchAllAssociative('SELECT content, meta FROM KatalysisNeuronAiChatMessages WHERE chatId = ? ORDER BY id', [$chatId]);
+            $this->assertCount(2, $rows, 'the user message and the reply');
+            $storedText = (string) json_encode($rows);
+            foreach (['Current Page', 'TOOLS-GUIDELINES', 'You are an AI assistant'] as $needle) {
+                $this->assertStringNotContainsString($needle, $storedText, "the stored rows must not contain \"{$needle}\"");
+            }
+            $this->assertStringContainsString('[Current page for this message: ', $storedText);
+
+            // Turn 2 "request": a new agent on the columns page, history read back from the same Chat row.
+            $em->clear();
+            [$turnTwo, $providerTwo] = $agentOnChat($this->columns);
+            $request = $this->turn($turnTwo, $providerTwo);
+
+            $this->assertCount(3, $request->messages, 'the conversation itself is restored, then the new message');
+            $instructions = $this->sentInstructions($request);
+            $this->assertStringContainsString('Current Page Path: /neuron-test/columns', $instructions);
+            $this->assertStringNotContainsString('/neuron-test/headings', $instructions);
+            $this->assertStringContainsString('/neuron-test/headings', (string) $request->messages[0]->getContent());
+            $this->assertStringContainsString('/neuron-test/columns', $this->newestUserText($request));
+        } finally {
+            $db->executeStatement('DELETE FROM KatalysisNeuronAiChats WHERE id = ?', [$chatId]);
+        }
     }
 }

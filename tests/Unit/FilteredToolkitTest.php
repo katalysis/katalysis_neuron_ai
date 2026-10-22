@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Unit;
 
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
-use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
 use PHPUnit\Framework\TestCase;
 
@@ -18,7 +18,7 @@ final class FilteredToolkitTest extends TestCase
 {
     public function testGuidelinesStartWithTheOriginalToolkitName(): void
     {
-        $filtered = FilteredToolkit::from(new FilteredToolkitTestPagesToolkit(), [new Tool('keep', 'd')]);
+        $filtered = FilteredToolkit::from(new FilteredToolkitTestPagesToolkit(), [new CallableTool('keep', 'd')]);
 
         $this->assertSame("Toolkit: FilteredToolkitTestPagesToolkit\nPages guidance.", $filtered->guidelines());
         $this->assertSame(['keep'], array_map(static fn ($t): string => $t->getName(), $filtered->tools()));
@@ -57,7 +57,7 @@ final class FilteredToolkitTestPagesToolkit extends AbstractToolkit
 
     public function provide(): array
     {
-        return [new Tool('a', 'd'), new Tool('keep', 'd')];
+        return [new CallableTool('a', 'd'), new CallableTool('keep', 'd')];
     }
 }
 
@@ -65,6 +65,6 @@ final class FilteredToolkitTestNoGuidelinesToolkit extends AbstractToolkit
 {
     public function provide(): array
     {
-        return [new Tool('a', 'd')];
+        return [new CallableTool('a', 'd')];
     }
 }

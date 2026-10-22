@@ -4,32 +4,40 @@ declare(strict_types=1);
 
 namespace NeuronAI\RAG\VectorStore;
 
-use Elastic\Elasticsearch\Exception\ClientResponseException;
-use Elastic\Elasticsearch\Exception\ServerResponseException;
-use NeuronAI\RAG\Document;
 use Elastic\Elasticsearch\Client;
+use Elastic\Elasticsearch\Exception\ClientResponseException;
+use Elastic\Elasticsearch\Exception\MissingParameterException;
+use Elastic\Elasticsearch\Exception\ServerResponseException;
 use Elastic\Elasticsearch\Response\Elasticsearch;
-use Exception;
+use JsonException;
+use NeuronAI\Exceptions\VectorStoreException;
+use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentFieldType;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
+use NeuronAI\RAG\VectorStore\Compilers\ElasticsearchFilterCompiler;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 
+use function array_chunk;
 use function array_key_exists;
-use function array_keys;
 use function array_map;
 use function count;
-use function in_array;
+use function implode;
 use function max;
-use function array_chunk;
 
 class ElasticsearchVectorStore implements VectorStoreInterface
 {
-    protected bool $vectorDimSet = false;
+    use HasDocumentSchema;
 
-    protected array $filters = [];
+    protected bool $vectorDimSet = false;
 
     public function __construct(
         protected Client $client,
         protected string $index,
         protected int $topK = 4,
+        ?DocumentSchema $schema = null,
     ) {
+        $this->initializeSchema($schema);
     }
 
     protected function checkIndexStatus(Document $document): void
@@ -45,6 +53,8 @@ class ElasticsearchVectorStore implements VectorStoreInterface
         }
 
         $properties = [
+            // Declared up front: left to dynamic mapping, some vector sizes become plain floats kNN cannot search
+            'embedding' => $this->vectorMapping(count($document->getEmbedding())),
             'content' => [
                 'type' => 'text',
             ],
@@ -54,12 +64,20 @@ class ElasticsearchVectorStore implements VectorStoreInterface
             'sourceName' => [
                 'type' => 'keyword',
             ],
+            MetadataMapper::PAYLOAD_FIELD => [
+                'type' => 'text',
+                'index' => false,
+            ],
         ];
 
-        // Map metadata
-        foreach (array_keys($document->metadata) as $name) {
-            $properties[$name] = [
-                'type' => 'keyword',
+        foreach ($this->schema->fields() as $field) {
+            $properties[$field->getName()] = [
+                'type' => match ($field->getType()) {
+                    DocumentFieldType::String, DocumentFieldType::StringArray => 'keyword',
+                    DocumentFieldType::Integer, DocumentFieldType::IntegerArray => 'long',
+                    DocumentFieldType::Float, DocumentFieldType::FloatArray => 'double',
+                    DocumentFieldType::Boolean, DocumentFieldType::BooleanArray => 'boolean',
+                },
             ];
         }
 
@@ -71,27 +89,33 @@ class ElasticsearchVectorStore implements VectorStoreInterface
                 ],
             ],
         ]);
+
+        $this->vectorDimSet = true;
     }
 
     /**
-     * @throws Exception
+     * @throws ClientResponseException
+     * @throws VectorStoreException
+     * @throws ServerResponseException
+     * @throws DocumentSchemaException
+     * @throws JsonException
+     * @throws MissingParameterException
      */
     public function addDocument(Document $document): VectorStoreInterface
     {
-        if ($document->embedding === []) {
-            throw new Exception('Document embedding must be set before adding a document');
-        }
+        $this->validateDocument($document);
 
         $this->checkIndexStatus($document);
 
         $this->client->index([
             'index' => $this->index,
+            'id' => (string) $document->getId(),
             'body' => [
                 'embedding' => $document->getEmbedding(),
                 'content' => $document->getContent(),
                 'sourceType' => $document->getSourceType(),
                 'sourceName' => $document->getSourceName(),
-                ...$document->metadata,
+                ...MetadataMapper::toStorage($document, $this->schema),
             ],
         ]);
 
@@ -101,9 +125,11 @@ class ElasticsearchVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @param  Document[]  $documents
-     *
-     * @throws Exception
+     * @param Document[] $documents
+     * @throws ClientResponseException
+     * @throws JsonException
+     * @throws ServerResponseException
+     * @throws VectorStoreException
      */
     public function addDocuments(array $documents): VectorStoreInterface
     {
@@ -111,9 +137,7 @@ class ElasticsearchVectorStore implements VectorStoreInterface
             return $this;
         }
 
-        if (empty($documents[0]->getEmbedding())) {
-            throw new Exception('Document embedding must be set before adding a document');
-        }
+        $this->validateDocuments($documents);
 
         $this->checkIndexStatus($documents[0]);
 
@@ -122,12 +146,13 @@ class ElasticsearchVectorStore implements VectorStoreInterface
         /*
          * Generate a bulk payload
          */
-        $params = ['body' => []];
         foreach ($chunks as $chunk) {
+            $params = ['body' => []];
             foreach ($chunk as $document) {
                 $params['body'][] = [
                     'index' => [
                         '_index' => $this->index,
+                        '_id' => (string) $document->getId(),
                     ],
                 ];
                 $params['body'][] = [
@@ -135,34 +160,57 @@ class ElasticsearchVectorStore implements VectorStoreInterface
                     'content' => $document->getContent(),
                     'sourceType' => $document->getSourceType(),
                     'sourceName' => $document->getSourceName(),
-                    ...$document->metadata,
+                    ...MetadataMapper::toStorage($document, $this->schema),
                 ];
             }
-            $this->client->bulk($params);
+            /** @var Elasticsearch $response */
+            $response = $this->client->bulk($params);
             $this->client->indices()->refresh(['index' => $this->index]);
+            $this->assertIndexed($chunk, $response->asArray());
         }
 
         return $this;
     }
 
     /**
-     * @deprecated Use deleteBy() instead.
+     * The bulk API answers 200 even when it rejects documents: the rejections are listed in the response.
+     *
+     * @param Document[] $documents the documents of the request, in the order they were sent
+     * @param array<string, mixed> $response
+     * @throws VectorStoreException
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    protected function assertIndexed(array $documents, array $response): void
     {
-        return $this->deleteBy($sourceType, $sourceName);
+        if (($response['errors'] ?? false) !== true) {
+            return;
+        }
+
+        $rejections = [];
+        foreach ($response['items'] as $position => $item) {
+            if (isset($item['index']['error'])) {
+                $rejections[] = "[{$documents[$position]->getId()}] {$item['index']['error']['reason']}";
+            }
+        }
+
+        throw new VectorStoreException(
+            'Elasticsearch rejected '.count($rejections).' of '.count($documents).' documents: '.implode('; ', $rejections)
+        );
     }
 
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
+    /**
+     * @throws ClientResponseException
+     * @throws ServerResponseException
+     * @throws MissingParameterException
+     * @throws DocumentSchemaException
+     */
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        $query = $sourceName !== null
-            ? "sourceType:{$sourceType} AND sourceName:{$sourceName}"
-            : "sourceType:{$sourceType}";
-
+        $this->validateFilters($filters);
         $this->client->deleteByQuery([
             'index' => $this->index,
-            'q' => $query,
-            'body' => [],
+            'body' => [
+                'query' => (new ElasticsearchFilterCompiler())->compile($filters),
+            ],
         ]);
         $this->client->indices()->refresh(['index' => $this->index]);
         return $this;
@@ -175,18 +223,27 @@ class ElasticsearchVectorStore implements VectorStoreInterface
      * @return Document[]
      * @throws ClientResponseException
      * @throws ServerResponseException
+     * @throws DocumentSchemaException|VectorStoreException
      */
-    public function similaritySearch(array $embedding): array
+    public function search(SearchRequest $request): array
     {
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+        }
+
+        $topK = $request->topK ?? $this->topK;
+
         $searchParams = [
             'index' => $this->index,
             'body' => [
                 'knn' => [
                     'field' => 'embedding',
-                    'query_vector' => $embedding,
-                    'k' => $this->topK,
-                    'num_candidates' => max(50, $this->topK * 4),
+                    'query_vector' => $request->embedding,
+                    'k' => $topK,
+                    'num_candidates' => max(50, $topK * 4),
                 ],
+                // Hits are paged apart from k: without it, Elasticsearch returns at most 10
+                'size' => $topK,
                 'sort' => [
                     '_score' => [
                         'order' => 'desc',
@@ -195,25 +252,20 @@ class ElasticsearchVectorStore implements VectorStoreInterface
             ],
         ];
 
-        // Hybrid search
-        if ($this->filters !== []) {
-            $searchParams['body']['knn']['filter'] = $this->filters;
+        if ($request->filters instanceof FilterExpression) {
+            $searchParams['body']['knn']['filter'] = (new ElasticsearchFilterCompiler())->compile($request->filters);
         }
 
         $response = $this->client->search($searchParams);
 
         return array_map(function (array $item): Document {
             $document = new Document($item['_source']['content']);
-            //$document->embedding = $item['_source']['embedding']; // avoid carrying large data
-            $document->sourceType = $item['_source']['sourceType'];
-            $document->sourceName = $item['_source']['sourceName'];
-            $document->score = $item['_score'];
+            $document->setId($item['_id'])
+                ->setSourceType($item['_source']['sourceType'])
+                ->setSourceName($item['_source']['sourceName'])
+                ->setScore($item['_score']);
 
-            foreach ($item['_source'] as $name => $value) {
-                if (!in_array($name, ['content', 'sourceType', 'sourceName', 'score', 'embedding', 'id'])) {
-                    $document->addMetadata($name, $value);
-                }
-            }
+            MetadataMapper::hydrate($document, $item['_source']);
 
             return $document;
         }, $response['hits']['hits']);
@@ -222,6 +274,19 @@ class ElasticsearchVectorStore implements VectorStoreInterface
     /**
      * Map vector embeddings dimension on the fly.
      */
+    /**
+     * @return array<string, mixed>
+     */
+    protected function vectorMapping(int $dimension): array
+    {
+        return [
+            'type' => 'dense_vector',
+            'dims' => $dimension,
+            'index' => true,
+            'similarity' => 'cosine',
+        ];
+    }
+
     private function mapVectorDimension(int $dimension): void
     {
         if ($this->vectorDimSet) {
@@ -245,23 +310,11 @@ class ElasticsearchVectorStore implements VectorStoreInterface
             'index' => $this->index,
             'body' => [
                 'properties' => [
-                    'embedding' => [
-                        'type' => 'dense_vector',
-                        //'element_type' => 'float', // it's float by default
-                        'dims' => $dimension,
-                        'index' => true,
-                        'similarity' => 'cosine',
-                    ],
+                    'embedding' => $this->vectorMapping($dimension),
                 ],
             ],
         ]);
 
         $this->vectorDimSet = true;
-    }
-
-    public function withFilters(array $filters): self
-    {
-        $this->filters = $filters;
-        return $this;
     }
 }

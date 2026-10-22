@@ -6,6 +6,7 @@ use Config;
 use Concrete\Core\Page\Controller\DashboardPageController;
 use Katalysis\NeuronAi\Access\NeuronPermissions;
 use Katalysis\NeuronAi\Settings\ApiKeySettings;
+use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 
 class NeuronAi extends DashboardPageController
 {
@@ -31,6 +32,9 @@ class NeuronAi extends DashboardPageController
         foreach ($settings->plainValues() as $field => $value) {
             $this->set($field, $value);
         }
+
+        // Toolkits other packages registered that can't be built, so the assistant is running without their tools.
+        $this->set('external_toolkit_skips', $this->externalToolkitSkips());
     }
 
     public function save()
@@ -77,6 +81,18 @@ class NeuronAi extends DashboardPageController
     protected function canConfigure(): bool
     {
         return NeuronPermissions::userHas(NeuronPermissions::CONFIGURE_HANDLE);
+    }
+
+    /**
+     * Builds the registered external toolkits the way the agent does, to show which are skipped (P2.2). The agent logs
+     * each skip; this page doesn't log them again.
+     *
+     * @return list<array{provider: string, toolkit: ?string, reason: string}>
+     */
+    protected function externalToolkitSkips(): array
+    {
+        return ExternalToolkitRegistry::build(static function (string $level, string $message): void {
+        })->skipped();
     }
 
     protected function settings(): ApiKeySettings

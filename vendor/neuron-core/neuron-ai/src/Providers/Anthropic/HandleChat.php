@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NeuronAI\Providers\Anthropic;
 
+use JsonException;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ContentBlocks\ReasoningContent;
 use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
@@ -12,6 +13,7 @@ use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\HttpClient\HttpRequest;
+use NeuronAI\Providers\ProviderResponse;
 
 use function count;
 
@@ -20,40 +22,31 @@ trait HandleChat
     /**
      * @throws ProviderException
      * @throws HttpException
+     * @throws JsonException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
-        $json = [
-            'model' => $this->model,
-            'max_tokens' => $this->max_tokens,
-            'messages' => $this->messageMapper()->map($messages),
-            ...$this->parameters,
-        ];
+        $json = $this->requestBody($messages);
 
-        if (isset($this->system)) {
-            $json['system'] = $this->system;
-        } elseif (isset($this->systemBlocks)) {
-            $json['system'] = $this->systemBlocks;
-        }
-
-        if (!empty($this->tools)) {
-            $json['tools'] = $this->toolPayloadMapper()->map($this->tools);
-
-            // Add cache_control to last tool if caching is enabled
-            if ($this->promptCachingEnabled) {
-                $last = count($json['tools']) - 1;
-                $json['tools'][$last]['cache_control'] = ['type' => 'ephemeral'];
-            }
-        }
+        // Add cache_control to last tool
+        /*if (!empty($this->tools)) {
+            $last = count($json['tools']) - 1;
+            $json['tools'][$last]['cache_control'] = ['type' => 'ephemeral'];
+        }*/
 
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'messages',
-                body: $json
+                uri: $this->requestUri(false),
+                body: $json,
+                headers: $this->requestHeaders(),
             )
         );
 
-        return $this->processChatResult($response->json());
+        return new ProviderResponse(
+            message: $this->processChatResult($response->json()),
+            body: $response->body,
+            headers: $response->headers,
+        );
     }
 
     /**
@@ -63,12 +56,14 @@ trait HandleChat
     {
         $blocks = [];
         $toolCalls = [];
+        $toolPositions = [];
+        $redactedThinking = [];
 
         if (!isset($result['content'])) {
             goto message;
         }
 
-        foreach ($result['content'] as $content) {
+        foreach ($result['content'] as $index => $content) {
             if ($content['type'] === 'thinking') {
                 $blocks[] = new ReasoningContent($content['thinking'], $content['signature']);
                 continue;
@@ -79,8 +74,14 @@ trait HandleChat
                 continue;
             }
 
+            if ($content['type'] === 'redacted_thinking') {
+                $redactedThinking[$index] = $content['data'];
+                continue;
+            }
+
             if ($content['type'] === 'tool_use') {
                 $toolCalls[] = $content;
+                $toolPositions[] = $index;
             }
         }
 
@@ -95,24 +96,31 @@ trait HandleChat
             }
         }
 
+        if ($redactedThinking !== []) {
+            $message->addMetadata('anthropic_redacted_thinking', $redactedThinking);
+        }
+        if ($toolPositions !== []) {
+            $message->addMetadata('anthropic_tool_positions', $toolPositions);
+        }
+
         // Save the usage for the current interaction
         if (isset($result['usage'])) {
             $usage = $result['usage'];
 
-            // Attach Anthropic-specific cache metrics as metadata (supports both API formats)
+            // Attach Anthropic-specific cache metrics as metadata (supports both API formats):
+            // the total of the cache writes already sums its per-TTL breakdown
             $cacheCreation = $usage['cache_creation'] ?? [];
-            $cacheWrite = ($cacheCreation['ephemeral_5m_input_tokens'] ?? 0)
-                        + ($cacheCreation['ephemeral_1h_input_tokens'] ?? 0)
-                        + ($usage['cache_creation_input_tokens'] ?? 0);
+            $cacheWrite = $usage['cache_creation_input_tokens']
+                ?? ($cacheCreation['ephemeral_5m_input_tokens'] ?? 0) + ($cacheCreation['ephemeral_1h_input_tokens'] ?? 0);
             $cacheRead = $usage['cache_read_input_tokens'] ?? 0;
 
-            // Anthropic reports cache reads separately from `input_tokens`;
-            // surface the cache-read count as the standard cached metric.
-            $message->setUsage(new Usage($usage['input_tokens'], $usage['output_tokens'], $cacheRead));
+            // Anthropic reports cache reads and writes apart from `input_tokens`: the whole
+            // prompt adds them back, and the cache-read count is the standard cached metric.
+            $message->setUsage(new Usage($usage['input_tokens'] + $cacheRead + $cacheWrite, $usage['output_tokens'], $cacheRead));
 
             if ($cacheWrite > 0 || $cacheRead > 0) {
-                $message->addMetadata('cacheWriteTokens', (string) $cacheWrite)
-                    ->addMetadata('cacheReadTokens', (string) $cacheRead);
+                $message->addMetadata('cacheWriteTokens', $cacheWrite)
+                    ->addMetadata('cacheReadTokens', $cacheRead);
             }
         }
 

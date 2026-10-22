@@ -8,49 +8,39 @@ use JsonSerializable;
 
 interface ToolInterface extends JsonSerializable
 {
-    /**
-     * Get the unique name of the tool.
-     */
     public function getName(): string;
 
     public function setName(string $name): ToolInterface;
 
-    /**
-     * Get a description of the tool's functionality.
-     */
     public function getDescription(): ?string;
 
     public function setDescription(?string $description): ToolInterface;
 
-    /**
-     * Add a Property with a name, type, description, and optional required constraint.
-     */
     public function addProperty(ToolPropertyInterface $property): ToolInterface;
 
     /**
-     * Get the Properties schema.
+     * @return ToolPropertyInterface[]
      */
     public function getProperties(): array;
 
     /**
-     * Names of the required properties.
-     *
      * @return array<string>
      */
     public function getRequiredProperties(): array;
 
+    /**
+     * The provider-neutral JSON Schema for the tool's input object.
+     *
+     * @return array<string, mixed>
+     */
+    public function getInputSchema(): array;
+
     public function getParameters(): array;
 
-    /**
-     * Get the input arguments of the function call.
-     */
     public function getInputs(): array;
 
     public function getInput(string $key): mixed;
 
-    /**
-     * Get the input arguments of the function call.
-     */
     public function setInputs(array $inputs): ToolInterface;
 
     /**
@@ -58,14 +48,25 @@ interface ToolInterface extends JsonSerializable
      */
     public function getCallId(): ?string;
 
-
     public function setCallId(string $callId): ToolInterface;
 
-
-    public function getResult(): string;
+    /**
+     * Whether the tool has executed and holds a result. False for a tool that
+     * never ran (e.g. a pending or rejected call), where getResult() must not
+     * be called.
+     */
+    public function hasResult(): bool;
 
     /**
-     * Define the maximum number of calls for the tool in a single agent session.
+     * A string, or a ToolOutput when the tool returned multimodal content
+     * blocks from __invoke().
+     */
+    public function getResult(): string|ToolOutput;
+
+    public function setResult(mixed $result): ToolInterface;
+
+    /**
+     * The maximum number of calls for the tool in a single agent session.
      */
     public function getMaxRuns(): ?int;
 
@@ -76,12 +77,19 @@ interface ToolInterface extends JsonSerializable
     public function isVisible(): bool;
 
     /**
-     * Define the code to be executed.
+     * The key run limits are tracked by: the tool name, a hash of inputs,
+     * or any custom strategy.
      */
-    public function setCallable(callable $callback): ToolInterface;
+    public function getRunKey(): string;
+
+    public function execute(): void;
 
     /**
-     * Execute the tool's logic with input parameters.
+     * Whether this call requires human approval before execution, consulted by
+     * ToolNode on every tool call. Returning a string counts as true AND carries
+     * the reason shown to the approver (surfaced on the ApprovalRequest actions
+     * and persisted in chat history). The call's arguments are bound beforehand
+     * and available through getInputs().
      */
-    public function execute(): void;
+    public function requiresApproval(): bool|string;
 }

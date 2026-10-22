@@ -20,7 +20,8 @@ use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\Providers\MessageMapperInterface;
-use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolCall;
+use NeuronAI\Tools\ToolOutput;
 use stdClass;
 
 use function array_filter;
@@ -114,7 +115,7 @@ class MessageMapper implements MessageMapperInterface
             $parts = $this->mapBlocks($contentBlocks);
         }
 
-        foreach ($message->getTools() as $index => $tool) {
+        foreach ($message->getToolCalls() as $index => $tool) {
             $part = [
                 'functionCall' => [
                     'name' => $tool->getName(),
@@ -137,15 +138,17 @@ class MessageMapper implements MessageMapperInterface
 
     protected function mapToolsResult(ToolResultMessage $message): array
     {
-        $parts = array_map(fn (ToolInterface $tool): array => [
+        $parts = array_map(fn (ToolCall $tool): array => [
             'functionResponse' => [
                 'name' => $tool->getName(),
                 'response' => [
                     'name' => $tool->getName(),
-                    'content' => $tool->getResult(),
+                    'content' => ($result = $tool->getResult()) instanceof ToolOutput
+                        ? ['parts' => $this->mapBlocks($result->getBlocks()) ?: [['text' => $result->getText()]]]
+                        : $result,
                 ],
             ],
-        ], $message->getTools());
+        ], $message->getToolCalls());
 
         if ($contentBlocks = $message->getContentBlocks()) {
             $parts = [...$parts, ...$this->mapBlocks($contentBlocks)];

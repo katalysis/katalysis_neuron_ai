@@ -12,6 +12,7 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
+use Katalysis\NeuronAi\Tests\Eval\DryRunAgent;
 use Katalysis\NeuronAi\Tests\Eval\Expectations;
 use Katalysis\NeuronAi\Tests\Eval\Fixture;
 use Katalysis\NeuronAi\Tests\Eval\ScenarioRunner;
@@ -354,6 +355,55 @@ final class SeedResetTest extends TestCase
             $runner->endSession();
             Request::getInstance()->setCustomRequestUser(-1);
         }
+    }
+
+    /**
+     * P2.6 (plans/P2.6.md §7, §8.3): the runner reads a Neuron 4 turn. With the dry-run agent (FakeAIProvider, no
+     * provider call), each turn's tool call is recorded with its result, usage adds up, and the second turn's new
+     * messages are only its own. Here because a run resets the fixture, which this class knows how to check.
+     */
+    public function testTheRunnerRecordsNeuron4TurnsWithTheDryRunAgent(): void
+    {
+        $runner = new ScenarioRunner(
+            self::$app,
+            new Fixture(dirname(__DIR__, 4), dirname(__DIR__, 2) . '/documentation/fixtures/seed_test_content.php'),
+            new SnapshotBuilder(self::$app->make(Connection::class), (int) Page::getHomePageID()),
+            static fn (): ConcreteCmsAgent => DryRunAgent::make()
+        );
+        $scenario = [
+            'id' => '99-dry-run-check',
+            'title' => 'P2.6 stand-in',
+            'user' => 'neuron_editor',
+            'current_page' => '/neuron-test/headings',
+            'turns' => [['say' => 'What page am I on?'], ['say' => 'And now?', 'current_page' => '/neuron-test/columns']],
+            'expect' => ['state' => ['nothing_changed' => true]],
+        ];
+
+        try {
+            $run = $runner->run($scenario, 1);
+        } finally {
+            $runner->deleteChats();
+            $runner->endSession();
+            Request::getInstance()->setCustomRequestUser(-1);
+        }
+
+        $this->assertNull($run['error'], (string) $run['error']);
+        $this->assertSame(Expectations::PASS, $run['outcome']);
+        $this->assertCount(2, $run['turns']);
+        $turnUsage = ['input' => DryRunAgent::USAGE[0][0] + DryRunAgent::USAGE[1][0], 'output' => DryRunAgent::USAGE[0][1] + DryRunAgent::USAGE[1][1]];
+        foreach ($run['turns'] as $i => $turn) {
+            $this->assertSame(DryRunAgent::DRY_RUN_REPLY, $turn['reply']);
+            $this->assertFalse($turn['agentError']);
+            $this->assertNull($turn['notice']);
+            $this->assertCount(1, $turn['toolCalls'], "turn {$i}: only this turn's call");
+            $this->assertSame('get_current_page_context', $turn['toolCalls'][0]['name']);
+            $this->assertTrue($turn['toolCalls'][0]['ok'], "turn {$i}: " . $turn['toolCalls'][0]['result']);
+            // The result is the tool's JSON, slashes escaped.
+            $this->assertStringContainsString($i === 0 ? '"path":"\/neuron-test\/headings"' : '"path":"\/neuron-test\/columns"', $turn['toolCalls'][0]['result'], 'the result is the one the tool returned, for that turn\'s page');
+            $this->assertSame($turnUsage, $turn['usage'], "turn {$i}: usage survives the store");
+        }
+        $this->assertSame(['input' => 2 * $turnUsage['input'], 'output' => 2 * $turnUsage['output']], $run['usage']);
+        $this->assertSame(0, $runner->countChats());
     }
 
     // ---- Doing things to the site ------------------------------------------

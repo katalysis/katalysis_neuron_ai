@@ -12,6 +12,7 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -56,7 +57,7 @@ class BlocksToolkit extends AbstractToolkit
 
     protected function makeListPageBlocksByTypeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_page_blocks_by_type',
             'List block instances of a specific block type on a single page (including nested/container sub-areas).'
         );
@@ -82,7 +83,7 @@ class BlocksToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable(function (
+        $tool->setHandler(function (
             ?int $pageID = null,
             ?string $blockTypeHandle = null,
             ?bool $includeInactive = true
@@ -210,7 +211,7 @@ class BlocksToolkit extends AbstractToolkit
 
     protected function makeSearchBlocksByTypeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'search_blocks_by_type',
             'Search for all instances of a specific block type across the site (including blocks nested inside container blocks)'
         );
@@ -236,7 +237,7 @@ class BlocksToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable(function (
+        $tool->setHandler(function (
             ?string $blockTypeHandle = null,
             ?int $limit = 100,
             ?bool $includeInactive = false
@@ -393,7 +394,7 @@ class BlocksToolkit extends AbstractToolkit
 
     protected function makeGetBlockDataTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_block_data',
             'Get detailed field data and configuration from a specific block'
         );
@@ -419,7 +420,7 @@ class BlocksToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable(function (
+        $tool->setHandler(function (
             ?int $blockID = null,
             ?int $pageID = null,
             ?int $versionID = null
@@ -549,7 +550,7 @@ class BlocksToolkit extends AbstractToolkit
 
     protected function makeGetBlockControllerDataTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_block_controller_data',
             'Get runtime controller data from a block, including resolved relationships (users, files, pages). Better for understanding block content than raw database fields.'
         );
@@ -582,7 +583,7 @@ class BlocksToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable(function (
+        $tool->setHandler(function (
             ?int $blockID = null,
             ?int $pageID = null,
             ?string $areaHandle = null,
@@ -1083,7 +1084,7 @@ class BlocksToolkit extends AbstractToolkit
 
     protected function makeCountBlocksByTypeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'count_blocks_by_type',
             'Get a quick count of how many instances exist for each block type (or a specific type)'
         );
@@ -1102,7 +1103,7 @@ class BlocksToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable(function (
+        $tool->setHandler(function (
             ?string $blockTypeHandle = null,
             ?bool $activeOnly = true
         ): string {
@@ -1200,7 +1201,7 @@ class BlocksToolkit extends AbstractToolkit
 
     protected function makeGetDocDownloadFilesOnPageTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_doc_download_files_on_page',
             'Get title and file IDs from Doc Download-style blocks on a page, including nested/container sub-areas.'
         );
@@ -1226,7 +1227,7 @@ class BlocksToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable(function (
+        $tool->setHandler(function (
             ?int $pageID = null,
             ?bool $includeInactive = true,
             ?string $areaHandleContains = null
@@ -1680,7 +1681,7 @@ class BlocksToolkit extends AbstractToolkit
 
     protected function makeListContainerBlocksTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_container_blocks',
             'List all blocks nested inside a specific container block (by container block ID)'
         );
@@ -1699,7 +1700,7 @@ class BlocksToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable(function (?int $containerBlockID = null, ?bool $includeInactive = false): string {
+        $tool->setHandler(function (?int $containerBlockID = null, ?bool $includeInactive = false): string {
             if (!$containerBlockID) {
                 return "❌ Error: containerBlockID is required";
             }

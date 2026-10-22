@@ -5,21 +5,28 @@ declare(strict_types=1);
 namespace NeuronAI\Tools;
 
 use NeuronAI\Exceptions\ArrayPropertyException;
+use NeuronAI\Exceptions\InvalidToolInput;
 use NeuronAI\Exceptions\ToolException;
 use NeuronAI\StaticConstructor;
+use NeuronAI\StructuredOutput\Deserializer\Deserializer;
+use NeuronAI\StructuredOutput\Deserializer\DeserializerException;
 use NeuronAI\StructuredOutput\JsonSchema;
 use ReflectionException;
 
 use function array_filter;
+use function array_key_exists;
 use function array_map;
 use function array_reduce;
 use function array_values;
 use function class_exists;
+use function get_debug_type;
 use function in_array;
 use function is_null;
+use function is_array;
+use function json_encode;
 
 /**
- * @method static static make(string $name, string $description, bool $required = false, ?string $class = null, array $properties = [])
+ * @method static static make(string $name, string $description, bool $required = false, ?string $class = null, array $properties = [], bool $nullable = false)
  */
 class ObjectProperty implements ToolPropertyInterface
 {
@@ -40,6 +47,7 @@ class ObjectProperty implements ToolPropertyInterface
         protected bool $required = false,
         protected ?string $class = null,
         protected array $properties = [],
+        protected bool $nullable = false,
     ) {
         if ($this->properties === [] && !is_null($this->class) && class_exists($this->class)) {
             $schema = (new JsonSchema())->generate($this->class);
@@ -48,8 +56,6 @@ class ObjectProperty implements ToolPropertyInterface
     }
 
     /**
-     * Recursively build properties from a class schema
-     *
      * @return ToolPropertyInterface[]
      * @throws ReflectionException
      * @throws ToolException
@@ -73,8 +79,6 @@ class ObjectProperty implements ToolPropertyInterface
     }
 
     /**
-     * Create a property from schema data recursively
-     *
      * @throws ReflectionException
      * @throws ToolException
      * @throws ArrayPropertyException
@@ -83,37 +87,39 @@ class ObjectProperty implements ToolPropertyInterface
     {
         $type = $propertyData['type'] ?? 'string';
         $description = $propertyData['description'] ?? null;
+        $nullable = is_array($type) && in_array('null', $type, true);
+
+        if (is_array($type)) {
+            $type = PropertyType::fromSchema($type)->value;
+        }
 
         return match ($type) {
-            'object' => $this->createObjectProperty($propertyName, $propertyData, $isRequired, $description),
-            'array' => $this->createArrayProperty($propertyName, $propertyData, $isRequired, $description),
-            'string', 'integer', 'number', 'boolean' => $this->createScalarProperty($propertyName, $propertyData, $isRequired, $description),
+            'object' => $this->createObjectPropertySchema($propertyName, $propertyData, $isRequired, $description, $nullable),
+            'array' => $this->createArrayPropertySchema($propertyName, $propertyData, $isRequired, $description, $nullable),
+            'string', 'integer', 'number', 'boolean' => $this->createScalarProperty($propertyName, $propertyData, $isRequired, $description, $nullable),
             default => new ToolProperty(
                 $propertyName,
                 PropertyType::STRING,
                 $description,
                 $isRequired,
-                $propertyData['enum'] ?? []
+                $propertyData['enum'] ?? [],
+                $nullable,
             ),
         };
     }
 
     /**
-     * Create an object property recursively
-     *
      * @throws ReflectionException
      * @throws ToolException
      * @throws ArrayPropertyException
      */
-    protected function createObjectProperty(string $name, array $propertyData, bool $required, ?string $description): ObjectProperty
+    protected function createObjectPropertySchema(string $name, array $propertyData, bool $required, ?string $description, bool $nullable = false): ObjectProperty
     {
         $nestedProperties = [];
         $nestedRequired = $propertyData['required'] ?? [];
 
-        // If there's a class reference in the schema, use it
         $className = $propertyData['class'] ?? null;
 
-        // If no class is specified, but we have nested properties, build them recursively
         if (!$className && isset($propertyData['properties'])) {
             foreach ($propertyData['properties'] as $nestedPropertyName => $nestedPropertyData) {
                 $nestedIsRequired = in_array($nestedPropertyName, $nestedRequired);
@@ -130,24 +136,22 @@ class ObjectProperty implements ToolPropertyInterface
             $description,
             $required,
             $className,
-            $nestedProperties
+            $nestedProperties,
+            $nullable,
         );
     }
 
     /**
-     * Create an array property with recursive item handling
-     *
      * @throws ReflectionException
      * @throws ToolException
      * @throws ArrayPropertyException
      */
-    protected function createArrayProperty(string $name, array $propertyData, bool $required, ?string $description): ArrayProperty
+    protected function createArrayPropertySchema(string $name, array $propertyData, bool $required, ?string $description, bool $nullable = false): ArrayProperty
     {
         $items = null;
         $minItems = $propertyData['minItems'] ?? null;
         $maxItems = $propertyData['maxItems'] ?? null;
 
-        // Handle array items recursively
         if (isset($propertyData['items'])) {
             $itemsData = $propertyData['items'];
             $items = $this->createPropertyFromSchema($name . '_item', $itemsData, false);
@@ -159,23 +163,23 @@ class ObjectProperty implements ToolPropertyInterface
             $required,
             $items,
             $minItems,
-            $maxItems
+            $maxItems,
+            $nullable,
         );
     }
 
     /**
-     * Create a scalar property (string, integer, number, boolean)
-     *
      * @throws ToolException
      */
-    protected function createScalarProperty(string $name, array $propertyData, bool $required, ?string $description): ToolProperty
+    protected function createScalarProperty(string $name, array $propertyData, bool $required, ?string $description, bool $nullable = false): ToolProperty
     {
         return new ToolProperty(
             $name,
-            PropertyType::fromSchema($propertyData['type']),
+            PropertyType::fromSchema($propertyData['type'] ?? 'string'),
             $description,
             $required,
-            $propertyData['enum'] ?? []
+            $propertyData['enum'] ?? [],
+            $nullable,
         );
     }
 
@@ -190,7 +194,6 @@ class ObjectProperty implements ToolPropertyInterface
         ];
     }
 
-    // The mapped class required properties and required properties are merged
     public function getRequiredProperties(): array
     {
         return array_values(array_filter(array_map(fn (
@@ -201,7 +204,9 @@ class ObjectProperty implements ToolPropertyInterface
     public function getJsonSchema(): array
     {
         $schema = [
-            'type' => $this->type->value,
+            'type' => $this->nullable
+                ? [$this->type->value, 'null']
+                : $this->type->value,
         ];
 
         if (!is_null($this->description)) {
@@ -224,6 +229,11 @@ class ObjectProperty implements ToolPropertyInterface
     public function isRequired(): bool
     {
         return $this->required;
+    }
+
+    public function isNullable(): bool
+    {
+        return $this->nullable;
     }
 
     public function getName(): string
@@ -249,5 +259,62 @@ class ObjectProperty implements ToolPropertyInterface
     public function getClass(): ?string
     {
         return $this->class;
+    }
+
+    /**
+     * @throws InvalidToolInput
+     * @throws ReflectionException
+     */
+    public function cast(mixed $input): mixed
+    {
+        if ($input === null) {
+            return null;
+        }
+
+        if (!is_array($input)) {
+            throw new InvalidToolInput('must be of type object, ' . get_debug_type($input) . ' given');
+        }
+
+        return $this->class === null ? $this->castFields($input) : $this->deserialize($input);
+    }
+
+    /**
+     * @throws InvalidToolInput
+     * @throws ReflectionException
+     */
+    protected function castFields(array $input): array
+    {
+        foreach ($this->properties as $property) {
+            $name = $property->getName();
+
+            if (!array_key_exists($name, $input)) {
+                if ($property->isRequired()) {
+                    throw new InvalidToolInput("field \"{$name}\" is required");
+                }
+
+                continue;
+            }
+
+            try {
+                $input[$name] = $property->cast($input[$name]);
+            } catch (InvalidToolInput $exception) {
+                throw new InvalidToolInput("field \"{$name}\" {$exception->getMessage()}", $exception->getCode(), $exception);
+            }
+        }
+
+        return $input;
+    }
+
+    /**
+     * @throws InvalidToolInput
+     * @throws ReflectionException
+     */
+    protected function deserialize(array $input): object
+    {
+        try {
+            return Deserializer::make()->fromJson(json_encode($input), $this->class);
+        } catch (DeserializerException $exception) {
+            throw new InvalidToolInput("is invalid: {$exception->getMessage()}", $exception->getCode(), $exception);
+        }
     }
 }

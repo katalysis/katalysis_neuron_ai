@@ -17,6 +17,7 @@ use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Exceptions\ProviderException;
 use NeuronAI\Providers\MessageMapperInterface;
+use NeuronAI\Tools\ToolOutput;
 use stdClass;
 
 use function array_filter;
@@ -83,6 +84,8 @@ class MessageMapper implements MessageMapperInterface
         return [
             'type' => $forUser ? 'input_text' : 'output_text',
             'text' => $block->content,
+            // Input text is the one block OpenAI documents a cache breakpoint on
+            ...($forUser && $block->isCached() ? ['prompt_cache_breakpoint' => ['mode' => 'explicit']] : []),
         ];
     }
 
@@ -142,7 +145,7 @@ class MessageMapper implements MessageMapperInterface
         }
 
         // Add function call items
-        foreach ($message->getTools() as $tool) {
+        foreach ($message->getToolCalls() as $tool) {
             $this->mapping[] = [
                 'type' => 'function_call',
                 'name' => $tool->getName(),
@@ -154,11 +157,13 @@ class MessageMapper implements MessageMapperInterface
 
     protected function mapToolsResult(ToolResultMessage $message): void
     {
-        foreach ($message->getTools() as $tool) {
+        foreach ($message->getToolCalls() as $tool) {
             $this->mapping[] = [
                 'type' => 'function_call_output',
                 'call_id' => $tool->getCallId(),
-                'output' => $tool->getResult(),
+                'output' => ($result = $tool->getResult()) instanceof ToolOutput
+                    ? ($this->mapBlocks($result->getBlocks(), true) ?: $result->getText())
+                    : $result,
             ];
         }
     }

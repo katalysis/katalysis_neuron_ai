@@ -6,3 +6,4 @@ tools/phpunit/
 documentation/eval-results/*
 !documentation/eval-results/baseline-*
 !documentation/eval-results/phase1-exit-*
+!documentation/eval-results/phase2-exit-*

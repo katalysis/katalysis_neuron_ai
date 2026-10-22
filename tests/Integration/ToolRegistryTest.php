@@ -6,10 +6,11 @@ namespace Katalysis\NeuronAi\Tests\Integration;
 
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\KatalysisPro;
 use Katalysis\NeuronAi\Tests\Support\ToolListChecks;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use NeuronAI\Tools\PropertyType;
-use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
 use NeuronAI\Tools\ToolPropertyInterface;
@@ -177,9 +178,9 @@ final class ToolRegistryTest extends ConcreteTestCase
                     public function provide(): array
                     {
                         return [
-                            new Tool('list_people', 'external list_people'),
-                            new Tool('p16_external_only', 'only in the external toolkit'),
-                            new Tool('delete_person', 'must be disabled'),
+                            new CallableTool('list_people', 'external list_people'),
+                            new CallableTool('p16_external_only', 'only in the external toolkit'),
+                            new CallableTool('delete_person', 'must be disabled'),
                         ];
                     }
                 },
@@ -230,9 +231,7 @@ final class ToolRegistryTest extends ConcreteTestCase
     ];
 
     /** Defined by katalysis_pro's toolkit, not by this package. */
-    private const KATALYSIS_PRO_TOOLS = ['add_person', 'update_person', 'delete_person', 'delete_all_people'];
-
-    private const KATALYSIS_PRO_TOOLKIT = '\\Concrete\\Package\\KatalysisPro\\Src\\KatalysisPro\\Ai\\KatalysisProEntitiesToolkit';
+    private const KATALYSIS_PRO_TOOLS = KatalysisPro::DISABLED;
 
     public function testTheLiveChangingToolsOfP113AreNotOffered(): void
     {
@@ -266,27 +265,40 @@ final class ToolRegistryTest extends ConcreteTestCase
         ));
         $this->assertSame([], $undefined, 'Disabled names that no toolkit defines: ' . implode(', ', $undefined));
 
-        $toolkit = self::KATALYSIS_PRO_TOOLKIT;
-        if (class_exists($toolkit)) {
-            $proDefined = array_map(static fn (ToolInterface $t): string => $t->getName(), (new $toolkit())->tools());
+        if (KatalysisPro::isInstalled()) {
+            // katalysis_pro's own ToolDefinitions (P2.8), built as the registry builds them.
+            $property = new \ReflectionProperty(ExternalToolkitRegistry::class, 'factories');
+            $original = $property->getValue();
+            try {
+                $property->setValue(null, []);
+                KatalysisPro::register();
+                $proDefined = [];
+                foreach (ExternalToolkitRegistry::build(static function (): void {
+                }, static fn (): bool => true)->toolkits() as $kit) {
+                    foreach ($kit->tools() as $tool) {
+                        $proDefined[] = $tool->getName();
+                    }
+                }
+            } finally {
+                $property->setValue(null, $original);
+            }
             $this->assertSame([], array_values(array_diff(self::KATALYSIS_PRO_TOOLS, $proDefined)), 'katalysis_pro no longer defines a tool listed as its own');
         }
     }
 
     public function testDisabledToolsOfTheRealKatalysisProToolkitAreNotOffered(): void
     {
-        $toolkit = self::KATALYSIS_PRO_TOOLKIT;
-        if (!class_exists($toolkit)) {
+        if (!KatalysisPro::isInstalled()) {
             $this->markTestSkipped('katalysis_pro is not installed.');
         }
 
-        // The PHPUnit boot doesn't run katalysis_pro's on_start(), so register its toolkit the way its controller does.
+        // The PHPUnit boot doesn't run katalysis_pro's on_start(), so register its tools the way its controller does.
         $property = new \ReflectionProperty(ExternalToolkitRegistry::class, 'factories');
         $original = $property->getValue();
 
         try {
             $property->setValue(null, []);
-            ExternalToolkitRegistry::registerToolkitFactory('p113_katalysis_pro', static fn (): array => [new $toolkit()]);
+            KatalysisPro::register();
             $names = [];
             foreach ((new ConcreteCmsAgent())->getTools() as $item) {
                 foreach ($item instanceof ToolkitInterface ? $item->tools() : [$item] as $tool) {

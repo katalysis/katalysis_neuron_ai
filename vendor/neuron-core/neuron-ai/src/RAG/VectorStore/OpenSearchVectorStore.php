@@ -4,28 +4,36 @@ declare(strict_types=1);
 
 namespace NeuronAI\RAG\VectorStore;
 
-use NeuronAI\RAG\Document;
-use OpenSearch\Client;
 use Exception;
+use JsonException;
+use NeuronAI\Exceptions\VectorStoreException;
+use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentFieldType;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
+use NeuronAI\RAG\VectorStore\Compilers\OpenSearchFilterCompiler;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
+use OpenSearch\Client;
 
 use function array_key_exists;
-use function array_keys;
 use function array_map;
 use function count;
-use function in_array;
+use function implode;
 use function max;
 
 class OpenSearchVectorStore implements VectorStoreInterface
 {
-    protected bool $vectorDimSet = false;
+    use HasDocumentSchema;
 
-    protected array $filters = [];
+    protected bool $vectorDimSet = false;
 
     public function __construct(
         protected Client $client,
         protected string $index,
         protected int $topK = 4,
+        ?DocumentSchema $schema = null,
     ) {
+        $this->initializeSchema($schema);
     }
 
     protected function checkIndexStatus(Document $document): void
@@ -48,6 +56,10 @@ class OpenSearchVectorStore implements VectorStoreInterface
             'sourceName' => [
                 'type' => 'keyword',
             ],
+            MetadataMapper::PAYLOAD_FIELD => [
+                'type' => 'text',
+                'index' => false,
+            ],
             'embedding' => [
                 'type' => 'knn_vector',
                 'dimension' => count($document->getEmbedding()),
@@ -68,10 +80,14 @@ class OpenSearchVectorStore implements VectorStoreInterface
             ],
         ];
 
-        // Map metadata
-        foreach (array_keys($document->metadata) as $name) {
-            $properties[$name] = [
-                'type' => 'keyword',
+        foreach ($this->schema->fields() as $field) {
+            $properties[$field->getName()] = [
+                'type' => match ($field->getType()) {
+                    DocumentFieldType::String, DocumentFieldType::StringArray => 'keyword',
+                    DocumentFieldType::Integer, DocumentFieldType::IntegerArray => 'long',
+                    DocumentFieldType::Float, DocumentFieldType::FloatArray => 'double',
+                    DocumentFieldType::Boolean, DocumentFieldType::BooleanArray => 'boolean',
+                },
             ];
         }
 
@@ -95,20 +111,19 @@ class OpenSearchVectorStore implements VectorStoreInterface
      */
     public function addDocument(Document $document): VectorStoreInterface
     {
-        if ($document->embedding === []) {
-            throw new Exception('Document embedding must be set before adding a document');
-        }
+        $this->validateDocument($document);
 
         $this->checkIndexStatus($document);
 
         $this->client->index([
             'index' => $this->index,
+            'id' => (string) $document->getId(),
             'body' => [
                 'embedding' => $document->getEmbedding(),
                 'content' => $document->getContent(),
                 'sourceType' => $document->getSourceType(),
                 'sourceName' => $document->getSourceName(),
-                ...$document->metadata,
+                ...MetadataMapper::toStorage($document, $this->schema),
             ],
         ]);
 
@@ -117,11 +132,18 @@ class OpenSearchVectorStore implements VectorStoreInterface
         return $this;
     }
 
+    /**
+     * @throws VectorStoreException
+     * @throws JsonException
+     * @throws Exception
+     */
     public function addDocuments(array $documents): VectorStoreInterface
     {
         if ($documents === []) {
             return $this;
         }
+
+        $this->validateDocuments($documents);
 
         if (empty($documents[0]->getEmbedding())) {
             throw new Exception('Document embedding must be set before adding a document');
@@ -137,6 +159,7 @@ class OpenSearchVectorStore implements VectorStoreInterface
             $params['body'][] = [
                 'index' => [
                     '_index' => $this->index,
+                    '_id' => (string) $document->getId(),
                 ],
             ];
             $params['body'][] = [
@@ -144,32 +167,51 @@ class OpenSearchVectorStore implements VectorStoreInterface
                 'content' => $document->getContent(),
                 'sourceType' => $document->getSourceType(),
                 'sourceName' => $document->getSourceName(),
-                ...$document->metadata,
+                ...MetadataMapper::toStorage($document, $this->schema),
             ];
         }
-        $this->client->bulk($params);
+        $response = $this->client->bulk($params);
         $this->client->indices()->refresh(['index' => $this->index]);
+        $this->assertIndexed($documents, $response);
         return $this;
     }
 
     /**
-     * @deprecated Use deleteBy() instead.
+     * The bulk API answers 200 even when it rejects documents: the rejections are listed in the response.
+     *
+     * @param Document[] $documents the documents of the request, in the order they were sent
+     * @param array<string, mixed> $response
+     * @throws VectorStoreException
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    protected function assertIndexed(array $documents, array $response): void
     {
-        return $this->deleteBy($sourceType, $sourceName);
+        if (($response['errors'] ?? false) !== true) {
+            return;
+        }
+
+        $rejections = [];
+        foreach ($response['items'] as $position => $item) {
+            if (isset($item['index']['error'])) {
+                $rejections[] = "[{$documents[$position]->getId()}] {$item['index']['error']['reason']}";
+            }
+        }
+
+        throw new VectorStoreException(
+            'OpenSearch rejected '.count($rejections).' of '.count($documents).' documents: '.implode('; ', $rejections)
+        );
     }
 
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
+    /**
+     * @throws DocumentSchemaException
+     */
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        $query = $sourceName !== null
-            ? "sourceType:{$sourceType} AND sourceName:{$sourceName}"
-            : "sourceType:{$sourceType}";
-
+        $this->validateFilters($filters);
         $this->client->deleteByQuery([
             'index' => $this->index,
-            'q' => $query,
-            'body' => [],
+            'body' => [
+                'query' => (new OpenSearchFilterCompiler())->compile($filters),
+            ],
         ]);
         $this->client->indices()->refresh(['index' => $this->index]);
         return $this;
@@ -177,20 +219,29 @@ class OpenSearchVectorStore implements VectorStoreInterface
 
     /**
      * @return Document[]
+     * @throws DocumentSchemaException|VectorStoreException
      */
-    public function similaritySearch(array $embedding): iterable
+    public function search(SearchRequest $request): iterable
     {
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+        }
+
+        $topK = $request->topK ?? $this->topK;
+
         $searchParams = [
             'index' => $this->index,
             'body' => [
                 'query' => [
                     'knn' => [
                         'embedding' => [
-                            'vector' => $embedding,
-                            'k' => max(50, $this->topK * 4),
+                            'vector' => $request->embedding,
+                            'k' => max(50, $topK * 4),
                         ],
                     ],
                 ],
+                // k sizes the candidate pool; without size, OpenSearch returns its default page of 10 hits
+                'size' => $topK,
                 'sort' => [
                     '_score' => [
                         'order' => 'desc',
@@ -199,25 +250,20 @@ class OpenSearchVectorStore implements VectorStoreInterface
             ],
         ];
 
-        // Hybrid search
-        if ($this->filters !== []) {
-            $searchParams['body']['query']['knn']['filter'] = $this->filters;
+        if ($request->filters instanceof FilterExpression) {
+            $searchParams['body']['query']['knn']['embedding']['filter'] = (new OpenSearchFilterCompiler())->compile($request->filters);
         }
 
         $response = $this->client->search($searchParams);
 
         return array_map(function (array $item): Document {
             $document = new Document($item['_source']['content']);
-            //$document->embedding = $item['_source']['embedding']; // avoid carrying large data
-            $document->sourceType = $item['_source']['sourceType'];
-            $document->sourceName = $item['_source']['sourceName'];
-            $document->score = $item['_score'];
+            $document->setId($item['_id'])
+                ->setSourceType($item['_source']['sourceType'])
+                ->setSourceName($item['_source']['sourceName'])
+                ->setScore($item['_score']);
 
-            foreach ($item['_source'] as $name => $value) {
-                if (!in_array($name, ['content', 'sourceType', 'sourceName', 'score', 'embedding', 'id'])) {
-                    $document->addMetadata($name, $value);
-                }
-            }
+            MetadataMapper::hydrate($document, $item['_source']);
 
             return $document;
         }, $response['hits']['hits']);
@@ -274,11 +320,5 @@ class OpenSearchVectorStore implements VectorStoreInterface
         ]);
 
         $this->vectorDimSet = true;
-    }
-
-    public function withFilters(array $filters): self
-    {
-        $this->filters = $filters;
-        return $this;
     }
 }

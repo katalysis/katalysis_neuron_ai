@@ -4,18 +4,24 @@ declare(strict_types=1);
 
 namespace NeuronAI\Console\Make;
 
+use InvalidArgumentException;
+use NeuronAI\Console\Command;
+use PhpToken;
+use RuntimeException;
 use Throwable;
 
 use function array_key_first;
 use function array_keys;
+use function array_merge_recursive;
 use function array_pop;
 use function array_shift;
+use function array_values;
 use function dirname;
+use function end;
 use function explode;
 use function file_exists;
 use function file_get_contents;
 use function file_put_contents;
-use function fwrite;
 use function getcwd;
 use function implode;
 use function in_array;
@@ -24,19 +30,34 @@ use function is_dir;
 use function json_decode;
 use function ltrim;
 use function mkdir;
+use function preg_match;
 use function rtrim;
 use function str_replace;
 use function str_starts_with;
-use function mb_strlen;
+use function strlen;
+use function strtolower;
 use function substr;
+use function uksort;
 
 use const PHP_EOL;
-use const STDERR;
+use const T_STRING;
 
-abstract class MakeCommand
+class MakeCommand extends Command
 {
-    public function __construct(protected string $resourceType)
-    {
+    /**
+     * Names that tokenize as plain names but cannot name a class.
+     * Keywords are caught by the tokenizer instead.
+     */
+    protected const RESERVED_CLASS_NAMES = [
+        'int', 'float', 'bool', 'string', 'true', 'false', 'null', 'void',
+        'iterable', 'object', 'mixed', 'never', 'self', 'parent', 'static',
+    ];
+
+    public function __construct(
+        protected string $commandName,
+        protected string $resourceType,
+        protected string $stubFile,
+    ) {
     }
 
     /**
@@ -69,7 +90,7 @@ abstract class MakeCommand
      * @param array<string> $args
      * @return array{name: string, help: bool}
      */
-    private function parseArguments(array $args): array
+    protected function parseArguments(array $args): array
     {
         $options = [
             'name' => '',
@@ -82,7 +103,7 @@ abstract class MakeCommand
         foreach ($args as $arg) {
             if ($arg === '--help' || $arg === '-h') {
                 $options['help'] = true;
-            } elseif (!str_starts_with($arg, '-') && empty($options['name'])) {
+            } elseif (empty($options['name']) && !str_starts_with($arg, '-')) {
                 $options['name'] = $arg;
             }
         }
@@ -90,8 +111,10 @@ abstract class MakeCommand
         return $options;
     }
 
-    private function generateClass(string $name): int
+    protected function generateClass(string $name): int
     {
+        $this->validateClassName($name);
+
         [$namespace, $className] = $this->parseNamespaceAndClass($name);
 
         // Check if namespace matches PSR-4 configuration
@@ -113,9 +136,7 @@ abstract class MakeCommand
             return 1;
         }
 
-        $content = $this->getStubContent($namespace, $className);
-
-        if (in_array(file_put_contents($filePath, $content), [0, false], true)) {
+        if (file_put_contents($filePath, $this->getStubContent($namespace, $className)) === false) {
             $this->printError("Failed to create file: {$filePath}");
             return 1;
         }
@@ -125,9 +146,50 @@ abstract class MakeCommand
     }
 
     /**
+     * Every segment ends up in a file path and in the generated source: an
+     * identifier can neither leave the PSR-4 directory nor break the class.
+     * Namespace segments may be keywords (PHP 8.0+), the class name may not.
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function validateClassName(string $name): void
+    {
+        $segments = explode('\\', $name);
+
+        foreach ($segments as $segment) {
+            if (preg_match('/^[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*$/D', $segment) !== 1) {
+                throw new InvalidArgumentException("Invalid class name '{$name}': \"{$segment}\" is not a valid PHP identifier.");
+            }
+        }
+
+        $className = end($segments);
+
+        if (!PhpToken::tokenize("<?php {$className}")[1]->is(T_STRING)
+            || in_array(strtolower($className), self::RESERVED_CLASS_NAMES, true)) {
+            throw new InvalidArgumentException("Invalid class name '{$name}': \"{$className}\" is a reserved word.");
+        }
+    }
+
+    protected function getStubContent(string $namespace, string $className): string
+    {
+        $stubPath = __DIR__ . '/Stubs/' . $this->stubFile;
+        $stub = file_get_contents($stubPath);
+
+        if ($stub === false) {
+            throw new RuntimeException("Failed to read stub file: {$stubPath}");
+        }
+
+        return str_replace(
+            ['[namespace]', '[classname]'],
+            [$namespace, $className],
+            $stub
+        );
+    }
+
+    /**
      * @return array{0: string, 1: string}
      */
-    private function parseNamespaceAndClass(string $name): array
+    protected function parseNamespaceAndClass(string $name): array
     {
         $parts = explode('\\', $name);
         $className = array_pop($parts);
@@ -137,7 +199,7 @@ abstract class MakeCommand
         return [$namespace, $className];
     }
 
-    private function getDefaultNamespace(): string
+    protected function getDefaultNamespace(): string
     {
         $psr4Config = $this->loadPsr4Config();
 
@@ -150,19 +212,23 @@ abstract class MakeCommand
         return rtrim($firstNamespace, '\\');
     }
 
-    private function getFilePath(string $namespace, string $className): string
+    protected function getFilePath(string $namespace, string $className): string
     {
         $psr4Config = $this->loadPsr4Config();
 
-        foreach ($psr4Config as $namespacePrefix => $directory) {
+        // Like Composer's autoloader, the longest matching prefix wins
+        uksort($psr4Config, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        foreach ($psr4Config as $namespacePrefix => $directories) {
             if (str_starts_with($namespace . '\\', $namespacePrefix)) {
                 // Remove the namespace prefix and convert to file path
-                $relativePath = substr($namespace, mb_strlen(rtrim($namespacePrefix, '\\')));
+                $relativePath = substr($namespace, strlen(rtrim($namespacePrefix, '\\')));
                 $relativePath = str_replace('\\', '/', ltrim($relativePath, '\\'));
 
-                $basePath = getcwd() . '/' . rtrim($directory, '/');
+                // A prefix mapped to several directories receives new files in the first
+                $basePath = getcwd() . '/' . rtrim($directories[0], '/');
 
-                return $basePath . ($relativePath !== '' && $relativePath !== '0' ? '/' . $relativePath : '') . '/' . $className . '.php';
+                return $basePath . ($relativePath !== '' ? '/' . $relativePath : '') . '/' . $className . '.php';
             }
         }
 
@@ -172,9 +238,11 @@ abstract class MakeCommand
     }
 
     /**
-     * @return array<string, string>
+     * Composer maps a prefix to one directory or to a list of them.
+     *
+     * @return array<string, non-empty-list<string>>
      */
-    private function loadPsr4Config(): array
+    protected function loadPsr4Config(): array
     {
         $composerPath = getcwd() . '/composer.json';
 
@@ -188,14 +256,29 @@ abstract class MakeCommand
         }
 
         $composerData = json_decode($composerContent, true);
-        if (!is_array($composerData) || !isset($composerData['autoload']['psr-4'])) {
+        if (!is_array($composerData)) {
             return [];
         }
 
-        return $composerData['autoload']['psr-4'];
+        // Production prefixes come first: they provide the default namespace and directory
+        $psr4 = array_merge_recursive(
+            $composerData['autoload']['psr-4'] ?? [],
+            $composerData['autoload-dev']['psr-4'] ?? [],
+        );
+
+        $prefixes = [];
+        foreach ($psr4 as $prefix => $directories) {
+            $directories = array_values((array) $directories);
+
+            if ($directories !== []) {
+                $prefixes[$prefix] = $directories;
+            }
+        }
+
+        return $prefixes;
     }
 
-    private function namespaceBelongsToPsr4(string $namespace): bool
+    protected function namespaceBelongsToPsr4(string $namespace): bool
     {
         $psr4Config = $this->loadPsr4Config();
 
@@ -208,7 +291,7 @@ abstract class MakeCommand
         return false;
     }
 
-    private function printAvailableNamespaces(): void
+    protected function printAvailableNamespaces(): void
     {
         $psr4Config = $this->loadPsr4Config();
 
@@ -217,20 +300,18 @@ abstract class MakeCommand
         }
 
         echo "Available PSR-4 namespaces:" . PHP_EOL;
-        foreach ($psr4Config as $namespace => $directory) {
-            echo "  {$namespace} -> {$directory}" . PHP_EOL;
+        foreach ($psr4Config as $namespace => $directories) {
+            echo "  {$namespace} -> " . implode(', ', $directories) . PHP_EOL;
         }
         echo PHP_EOL;
     }
-
-    abstract protected function getStubContent(string $namespace, string $className): string;
 
     protected function printUsage(): void
     {
         $usage = <<<USAGE
             Create a new {$this->resourceType}
 
-            Usage: neuron make:{$this->resourceType} [namespace\\]ClassName
+            Usage: neuron {$this->commandName} [namespace\\]ClassName
 
             Arguments:
               name    The name of the {$this->resourceType} class (with optional namespace)
@@ -239,28 +320,13 @@ abstract class MakeCommand
               --help, -h   Show this help message
 
             Examples:
-              neuron make:{$this->resourceType} MyClass
-              neuron make:{$this->resourceType} MyApp\\Services\\MyClass
+              neuron {$this->commandName} MyClass
+              neuron {$this->commandName} MyApp\\Services\\MyClass
 
             If no namespace is provided, the default PSR-4 namespace from composer.json will be used.
 
             USAGE;
 
         echo $usage . PHP_EOL;
-    }
-
-    protected function printError(string $message): void
-    {
-        fwrite(STDERR, "Error: {$message}" . PHP_EOL);
-    }
-
-    protected function printWarning(string $message): void
-    {
-        echo "Warning: {$message}" . PHP_EOL;
-    }
-
-    protected function printSuccess(string $message): void
-    {
-        echo "Success: {$message}" . PHP_EOL;
     }
 }

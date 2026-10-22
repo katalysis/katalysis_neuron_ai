@@ -172,6 +172,7 @@ class NeuronProvider implements CapabilityProvider
 - Descriptors are checked against a JSON Schema when packages are installed or updated, and the results show on that page.
 - Version handling: a provider declares the `apiVersion` it targets. The core supports the current and previous major version, and warns on mismatch rather than crashing.
 - Dependency safety: listeners only run when Neuron dispatches the event, and descriptors are plain JSON, so a package never fails to load without Neuron.
+- A toolkit that fails to build is skipped, not fatal (since P2.2, decided after P2.1): its tools are built once per agent inside a try; one that throws is left out, logged with secrets redacted, and listed on the settings page (later the Extensions page), so the rest of the assistant keeps working and the loss is visible.
 
 ## Applied to what we have
 
@@ -184,7 +185,7 @@ class NeuronProvider implements CapabilityProvider
 | EPRA rules in `instructions()` | `use_when` in the descriptors, plus EPRA guidelines |
 | `KatalysisProEntitiesToolkit` (extends Neuron classes, guarded by `class_exists`) | A `katalysis_pro` `CapabilityProvider` registered via the event. No Neuron classes. |
 | `PeopleToolkit` in core (duplicates katalysis_pro's) | Removed from core. People belongs to `katalysis_pro`. |
-| `ExternalToolkitRegistry` (never loaded) | Replaced by the event and `CapabilityRegistry`. Keep a shim for one release. |
+| `ExternalToolkitRegistry` (loaded since P1.6; `registerToolDefinitions()` since P2.8) | Replaced by the event and `CapabilityRegistry` in P3.10. Keep `registerToolkitFactory()` and `registerToolDefinitions()` as a shim for one release. |
 
 ## Payoff for later phases
 - **Tier 3 generator:** every package the generator produces also produces its own descriptors and provider. Everything it builds can be edited by the assistant from day one.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace [namespace];
 
+use NeuronAI\Agent\SystemPrompt;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\RAG\Embeddings\EmbeddingsProviderInterface;
 use NeuronAI\RAG\RAG;

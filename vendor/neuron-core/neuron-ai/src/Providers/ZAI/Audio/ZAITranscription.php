@@ -10,19 +10,22 @@ use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ContentBlocks\AudioContent;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\Stream\Chunks\TextChunk;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\MessageMapperInterface;
+use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\Providers\SSEParser;
 use NeuronAI\Providers\ToolMapperInterface;
 use NeuronAI\UniqueIdGenerator;
 
+use function rtrim;
 use function end;
 use function fopen;
 
@@ -40,23 +43,31 @@ class ZAITranscription implements AIProviderInterface
      */
     protected ?string $system = null;
 
+    /**
+     * @param array<string, mixed> $parameters Extra request fields. A file upload sends them as
+     *        multipart form fields, where every value becomes a string: pass 'true', not true.
+     */
     public function __construct(
         protected string $key,
         protected string $model,
         protected array $parameters = [],
         ?HttpClientInterface $httpClient = null
     ) {
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->baseUri)
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Authorization' => 'Bearer ' . $this->key,
-            ]);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Authorization' => 'Bearer ' . $this->key,
+        ];
     }
 
-    public function systemPrompt(?string $prompt): AIProviderInterface
+    public function getModel(): string
     {
-        $this->system = $prompt;
+        return $this->model;
+    }
+
+    public function systemPrompt(SystemMessage|string|null $prompt): AIProviderInterface
+    {
+        $this->system = $prompt instanceof SystemMessage ? $prompt->getContent() : $prompt;
         return $this;
     }
 
@@ -64,12 +75,13 @@ class ZAITranscription implements AIProviderInterface
      * @throws HttpException
      * @throws ProviderException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
         $message = end($messages);
 
         $body = [
             'model' => $this->model,
+            ...$this->parameters,
         ];
 
         $this->addFile($body, $message->getAudio());
@@ -80,8 +92,9 @@ class ZAITranscription implements AIProviderInterface
 
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'audio/transcriptions',
-                body: $body
+                uri: rtrim($this->baseUri, '/') . '/audio/transcriptions',
+                body: $body,
+                headers: $this->httpHeaders,
             )
         )->json();
 
@@ -96,7 +109,7 @@ class ZAITranscription implements AIProviderInterface
             );
         }
 
-        return $message;
+        return new ProviderResponse(message: $message);
     }
 
     /**
@@ -110,6 +123,7 @@ class ZAITranscription implements AIProviderInterface
         $body = [
             'stream' => true,
             'model' => $this->model,
+            ...$this->parameters,
         ];
 
         $this->addFile($body, $message->getAudio());
@@ -120,8 +134,9 @@ class ZAITranscription implements AIProviderInterface
 
         $stream = $this->httpClient->stream(
             HttpRequest::post(
-                uri: 'audio/transcriptions',
-                body: $body
+                uri: rtrim($this->baseUri, '/') . '/audio/transcriptions',
+                body: $body,
+                headers: $this->httpHeaders,
             )
         );
 
@@ -146,8 +161,8 @@ class ZAITranscription implements AIProviderInterface
         }
 
         $message = new AssistantMessage($content);
-        $message->setUsage($usage);
-        return $message;
+        $message->setId($msgId)->setUsage($usage);
+        return new ProviderResponse(message: $message);
     }
 
     protected function addFile(array &$body, AudioContent $audio): void
@@ -161,17 +176,17 @@ class ZAITranscription implements AIProviderInterface
         }
     }
 
-    public function structured(array|Message $messages, string $class, array $response_schema): Message
+    public function structured(array|Message $messages, string $class, array $response_schema): ProviderResponse
     {
         throw new ProviderException('Structured output is not supported for transcription.');
     }
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
         throw new ProviderException('Messages are not supported for transcription.');
     }
 
-    public function toolPayloadMapper(): ToolMapperInterface
+    protected function toolPayloadMapper(): ToolMapperInterface
     {
         throw new ProviderException('Tools are not supported for transcription.');
     }

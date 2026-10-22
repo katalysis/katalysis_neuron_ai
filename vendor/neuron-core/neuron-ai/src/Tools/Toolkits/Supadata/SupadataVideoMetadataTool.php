@@ -4,25 +4,27 @@ declare(strict_types=1);
 
 namespace NeuronAI\Tools\Toolkits\Supadata;
 
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 
-use function json_decode;
-
 /**
- * @method static static make(string $key)
+ * @method static static make(string $key, ?HttpClientInterface $httpClient = null)
+ * @deprecated The Supadata toolkit will be removed in the next major version.
  */
 class SupadataVideoMetadataTool extends Tool
 {
     use HttpClient;
 
-    public function __construct(protected string $key)
+    protected string $name = 'get_video_metadata';
+
+    protected ?string $description = 'Retrieve the metadata of a youtube video.';
+
+    public function __construct(protected string $key, ?HttpClientInterface $httpClient = null)
     {
-        parent::__construct(
-            'get_video_metadata',
-            'Retrieve the metadata of a youtube video.',
-        );
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
     }
 
     protected function properties(): array
@@ -39,9 +41,8 @@ class SupadataVideoMetadataTool extends Tool
 
     public function __invoke(string $video): array
     {
-        $response = $this->getClient($this->key)
-            ->get('youtube/video?id=' . $video);
+        $response = $this->get('youtube/video', ['id' => $video]);
 
-        return json_decode((string) $response->getBody(), true);
+        return $response->json();
     }
 }

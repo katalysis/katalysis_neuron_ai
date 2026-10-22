@@ -4,25 +4,33 @@ declare(strict_types=1);
 
 namespace NeuronAI\RAG\VectorStore;
 
+use NeuronAI\Exceptions\VectorStoreException;
 use NeuronAI\RAG\Document;
+use NeuronAI\RAG\Schema\DocumentSchema;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
 use NeuronAI\RAG\VectorSimilarity;
-use Exception;
+use NeuronAI\RAG\VectorStore\Compilers\MariaDBFilterCompiler;
+use NeuronAI\RAG\VectorStore\Filter\FilterExpression;
 use PDO;
 
 use function array_chunk;
 use function in_array;
+use function is_array;
 use function json_decode;
 use function json_encode;
 use function sprintf;
-use function is_array;
 
 class MariaDBVectorStore implements VectorStoreInterface
 {
+    use HasDocumentSchema;
+
     public function __construct(
         protected PDO $pdo,
         protected string $tableName = 'rag_documents',
         protected int $topK = 4,
+        ?DocumentSchema $schema = null,
     ) {
+        $this->initializeSchema($schema);
     }
 
     /**
@@ -39,7 +47,7 @@ class MariaDBVectorStore implements VectorStoreInterface
                     sourceName VARCHAR(255),
                     metadata JSON,
                     embedding VECTOR(%d) NOT NULL,
-                    VECTOR INDEX (embedding)
+                    VECTOR INDEX (embedding) DISTANCE=cosine
                 )
                 SQL,
             $this->tableName,
@@ -52,16 +60,24 @@ class MariaDBVectorStore implements VectorStoreInterface
         $this->pdo->exec(sprintf('DROP TABLE IF EXISTS %s', $this->tableName));
     }
 
+    /**
+     * @throws VectorStoreException
+     */
     public function addDocument(Document $document): VectorStoreInterface
     {
         return $this->addDocuments([$document]);
     }
 
+    /**
+     * @throws VectorStoreException
+     */
     public function addDocuments(array $documents): VectorStoreInterface
     {
         if ($documents === []) {
             return $this;
         }
+
+        $this->validateDocuments($documents);
 
         $stmt = $this->pdo->prepare(sprintf(
             <<<'SQL'
@@ -72,7 +88,7 @@ class MariaDBVectorStore implements VectorStoreInterface
                     sourceType = VALUES(sourceType),
                     sourceName = VALUES(sourceName),
                     metadata = VALUES(metadata),
-                    embedding = VEC_FromText(VALUES(embedding))
+                    embedding = VALUES(embedding)
                 SQL,
             $this->tableName,
         ));
@@ -81,16 +97,12 @@ class MariaDBVectorStore implements VectorStoreInterface
 
         foreach ($chunks as $chunk) {
             foreach ($chunk as $document) {
-                if ($document->embedding === []) {
-                    throw new Exception('Document embedding must be set before adding a document');
-                }
-
                 $stmt->execute([
                     ':id' => $document->getId(),
                     ':content' => $document->getContent(),
                     ':sourceType' => $document->getSourceType(),
                     ':sourceName' => $document->getSourceName(),
-                    ':metadata' => json_encode($document->metadata),
+                    ':metadata' => json_encode($document->getMetadata()),
                     ':embedding' => json_encode($document->getEmbedding()),
                 ]);
             }
@@ -100,61 +112,67 @@ class MariaDBVectorStore implements VectorStoreInterface
     }
 
     /**
-     * @deprecated Use deleteBy() instead.
+     * @throws DocumentSchemaException
      */
-    public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
+    public function delete(FilterExpression $filters): VectorStoreInterface
     {
-        return $this->deleteBy($sourceType, $sourceName);
-    }
+        $this->validateFilters($filters);
+        $compiled = (new MariaDBFilterCompiler($this->schema))->compile($filters);
 
-    public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
-    {
-        if ($sourceName !== null) {
-            $stmt = $this->pdo->prepare(sprintf(
-                'DELETE FROM %s WHERE sourceType = :sourceType AND sourceName = :sourceName',
-                $this->tableName,
-            ));
-            $stmt->execute([':sourceType' => $sourceType, ':sourceName' => $sourceName]);
-        } else {
-            $stmt = $this->pdo->prepare(sprintf(
-                'DELETE FROM %s WHERE sourceType = :sourceType',
-                $this->tableName,
-            ));
-            $stmt->execute([':sourceType' => $sourceType]);
-        }
+        $stmt = $this->pdo->prepare(sprintf(
+            'DELETE FROM %s WHERE %s',
+            $this->tableName,
+            $compiled['sql'],
+        ));
+        $stmt->execute($compiled['bindings']);
 
         return $this;
     }
 
-    public function similaritySearch(array $embedding): iterable
+    /**
+     * @throws DocumentSchemaException
+     */
+    public function search(SearchRequest $request): iterable
     {
+        $where = '';
+        $bindings = [':embedding' => json_encode($request->embedding)];
+
+        if ($request->filters instanceof FilterExpression) {
+            $this->validateFilters($request->filters);
+            $compiled = (new MariaDBFilterCompiler($this->schema))->compile($request->filters);
+            $where = 'WHERE ' . $compiled['sql'];
+            $bindings = [...$bindings, ...$compiled['bindings']];
+        }
+
         $stmt = $this->pdo->prepare(sprintf(
             <<<'SQL'
                 SELECT id, content, sourceType, sourceName, metadata,
-                       VEC_DISTANCE_EUCLIDEAN(embedding, VEC_FromText(:embedding)) AS distance
+                       VEC_DISTANCE_COSINE(embedding, VEC_FromText(:embedding)) AS distance
                 FROM %s
+                %s
                 ORDER BY distance ASC
                 LIMIT %d
                 SQL,
             $this->tableName,
-            $this->topK,
+            $where,
+            $request->topK ?? $this->topK,
         ));
 
-        $stmt->execute([':embedding' => json_encode($embedding)]);
+        $stmt->execute($bindings);
 
         $documents = [];
 
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $document = new Document($row['content']);
-            $document->id = $row['id'];
-            $document->sourceType = $row['sourceType'];
-            $document->sourceName = $row['sourceName'];
-            $document->score = VectorSimilarity::similarityFromDistance((float) $row['distance']);
+            $document->setId($row['id'])
+                ->setSourceType($row['sourceType'])
+                ->setSourceName($row['sourceName'])
+                ->setScore(VectorSimilarity::similarityFromDistance((float) $row['distance']));
 
             $metadata = json_decode($row['metadata'] ?? '{}', true);
             if (is_array($metadata)) {
                 foreach ($metadata as $key => $value) {
-                    if (!in_array($key, ['content', 'sourceType', 'sourceName', 'score', 'embedding', 'id'])) {
+                    if (!in_array($key, DocumentSchema::RESERVED_FIELDS, true)) {
                         $document->addMetadata($key, $value);
                     }
                 }

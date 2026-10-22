@@ -16,13 +16,9 @@ use function json_encode;
 
 class CalculateAgeTool extends Tool
 {
-    public function __construct()
-    {
-        parent::__construct(
-            name: 'calculate_age',
-            description: 'Calculate age in years, months, and days from birthdate to a reference date',
-        );
-    }
+    protected string $name = 'calculate_age';
+
+    protected ?string $description = 'Calculate age in years, months, and days from birthdate to a reference date';
 
     protected function properties(): array
     {
@@ -71,6 +67,10 @@ class CalculateAgeTool extends Tool
                 $reference = is_numeric($reference_date)
                     ? (new DateTime())->setTimestamp((int) $reference_date)->setTimezone($tz)
                     : new DateTime($reference_date, $tz);
+            }
+
+            if ($birth > $reference) {
+                return 'Error: The birthdate is after the reference date.';
             }
 
             $interval = $birth->diff($reference);

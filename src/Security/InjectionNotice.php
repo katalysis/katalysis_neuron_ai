@@ -84,6 +84,9 @@ final class InjectionNotice
     /**
      * The stored chat history (JSON) with a "notice" text added to every assistant message that carries the
      * metadata key. Anything that isn't a JSON list of messages is returned as it was.
+     *
+     * Neuron 4 serializes a message's metadata under "__meta" (ChatMessageStore::transcriptJson(), P2.5); Neuron 3 put
+     * it beside the message's own fields. Both are read, as Neuron's MessageDeserializer reads both.
      */
     public static function annotateHistoryJson(string $json): string
     {
@@ -94,11 +97,15 @@ final class InjectionNotice
 
         $changed = false;
         foreach ($messages as $i => $message) {
-            if (!is_array($message) || ($message['role'] ?? null) !== 'assistant' || !isset($message[self::META_KEY])) {
+            if (!is_array($message) || ($message['role'] ?? null) !== 'assistant') {
                 continue;
             }
-            $source = isset($message[self::META_SOURCE_KEY]) && is_string($message[self::META_SOURCE_KEY]) ? $message[self::META_SOURCE_KEY] : null;
-            $text = is_string($message[self::META_KEY]) ? self::text($message[self::META_KEY], $source) : null;
+            $meta = is_array($message['__meta'] ?? null) ? $message['__meta'] : $message;
+            if (!isset($meta[self::META_KEY])) {
+                continue;
+            }
+            $source = isset($meta[self::META_SOURCE_KEY]) && is_string($meta[self::META_SOURCE_KEY]) ? $meta[self::META_SOURCE_KEY] : null;
+            $text = is_string($meta[self::META_KEY]) ? self::text($meta[self::META_KEY], $source) : null;
             if ($text !== null) {
                 $messages[$i]['notice'] = $text;
                 $changed = true;

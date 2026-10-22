@@ -4,27 +4,27 @@ declare(strict_types=1);
 
 namespace NeuronAI\RAG;
 
-use Inspector\Exceptions\InspectorException;
 use NeuronAI\Agent\Agent;
-use NeuronAI\Agent\Events\AgentStartEvent;
 use NeuronAI\Exceptions\AgentException;
-use NeuronAI\Providers\AIProviderInterface;
+use NeuronAI\Exceptions\VectorStoreException;
+use NeuronAI\Workflow\WorkflowState;
 use NeuronAI\RAG\Nodes\InstructionsNode;
 use NeuronAI\RAG\Nodes\PostProcessNode;
 use NeuronAI\RAG\Nodes\PreProcessNode;
 use NeuronAI\RAG\Nodes\RetrievalNode;
 use NeuronAI\RAG\PostProcessor\PostProcessorInterface;
 use NeuronAI\RAG\PreProcessor\PreProcessorInterface;
+use NeuronAI\RAG\Schema\DocumentSchemaException;
+use NeuronAI\RAG\VectorStore\Filter\Filter;
+use NeuronAI\RAG\VectorStore\Filter\FilterGroup;
 use NeuronAI\Workflow\Node;
 
 use function array_chunk;
-use function array_keys;
-use function array_merge;
-use function explode;
-use function is_array;
+use function array_map;
+use function get_debug_type;
 
 /**
- * @method static static make(?AIProviderInterface $aiProvider = null, ?string $resumeToken = null)
+ * @method static static make(?string $workflowId = null, ?WorkflowState $state = null)
  */
 class RAG extends Agent
 {
@@ -33,61 +33,40 @@ class RAG extends Agent
     use ResolveRetrieval;
 
     /**
-     * @var PreProcessorInterface[]
+     * @var PreProcessorInterface[]|null
      */
-    protected array $preProcessors = [];
+    protected ?array $preProcessors = null;
 
     /**
-     * @var PostProcessorInterface[]
+     * @var PostProcessorInterface[]|null
      */
-    protected array $postProcessors = [];
-
-    protected function startEvent(): AgentStartEvent
-    {
-        return new AgentStartEvent();
-    }
+    protected ?array $postProcessors = null;
 
     /**
-     * @param Node|Node[] $nodes Mode-specific nodes (ChatNode, StreamingNode, etc.)
+     * The retrieval chain replaces the Agent's StartNode as the entry chain:
+     * RAG's inference event is born at its end, in InstructionsNode.
      *
-     * @throws InspectorException
-     */
-    protected function compose(array|Node $nodes): void
-    {
-        if ($this->eventNodeMap !== []) {
-            // it's already been bootstrapped
-            return;
-        }
-
-        $nodes = is_array($nodes) ? $nodes : [$nodes];
-
-        $nodes = array_merge($nodes, $this->ragNodes());
-
-        parent::compose($nodes);
-    }
-
-    /**
      * @return Node[]
-     *
-     * @throws InspectorException
      */
-    protected function ragNodes(): array
+    protected function entryNodes(): array
     {
         return [
-            new PreProcessNode($this->preProcessors()),
-            new RetrievalNode($this->resolveRetrieval()),
-            new PostProcessNode($this->postProcessors()),
-            new InstructionsNode($this->resolveInstructions(), $this->bootstrapTools()),
+            new PreProcessNode($this->preProcessors ?? $this->preProcessors()),
+            new RetrievalNode($this->resolveRetrieval(), $this->resolveRetrievalScope()),
+            new PostProcessNode($this->postProcessors ?? $this->postProcessors()),
+            new InstructionsNode(),
         ];
     }
 
     /**
-     * Feed the vector store with documents.
-     *
      * @param Document[] $documents
+     * @throws AgentException
+     * @throws DocumentSchemaException
      */
     public function addDocuments(array $documents, int $chunkSize = 50): void
     {
+        $this->validateBatch($documents, $chunkSize);
+
         foreach (array_chunk($documents, $chunkSize) as $chunk) {
             $this->resolveVectorStore()->addDocuments(
                 $this->resolveEmbeddingsProvider()->embedDocuments($chunk)
@@ -96,86 +75,114 @@ class RAG extends Agent
     }
 
     /**
-     * Reindex documents by source (delete old, add new).
+     * Replaces the stored documents of each source. The whole batch is validated, and each source's
+     * chunks are embedded before its old documents are deleted, so a failed validation or embedding
+     * call leaves the source as it was.
      *
      * @param Document[] $documents
+     * @throws AgentException|DocumentSchemaException|VectorStoreException
      */
     public function reindexBySource(array $documents, int $chunkSize = 50): void
     {
+        $this->validateBatch($documents, $chunkSize);
+
         $grouped = [];
 
         foreach ($documents as $document) {
-            $key = $document->sourceType . ':' . $document->sourceName;
+            $sourceType = $document->getSourceType();
+            $sourceName = $document->getSourceName();
 
-            if (!isset($grouped[$key])) {
-                $grouped[$key] = [];
-            }
+            $grouped[$sourceType][$sourceName] ??= [];
 
-            $grouped[$key][] = $document;
+            $grouped[$sourceType][$sourceName][] = $document;
         }
 
-        foreach (array_keys($grouped) as $key) {
-            [$sourceType, $sourceName] = explode(':', $key);
-            $this->resolveVectorStore()->deleteBy($sourceType, $sourceName);
-            $this->addDocuments($grouped[$key], $chunkSize);
+        foreach ($grouped as $sources) {
+            foreach ($sources as $sourceDocuments) {
+                $chunks = array_map(
+                    fn (array $chunk): array => $this->resolveEmbeddingsProvider()->embedDocuments($chunk),
+                    array_chunk($sourceDocuments, $chunkSize)
+                );
+
+                // Read from a document: as an array key, a name made of digits has become an integer
+                $this->resolveVectorStore()->delete(FilterGroup::and(
+                    Filter::eq('sourceType', $sourceDocuments[0]->getSourceType()),
+                    Filter::eq('sourceName', $sourceDocuments[0]->getSourceName()),
+                ));
+
+                foreach ($chunks as $chunk) {
+                    $this->resolveVectorStore()->addDocuments($chunk);
+                }
+            }
         }
     }
 
     /**
-     * Set preprocessors for query transformation.
+     * The whole batch is checked before anything is embedded or stored.
      *
+     * @param Document[] $documents
+     * @throws AgentException|DocumentSchemaException
+     */
+    protected function validateBatch(array $documents, int $chunkSize): void
+    {
+        if ($chunkSize < 1) {
+            throw new AgentException('RAG document chunk size must be greater than zero.');
+        }
+
+        $schema = $this->resolveVectorStore()->getSchema();
+
+        foreach ($documents as $document) {
+            $schema->validate($document);
+        }
+    }
+
+    /**
      * @param PreProcessorInterface[] $preProcessors
      * @throws AgentException
      */
-    public function setPreProcessors(array $preProcessors): RAG
+    public function setPreProcessors(array $preProcessors): static
     {
         foreach ($preProcessors as $processor) {
             if (! $processor instanceof PreProcessorInterface) {
-                throw new AgentException($processor::class." must implement ".PreProcessorInterface::class);
+                throw new AgentException(get_debug_type($processor)." must implement ".PreProcessorInterface::class);
             }
-
-            $this->preProcessors[] = $processor;
         }
+
+        $this->preProcessors = $preProcessors;
 
         return $this;
     }
 
     /**
-     * Set post-processors for document transformation.
-     *
      * @param PostProcessorInterface[] $postProcessors
      * @throws AgentException
      */
-    public function setPostProcessors(array $postProcessors): RAG
+    public function setPostProcessors(array $postProcessors): static
     {
         foreach ($postProcessors as $processor) {
             if (! $processor instanceof PostProcessorInterface) {
-                throw new AgentException($processor::class." must implement ".PostProcessorInterface::class);
+                throw new AgentException(get_debug_type($processor)." must implement ".PostProcessorInterface::class);
             }
-
-            $this->postProcessors[] = $processor;
         }
+
+        $this->postProcessors = $postProcessors;
 
         return $this;
     }
 
     /**
-     * Get configured preprocessors.
-     *
      * @return PreProcessorInterface[]
      */
     protected function preProcessors(): array
     {
-        return $this->preProcessors;
+        return [];
     }
 
     /**
-     * Get configured post-processors.
-     *
      * @return PostProcessorInterface[]
      */
     protected function postProcessors(): array
     {
-        return $this->postProcessors;
+        return [];
     }
 }

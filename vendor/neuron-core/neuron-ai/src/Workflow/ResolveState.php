@@ -4,24 +4,32 @@ declare(strict_types=1);
 
 namespace NeuronAI\Workflow;
 
+use function serialize;
+use function unserialize;
+
+/** @template TState of WorkflowState */
 trait ResolveState
 {
-    public function setState(WorkflowState $state): WorkflowInterface
+    /** @param TState $state */
+    public function setState(WorkflowState $state): static
     {
-        $this->state = $state;
+        $this->initialState = $state;
         return $this;
     }
 
+    /** @return TState */
     protected function state(): WorkflowState
     {
         return new WorkflowState();
     }
 
     /**
-     * Get the current instance of the chat history.
+     * Build fresh working state. A configured seed is serializable data; the hook returns a new live instance.
+     *
+     * @return TState
      */
-    public function resolveState(): WorkflowState
+    final protected function newState(): WorkflowState
     {
-        return $this->state ??= $this->state();
+        return $this->initialState === null ? $this->state() : unserialize(serialize($this->initialState));
     }
 }

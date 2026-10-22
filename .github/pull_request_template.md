@@ -11,11 +11,11 @@ Task ID and title from `documentation/DELIVERY_PLAN.md`:
 - [ ] Manual test on the dev site:
 - [ ] No unplanned file deletions or rewrites
 - [ ] No edits to `vendor/` (unless this is a dependency task)
-- [ ] `PROGRESS.md` entry (with Who / tool / model, Time, Cost) and the `DELIVERY_PLAN.md` tick, as the last commit
+- [ ] `PROGRESS.md` entry (with Who / tool / model, Time, Scenario spend) and the `DELIVERY_PLAN.md` tick, as the last commit
 
 ## Deviations from the plan / decisions needed
 
-## Who / tool / model, time, cost
+## Who / tool / model, time, scenario spend
 - Who / tool / model:
-- Time (elapsed; own time):
-- Cost (`/usage`; scenario spend):
+- Time (elapsed; own time only if volunteered, otherwise "not recorded"):
+- Scenario spend:

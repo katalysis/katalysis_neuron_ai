@@ -8,22 +8,26 @@ use Generator;
 use NeuronAI\Chat\Enums\SourceType;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ContentBlocks\ImageContent;
-use NeuronAI\Chat\Messages\ContentBlocks\TextContent;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\Stream\Chunks\ImageChunk;
+use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Exceptions\ProviderException;
-use NeuronAI\HttpClient\GuzzleHttpClient;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\HttpClient\HasHttpClient;
 use NeuronAI\HttpClient\HttpClientInterface;
 use NeuronAI\HttpClient\HttpRequest;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\MessageMapperInterface;
+use NeuronAI\Providers\ProviderResponse;
 use NeuronAI\Providers\SSEParser;
 use NeuronAI\Providers\ToolMapperInterface;
 use NeuronAI\UniqueIdGenerator;
 
+use function implode;
+use function array_filter;
+use function rtrim;
 use function end;
 use function is_string;
 
@@ -48,19 +52,32 @@ class OpenAIImage implements AIProviderInterface
         protected array $parameters = [],
         ?HttpClientInterface $httpClient = null
     ) {
-        $this->httpClient = ($httpClient ?? new GuzzleHttpClient())
-            ->withBaseUri($this->baseUri)
-            ->withHeaders([
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer ' . $this->key,
-            ]);
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
+        $this->httpHeaders = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $this->key,
+        ];
     }
 
-    public function systemPrompt(?string $prompt): AIProviderInterface
+    public function getModel(): string
     {
-        $this->system = $prompt;
+        return $this->model;
+    }
+
+    public function systemPrompt(SystemMessage|string|null $prompt): AIProviderInterface
+    {
+        $this->system = $prompt instanceof SystemMessage ? $prompt->getContent() : $prompt;
         return $this;
+    }
+
+    /**
+     * The image prompt: the message text, then the system prompt. Built as a
+     * string so the caller's message, which the chat history holds, stays untouched.
+     */
+    protected function prompt(Message $message): string
+    {
+        return implode(' ', array_filter([$message->getContent(), $this->system], static fn (?string $text): bool => $text !== null && $text !== ''));
     }
 
     /**
@@ -68,25 +85,22 @@ class OpenAIImage implements AIProviderInterface
      *
      * @throws HttpException
      */
-    public function chat(Message ...$messages): Message
+    public function chat(Message ...$messages): ProviderResponse
     {
         $message = end($messages);
 
-        if ($this->system ?? false) {
-            $message->addContent(new TextContent($this->system));
-        }
-
         $body = [
             'model' => $this->model,
-            'prompt' => $message->getContent(),
+            'prompt' => $this->prompt($message),
             'output_format' => $this->output_format,
             ...$this->parameters,
         ];
 
         $response = $this->httpClient->request(
             HttpRequest::post(
-                uri: 'images/generations',
-                body: $body
+                uri: rtrim($this->baseUri, '/') . '/images/generations',
+                body: $body,
+                headers: $this->httpHeaders,
             )
         )->json();
 
@@ -103,7 +117,7 @@ class OpenAIImage implements AIProviderInterface
             )
         );
 
-        if ($response['usage']) {
+        if (isset($response['usage'])) {
             $result->setUsage(
                 new Usage(
                     $response['usage']['input_tokens'],
@@ -112,7 +126,7 @@ class OpenAIImage implements AIProviderInterface
             );
         }
 
-        return $result;
+        return new ProviderResponse(message: $result);
     }
 
     /**
@@ -125,22 +139,19 @@ class OpenAIImage implements AIProviderInterface
     {
         $message = end($messages);
 
-        if ($this->system ?? false) {
-            $message->addContent(new TextContent($this->system));
-        }
-
         $body = [
             'stream' => true,
             'model' => $this->model,
-            'prompt' => $message->getContent(),
+            'prompt' => $this->prompt($message),
             'output_format' => $this->output_format,
             ...$this->parameters,
         ];
 
         $stream = $this->httpClient->stream(
             HttpRequest::post(
-                uri: 'images/generations',
-                body: $body
+                uri: rtrim($this->baseUri, '/') . '/images/generations',
+                body: $body,
+                headers: $this->httpHeaders,
             )
         );
 
@@ -200,22 +211,22 @@ class OpenAIImage implements AIProviderInterface
             )
         );
 
-        $result->setUsage($usage);
+        $result->setId($messageId)->setUsage($usage);
 
-        return $result;
+        return new ProviderResponse(message: $result);
     }
 
-    public function structured(array|Message $messages, string $class, array $response_schema): Message
+    public function structured(array|Message $messages, string $class, array $response_schema): ProviderResponse
     {
         throw new ProviderException('Structured output is not supported by OpenAI Text to Speech.');
     }
 
-    public function messageMapper(): MessageMapperInterface
+    protected function messageMapper(): MessageMapperInterface
     {
         throw new ProviderException('Messages are not supported by OpenAI Text to Speech.');
     }
 
-    public function toolPayloadMapper(): ToolMapperInterface
+    protected function toolPayloadMapper(): ToolMapperInterface
     {
         throw new ProviderException('Tools are not supported by OpenAI Text to Speech.');
     }

@@ -11,6 +11,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use Concrete\Core\File\File;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -40,12 +41,12 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeListFileAttributesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_file_attributes',
             'List all file attributes defined in the system with their handles, names, and types.'
         );
 
-        $tool->setCallable($this->guarded(function (): array {
+        $tool->setHandler($this->guarded(function (): array {
             $attributes = FileAttributeKey::getList();
             $results = [];
 
@@ -73,7 +74,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeGetFileAttributeDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_file_attribute_details',
             'Get detailed information about a specific file attribute by handle.'
         );
@@ -85,7 +86,7 @@ class FileAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (?string $handle = null): array {
+        $tool->setHandler($this->guarded(function (?string $handle = null): array {
             if (!$handle) {
                 throw new \RuntimeException("Attribute handle is required");
             }
@@ -138,7 +139,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeCreateFileAttributeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_file_attribute',
             'Create a new file attribute with specified type and settings.'
         );
@@ -178,7 +179,7 @@ class FileAttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $name = null,
             ?string $type = null,
@@ -307,7 +308,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeUpdateFileSelectAttributeOptionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'update_file_select_attribute_options',
             'Update the options for an existing select/dropdown file attribute. Replaces all existing options.'
         );
@@ -326,7 +327,7 @@ class FileAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?array $options = null
         ): array {
@@ -421,7 +422,7 @@ class FileAttributesToolkit extends AbstractToolkit
 
     protected function makeSetFileAttributeValueTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'set_file_attribute_value',
             'Set the value of a file attribute for a specific file. Handles all attribute types including select/dropdown. '
             . 'This changes the live file straight away. The result gives the previous value (previousValue); tell the user '
@@ -456,7 +457,7 @@ class FileAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $fileID = null,
             ?string $filename = null,
             ?string $handle = null,

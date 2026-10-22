@@ -15,6 +15,7 @@ use Katalysis\NeuronAi\Tools\Utilities\PageByName;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -46,12 +47,12 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeListPageAttributesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_page_attributes',
             'List all page attributes defined in the system with their handles, names, and types.'
         );
 
-        $tool->setCallable($this->guarded(function (): array {
+        $tool->setHandler($this->guarded(function (): array {
             $attributes = PageAttributeKey::getList();
             $results = [];
 
@@ -80,12 +81,12 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeListAttributeTypesTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'list_attribute_types',
             'List all available attribute types that can be used when creating new attributes.'
         );
 
-        $tool->setCallable($this->guarded(function (): array {
+        $tool->setHandler($this->guarded(function (): array {
             $types = AttributeType::getList();
             $results = [];
 
@@ -117,7 +118,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeGetPageAttributeDetailsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'get_page_attribute_details',
             'Get detailed information about a specific page attribute by handle.'
         );
@@ -129,7 +130,7 @@ class PageAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (?string $handle = null): array {
+        $tool->setHandler($this->guarded(function (?string $handle = null): array {
             if (!$handle) {
                 throw new \RuntimeException("Attribute handle is required");
             }
@@ -183,7 +184,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeCreatePageAttributeTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_page_attribute',
             'Create a new page attribute with specified type and settings. Use list_attribute_types to see available types.'
         );
@@ -230,7 +231,7 @@ class PageAttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $name = null,
             ?string $type = null,
@@ -362,7 +363,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeCreatePageAttributeAndAddToSetTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'create_page_attribute_and_add_to_set',
             'Create a new page attribute and immediately add it to an attribute set. This combines attribute creation with set assignment to avoid timing issues.'
         );
@@ -416,7 +417,7 @@ class PageAttributesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?string $name = null,
             ?string $type = null,
@@ -579,7 +580,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeUpdatePageSelectAttributeOptionsTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'update_page_select_attribute_options',
             'Update the options for an existing select/dropdown page attribute. Replaces all existing options.'
         );
@@ -598,7 +599,7 @@ class PageAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?string $handle = null,
             ?array $options = null
         ): array {
@@ -693,7 +694,7 @@ class PageAttributesToolkit extends AbstractToolkit
 
     protected function makeSetPageAttributeValueTool(): Tool
     {
-        $tool = new Tool(
+        $tool = new CallableTool(
             'set_page_attribute_value',
             'Set the value of a page attribute for a specific page. Handles all attribute types including select/dropdown. Supports fuzzy matching for page names and option values.'
         );
@@ -733,7 +734,7 @@ class PageAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->setCallable($this->guarded(function (
+        $tool->setHandler($this->guarded(function (
             ?int $pageID = null,
             ?string $pagePath = null,
             ?string $pageName = null,

@@ -40,11 +40,14 @@ class AdaptiveThresholdPostProcessor implements PostProcessorInterface
      */
     public function process(Message $question, array $documents): array
     {
+        // A document nothing scored cannot pass a score threshold, nor count as a 0.0 in the statistics
+        $documents = array_values(array_filter($documents, fn (Document $document): bool => $document->getScore() !== null));
+
         if (count($documents) < 2) {
             return $documents;
         }
 
-        $scores = array_map(fn (Document $document): float => $document->getScore(), $documents);
+        $scores = array_map(fn (Document $document): float => (float) $document->getScore(), $documents);
         $median = $this->calculateMedian($scores);
         $mad = $this->calculateMAD($scores, $median);
 

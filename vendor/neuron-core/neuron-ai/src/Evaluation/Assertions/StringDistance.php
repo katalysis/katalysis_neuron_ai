@@ -4,34 +4,32 @@ declare(strict_types=1);
 
 namespace NeuronAI\Evaluation\Assertions;
 
+use InvalidArgumentException;
 use NeuronAI\Evaluation\AssertionResult;
 
-use function gettype;
-use function is_string;
 use function levenshtein;
 
-class StringDistance extends AbstractAssertion
+class StringDistance extends StringAssertion
 {
     public function __construct(
         protected string $reference,
         protected float $threshold = 0.5,
         protected int $maxDistance = 50
     ) {
+        $this->validateThreshold($threshold);
+
+        if ($maxDistance < 0) {
+            throw new InvalidArgumentException('Max distance must not be negative.');
+        }
     }
 
-    public function evaluate(mixed $actual): AssertionResult
+    protected function evaluateString(string $actual): AssertionResult
     {
-        if (!is_string($actual)) {
-            return AssertionResult::fail(
-                0.0,
-                'Expected actual value to be a string, got ' . gettype($actual),
-            );
-        }
-
         $distance = levenshtein($actual, $this->reference);
 
         if ($distance <= $this->maxDistance) {
-            $score = 1.0 - ($distance / $this->maxDistance);
+            // A zero max distance admits only identical strings
+            $score = $this->maxDistance === 0 ? 1.0 : 1.0 - ($distance / $this->maxDistance);
 
             if ($score < $this->threshold) {
                 return AssertionResult::fail(

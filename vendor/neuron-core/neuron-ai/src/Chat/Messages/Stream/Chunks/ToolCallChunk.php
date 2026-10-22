@@ -4,14 +4,18 @@ declare(strict_types=1);
 
 namespace NeuronAI\Chat\Messages\Stream\Chunks;
 
-use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\ToolCall;
 
 class ToolCallChunk extends StreamChunk
 {
+    /**
+     * @param string $messageId The ToolCallMessage holding the call.
+     */
     public function __construct(
-        public readonly ToolInterface $tool,
+        string $messageId,
+        public readonly ToolCall $tool,
     ) {
-        parent::__construct();
+        parent::__construct($messageId);
     }
 
     public function toArray(): array

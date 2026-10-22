@@ -2,6 +2,16 @@
 
 **Note:** This package bundles all dependencies in its `vendor/` directory. You do NOT need to run `composer install` for normal installation.
 
+**Requirements:** PHP 8.1 or later with the `curl` extension (`ext-curl`). Neuron AI 4 sends every request to the AI provider through curl; there is no other HTTP client bundled. Check it on every server the package runs on (`php -m | grep curl`, for the PHP version the site uses), including production before the Neuron 4 upgrade reaches it.
+
+### Updating the bundled dependencies (developers only)
+The versions are pinned in `composer.json` (`neuron-core/neuron-ai` exactly) and locked in `composer.lock`; `config.platform.php` is 8.1.0, so composer picks versions that work on the lowest PHP the package supports. To change a version (its own commit, CLAUDE.md rule 8):
+
+1. Edit the pin in `composer.json`.
+2. With Herd's composer, from the package folder: `composer update`, then `composer validate` and `composer audit`.
+3. Commit `composer.json`, `composer.lock` and `vendor/` together and with nothing else: `ALLOW_VENDOR=1 git commit ...` (the pre-commit hook refuses `vendor/` otherwise).
+4. Clear the Concrete cache, then run the PHPUnit suite.
+
 ## New developer setup (Claude Code)
 
 For working on this package (Glyn and Alex: macOS, Herd, the Claude Code VS Code extension). Once per clone:
@@ -101,6 +111,30 @@ The seed clears Concrete's cache at the end of every successful run (also `--res
 
 The editor's rights are set per page through Concrete's API, and the site's simple permission model is enough: advanced permissions don't need to be switched on.
 
+### Clearing the dev chats (`clear_dev_chats.php`)
+
+Dev chats are disposable (P2.5): chat history has no compatibility across the Neuron 3 → 4 upgrade or its rollback. `documentation/fixtures/clear_dev_chats.php` deletes every stored chat; the messages in `KatalysisNeuronAiChatMessages` go with them (the foreign key cascades). It refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host. Run it from the package folder:
+
+```bash
+# dry run (the default): how many chats and message rows there are
+php ../../concrete/bin/concrete c5:exec documentation/fixtures/clear_dev_chats.php
+
+# delete them, after a backup (documentation/fixtures/backup_dev_db.sh <task-id>)
+php ../../concrete/bin/concrete c5:exec documentation/fixtures/clear_dev_chats.php -- --apply
+```
+
+### What the model receives (`show_prompt.php`)
+
+`tests/Support/show_prompt.php` (P2.4) prints what the model would be given for one user message: the system prompt, the user message with its page tag, and the tools offered, external toolkits included. It runs one real agent turn with a fake model, so there is no AI provider call, no API key is read and nothing is written to the database. It refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host, and everything it prints goes through `SecretRedactor`. Run it from the package folder; options go after `--`:
+
+```bash
+# /neuron-test/headings as neuron_chat_editor, message "Hello"
+php ../../concrete/bin/concrete c5:exec tests/Support/show_prompt.php
+
+# another page, user or message
+php ../../concrete/bin/concrete c5:exec tests/Support/show_prompt.php -- --path=/neuron-test/columns --user=neuron_chat_editor --message="Summarise this page"
+```
+
 ### Full database snapshot (local only, never in git)
 
 A script reset is enough in most cases. To take a snapshot before a task, run `documentation/fixtures/backup_dev_db.sh <task-id>` from the package folder. It writes `$NEURON_BACKUP_DIR/<database>_before_<task-id>_<timestamp>.sql` (mode 600), reads the connection from `database.php` and accepts only a local host. The manual commands below do the same. For a full restore, keep snapshots outside the repo (Glyn uses `~/Herd/backups/`). The dev database is `prodb` on `127.0.0.1:3307`; the password is in `httpdocs/application/config/database.php`. A snapshot contains user password hashes and chat history, so don't copy it anywhere shared.
@@ -143,6 +177,7 @@ php tools/phpunit/vendor/bin/phpunit --testsuite integration
 - Tests are read-only unless they say otherwise. A test that writes must clean up after itself.
 - Test content comes from the seed script above (`neuron_editor`, `/neuron-test`).
 - Before Concrete boots, `ConcreteBoot` also refuses to run if the site's `database.php` points at a host that is not local (127.0.0.1, localhost, ::1 or a unix socket).
+- **`katalysis_pro` must match this package** (P2.8). `katalysis_pro` is a separate git clone in `httpdocs/packages/katalysis_pro`. On Neuron 4 (`integration/neuron4` and the branches from it, and `development` once P2.9 has merged), it needs its `ToolDefinition` version: its `task/P2.8-tooldefinitions` branch until that is merged into `themeintegrationtemplates`. On Neuron 3 (`development` before P2.9), it needs its older toolkit (`themeintegrationtemplates`). A mismatched pair fails safe on the site: there's no error page, the `katalysis_pro` tools just aren't offered, and on Neuron 4 the settings page shows the skip. In the tests, it fails: `KatalysisProToolsTest`, `PromptBaselineTest` and the `katalysis_pro` cases of `ToolRegistryTest` and `ToolResultScanningTest` name the reason.
 
 ## Running the scenario runner (dev site only, costs money)
 
@@ -160,6 +195,7 @@ php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_sc
 ```
 
 - `--scenario=ID[,ID...]` runs only those scenarios (an id, or its number: `05`). `--repeat=N` (1 to 20, default 1) runs each one N times, each from a fresh fixture reset, and the table shows a pass rate such as "2/3 pass, 1/3 partial".
+- `--fake` is a free dry run (P2.6): the model is Neuron's `FakeAIProvider` (`tests/Eval/DryRunAgent.php`), which asks for `get_current_page_context` once per turn and then replies "Dry run reply.", with made-up token counts. No provider is called and no key is needed. The checks mostly fail, because the replies are fake. A clean dry run has no `error` outcome, a recorded tool call with its result in every turn, and all its chat rows deleted. Run it before a paid run after a change to the agent, the runner or Neuron. Its results are not committed.
 - It needs the seed script's content and the `neuron_editor` user (see above), and an OpenAI key in `katalysis.ai.open_ai_key` (Dashboard > System > AI > Neuron AI Settings). Without a key it stops before calling anything.
 - Each run resets the fixture, acts as the scenario's user (no browser or login session), passes the page context the way the chat endpoint does (a native PHP session holding `katalysis_neuron_ai_page_context`), sends the turns, and takes a before/after snapshot of pages, blocks, files and people to check the end state. It never touches the shipped code path over HTTP.
 - Outcomes: `pass`, `partial` (only a secondary reply check failed), `fail`, and `error` (the agent returned its generic error reply, or the runner failed). An `error` run proves nothing about behaviour; do not record it as a baseline. The real cause is read from the Concrete log and shown in the details.

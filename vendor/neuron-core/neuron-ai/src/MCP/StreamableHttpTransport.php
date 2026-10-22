@@ -4,50 +4,60 @@ declare(strict_types=1);
 
 namespace NeuronAI\MCP;
 
-use GuzzleHttp\Client;
-use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Psr7\Request;
-use Psr\Http\Message\ResponseInterface;
 use JsonException;
+use NeuronAI\Exceptions\HttpException;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\HttpClient\HttpClientInterface;
+use NeuronAI\HttpClient\HttpMethod;
+use NeuronAI\HttpClient\HttpRequest;
+use NeuronAI\HttpClient\HttpResponse;
 
 use function array_merge;
+use function array_shift;
 use function explode;
 use function filter_var;
+use function implode;
+use function is_array;
 use function json_decode;
 use function json_encode;
+use function json_last_error;
+use function json_last_error_msg;
+use function preg_match;
+use function str_replace;
 use function str_starts_with;
 use function substr;
 use function trim;
 
 use const FILTER_VALIDATE_URL;
+use const JSON_ERROR_NONE;
 use const JSON_THROW_ON_ERROR;
 
 class StreamableHttpTransport implements McpTransportInterface
 {
-    protected readonly Client $httpClient;
+    protected readonly HttpClientInterface $httpClient;
     protected ?string $sessionId = null;
-    protected ?ResponseInterface $lastResponse = null;
+    protected ?string $protocolVersion = null;
+    protected ?HttpResponse $lastResponse = null;
 
     /**
-     * Create a new StreamableHttpTransport with the given configuration
+     * Messages of the last response not received yet: an SSE response may carry
+     * notifications and server requests before the response itself.
      *
+     * @var array<int, array<string, mixed>>
+     */
+    protected array $pendingMessages = [];
+
+    /**
      * @param array<string, mixed> $config
      */
-    public function __construct(protected array $config)
-    {
-        $this->httpClient = new Client([
-            'timeout' => $config['timeout'] ?? 30,
-            'headers' => [
-                'Accept' => 'application/json, text/event-stream',
-                'Content-Type' => 'application/json',
-                'User-Agent' => 'neuron-ai/1.0.0',
-            ],
-        ]);
+    public function __construct(
+        protected array $config,
+        ?HttpClientInterface $httpClient = null,
+    ) {
+        $this->httpClient = $httpClient ?? new CurlHttpClient();
     }
 
     /**
-     * Connect to the MCP HTTP server
-     *
      * @throws McpException
      */
     public function connect(): void
@@ -56,18 +66,18 @@ class StreamableHttpTransport implements McpTransportInterface
             throw new McpException('URL is required for HTTP transport');
         }
 
-        // Validate URL format
         if (!filter_var($this->config['url'], FILTER_VALIDATE_URL)) {
             throw new McpException('Invalid URL format');
         }
 
-        // For HTTP transport, no explicit connection test is needed
-        // The connection will be validated during the first request
+        if (preg_match('~^https?://~i', $this->config['url']) !== 1) {
+            throw new McpException('The MCP server URL must use http or https');
+        }
+
+        // No connection test: HTTP is stateless, the first request validates the endpoint
     }
 
     /**
-     * Send a JSON-RPC request to the MCP HTTP server
-     *
      * @param array<string, mixed> $data
      * @throws McpException
      */
@@ -79,36 +89,50 @@ class StreamableHttpTransport implements McpTransportInterface
 
         try {
             $headers = array_merge($this->getAuthHeaders(), [
+                'Accept' => 'application/json, text/event-stream',
                 'Content-Type' => 'application/json',
             ]);
 
-            // Add session ID if available
             if ($this->sessionId !== null) {
                 $headers['Mcp-Session-Id'] = $this->sessionId;
             }
 
+            if ($this->protocolVersion !== null) {
+                $headers['MCP-Protocol-Version'] = $this->protocolVersion;
+            }
+
             $jsonData = json_encode($data, JSON_THROW_ON_ERROR);
 
-            $request = new Request('POST', $this->config['url'], $headers, $jsonData);
-            $response = $this->httpClient->send($request);
+            $response = $this->httpClient->request(new HttpRequest(
+                method: HttpMethod::POST,
+                uri: $this->config['url'],
+                headers: $headers,
+                body: $jsonData,
+                timeout: (float) ($this->config['timeout'] ?? 30),
+            ));
 
-            if ($response->getStatusCode() === 401) {
-                throw new McpException('Authentication failed: Invalid or expired token');
+            $mcpSessionId = $response->header('Mcp-Session-Id');
+            if ($mcpSessionId !== null) {
+                $this->sessionId = $mcpSessionId;
             }
 
-            if ($response->getStatusCode() === 403) {
-                throw new McpException('Authorization failed: Insufficient permissions');
-            }
-
-            // Extract session ID from response headers if present
-            if ($response->hasHeader('Mcp-Session-Id')) {
-                $this->sessionId = $response->getHeader('Mcp-Session-Id')[0];
-            }
-
-            // Store the response for the receive() method
             $this->lastResponse = $response;
+            $this->pendingMessages = [];
 
-        } catch (GuzzleException $e) {
+        } catch (HttpException $e) {
+            // The server ended the session and processed nothing: the client must initialize a new one.
+            if ($e->response?->statusCode === 404 && $this->sessionId !== null) {
+                throw new McpSessionLostException('The MCP session has expired', $e->getCode(), $e);
+            }
+
+            if ($e->response?->statusCode === 401) {
+                throw new McpException('Authentication failed: Invalid or expired token', $e->getCode(), $e);
+            }
+
+            if ($e->response?->statusCode === 403) {
+                throw new McpException('Authorization failed: Insufficient permissions', $e->getCode(), $e);
+            }
+
             throw new McpException('HTTP request failed: ' . $e->getMessage(), $e->getCode(), $e);
         } catch (JsonException $e) {
             throw new McpException('Failed to encode JSON: ' . $e->getMessage(), $e->getCode(), $e);
@@ -116,59 +140,98 @@ class StreamableHttpTransport implements McpTransportInterface
     }
 
     /**
-     * Receive a response from the MCP HTTP server
-     *
      * @return array<string, mixed>
      * @throws McpException
      */
     public function receive(): array
     {
-        if (!$this->lastResponse instanceof ResponseInterface) {
+        if ($this->lastResponse instanceof HttpResponse) {
+            $this->pendingMessages = $this->decodeMessages($this->lastResponse->body);
+            $this->lastResponse = null;
+        }
+
+        if ($this->pendingMessages === []) {
             throw new McpException('No response available. Call send() first.');
         }
 
-        try {
-            $response = (string) $this->lastResponse->getBody();
-            $this->lastResponse = null; // Clear the stored response
-
-            if ($response === '') {
-                throw new McpException('Empty response body');
-            }
-
-            try {
-                return json_decode($response, true, 64, JSON_THROW_ON_ERROR);
-            } catch (JsonException $e) {
-                // If the response from the server is not a valid JSON
-                // try to parse the SSE format to extract JSON data
-                $json = $this->parseSSEResponse($response);
-                return json_decode($json, true, 64, JSON_THROW_ON_ERROR);
-            }
-
-        } catch (JsonException $e) {
-            throw new McpException('Invalid JSON response: ' . $e->getMessage(), $e->getCode(), $e);
-        }
+        return array_shift($this->pendingMessages);
     }
 
     /**
-     * Disconnect from the HTTP server
+     * @return array<int, array<string, mixed>>
+     * @throws McpException
      */
+    protected function decodeMessages(string $body): array
+    {
+        if ($body === '') {
+            throw new McpException('Empty response body');
+        }
+
+        try {
+            $message = json_decode($body, true, 64, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            // Streamable HTTP servers may answer with SSE framing instead of plain JSON
+            return $this->decodeEvents($this->parseSSEResponse($body));
+        }
+
+        if (!is_array($message)) {
+            throw new McpException('Invalid JSON response: the body is not a message');
+        }
+
+        return [$message];
+    }
+
+    /**
+     * An event that is not a message is skipped, as in the official MCP SDKs: the response is
+     * refused only when none of its events is one, for the reason the last one was not.
+     *
+     * @param string[] $payloads
+     * @return array<int, array<string, mixed>>
+     * @throws McpException
+     */
+    protected function decodeEvents(array $payloads): array
+    {
+        $messages = [];
+        $reason = '';
+
+        foreach ($payloads as $payload) {
+            $message = json_decode($payload, true, 64);
+
+            if (is_array($message)) {
+                $messages[] = $message;
+            } else {
+                $reason = json_last_error() === JSON_ERROR_NONE ? 'the event is not a message' : json_last_error_msg();
+            }
+        }
+
+        if ($messages === []) {
+            throw new McpException("Invalid JSON response: {$reason}");
+        }
+
+        return $messages;
+    }
+
+    public function setProtocolVersion(string $version): void
+    {
+        $this->protocolVersion = $version;
+    }
+
     public function disconnect(): void
     {
-        // HTTP connections are stateless, no explicit disconnect needed
+        // HTTP is stateless: nothing to close, just drop session state
         $this->sessionId = null;
+        $this->protocolVersion = null;
         $this->lastResponse = null;
+        $this->pendingMessages = [];
     }
 
     /**
-     * Get authentication headers based on configuration
-     *
      * @return array<string, string>
      */
     protected function getAuthHeaders(): array
     {
         $headers = $this->config['headers'] ?? [];
 
-        // Add Bearer token if provided
         if (isset($this->config['token'])) {
             $headers['Authorization'] = 'Bearer ' . $this->config['token'];
         }
@@ -177,30 +240,34 @@ class StreamableHttpTransport implements McpTransportInterface
     }
 
     /**
-     * Parse Server-Sent Events response to extract JSON data
+     * Extract the JSON payloads of an SSE-framed response body, in order: one per event,
+     * whose data lines join into it.
      *
+     * @return array<int, string>
      * @throws McpException
      */
-    protected function parseSSEResponse(string $sseResponse): string
+    protected function parseSSEResponse(string $sseResponse): array
     {
-        $lines = explode("\n", $sseResponse);
+        $payloads = [];
 
-        foreach ($lines as $line) {
-            $line = trim($line);
-            // Skip empty lines and comments
-            if ($line === '') {
-                continue;
-            }
-            if (str_starts_with($line, ':')) {
-                continue;
+        foreach (explode("\n\n", str_replace(["\r\n", "\r"], "\n", $sseResponse)) as $event) {
+            $data = [];
+            // Only data lines carry the payload: comments start with ':', and event, id and retry fields are ignored.
+            foreach (explode("\n", $event) as $line) {
+                if (str_starts_with($line, 'data:')) {
+                    $data[] = trim(substr($line, 5));
+                }
             }
 
-            // Extract data from SSE format
-            if (str_starts_with($line, 'data: ')) {
-                return substr($line, 6);
+            if ($data !== []) {
+                $payloads[] = implode("\n", $data);
             }
         }
 
-        throw new McpException('No JSON data found in SSE response');
+        if ($payloads === []) {
+            throw new McpException('No JSON data found in SSE response');
+        }
+
+        return $payloads;
     }
 }

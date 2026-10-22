@@ -4,26 +4,31 @@ declare(strict_types=1);
 
 namespace NeuronAI\Agent;
 
+use NeuronAI\Chat\Messages\SystemMessage;
+
+use function is_string;
+
 trait HandleInstructions
 {
-    protected string $instructions;
+    protected SystemMessage $instructions;
 
-    protected function instructions(): string
+    protected function instructions(): SystemMessage|string
     {
-        return (string) new SystemPrompt(
-            background: ['Your are a helpful and friendly AI agent built with Neuron AI - the first agentic framework for the PHP ecosystem.']
+        return new SystemMessage(
+            'Your are a helpful and friendly AI agent built with Neuron AI - the first agentic framework for the PHP ecosystem.'
         );
     }
 
-    public function setInstructions(string $instructions): self
+    public function setInstructions(SystemMessage|string $instructions): static
     {
-        $this->instructions = $instructions;
+        $this->instructions = is_string($instructions) ? new SystemMessage($instructions) : $instructions;
         return $this;
     }
 
-    public function resolveInstructions(): string
+    final public function getInstructions(): SystemMessage
     {
-        return $this->instructions ?? $this->instructions();
+        $instructions = $this->instructions ?? $this->instructions();
+        return is_string($instructions) ? new SystemMessage($instructions) : $instructions;
     }
 
 }

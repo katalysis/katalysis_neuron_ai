@@ -33,10 +33,12 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
   5. last, after `gh pr create` so the number is known: the PROGRESS entry, "Current position" and the `DELIVERY_PLAN.md` tick ("Done (PR #N)"), with the task ID prefix
 
   Nothing is pushed straight to `development` or `main`.
-- **PROGRESS cost fields**, in every entry. Write "not recorded" rather than guess.
+- **PROGRESS fields**, in every entry. Write "not recorded" rather than guess.
   - `Who / tool / model`: e.g. `Glyn; Claude Code (VS Code); claude-opus-5-5`
-  - `Time`: elapsed from `/start-task` to the PR, plus the person's own time (they estimate it)
-  - `Cost`: Claude Code usage from `/usage` ($ and tokens for API-key users, plan usage for subscription users), plus scenario spend in $, or "none"
+  - `Time`: elapsed from `/start-task` to the PR. Own time is "not recorded" unless the person volunteers it; don't ask for it.
+  - `Scenario spend`: in $ (the runner's estimate), or "none"
+
+  Claude Code usage (`/usage`) is not recorded per task: Glyn and Alex record their weekly `/usage` limit percentages separately.
 - **Guards and their limits:**
   - `.claude/hooks/guard-bash.php` (PreToolUse, Bash) blocks:
     - force pushes, and pushes to or deleting `main`, `development` or `integration/*`, however they are written
@@ -45,7 +47,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
     - `gh pr merge`, `gh repo edit|delete` and non-GET `gh api`
     - commands that name `database.php`, `generated_overrides` or `.env`
 
-    It **asks** (a prompt even when an allow rule matches, WP-1b) for any command containing `run_scenarios`, however it is written, and for `curl` unless it only reads from `katalysis-pro.test`.
+    It **asks** (a prompt even when an allow rule matches, WP-1b) for any command containing `run_scenarios`, however it is written, for `curl` unless it only reads from `katalysis-pro.test`, and for a `git push` run in another repository (`git -C <path>`, `--git-dir`, `--work-tree`; P2.8), whose branch it can't check.
 
     **The guard does not fail safe.** If PHP is missing or the hook errors, Claude Code treats that as a non-blocking hook error and the command goes on to the permission rules. The deny rules in `.claude/settings.json` are the backstop. Don't work around a block: report it.
   - `.githooks/` (pre-commit: `vendor/`; pre-push: `main`, `development`, `integration/*`, non-fast-forward) is enabled once per clone with `git config core.hooksPath .githooks`. `--no-verify` skips it, so GitHub branch protection is the real guard.
@@ -62,7 +64,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - `src/ConcreteCmsAgent.php`: the agent (provider, instructions, tools, history)
 - `src/Tools/*Toolkit.php`: native toolkits (extend `NeuronAI\Tools\Toolkits\AbstractToolkit`)
 - `src/Tools/ExternalToolkitRegistry.php`: lets other packages register toolkits
-- `src/Entity/`, `src/DatabaseChatHistory.php`: chat persistence
+- `src/Entity/`, `src/Chat/ChatMessageStore.php`: chat persistence (Neuron 4 message store, one row per message; P2.5)
 - `js/chat-panel.js`, `css/chat-panel.css`, `elements/chat_panel.php`: UI
 - `src/Toolkits/` is legacy and duplicated. Don't edit it; it's due for removal in Phase 2.
 
@@ -78,7 +80,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 
    How rule 4 applies by situation:
    - **New tools, or tools whose behaviour changes:** need their own PHPUnit test in the same PR.
-   - **Mechanical conversions** (e.g. P2.3, converting all 112 tools to `CallableTool`): covered by one registry test that checks every tool registers with a valid name, description and schema, plus the scenarios. Individual tests aren't needed.
+   - **Mechanical conversions** (e.g. P2.3, converting the 87 core tools to `CallableTool`): covered by one registry test that checks every tool registers with a valid name, description and schema, plus the scenarios. Individual tests aren't needed.
    - **Permission-denied tests for existing tools:** come in P3.5.
 5. **Put behavioural rules in code, not in `instructions()`.** If the model keeps getting something wrong, fix the tool or add a check and a scenario. Don't add another prompt rule. Exception: the trust-boundary rule in `instructions()`, see `plans/P1.11.md`.
 6. **No client-specific code in this package** (e.g. EPRA block handles). It belongs in a separate package that registers through `ExternalToolkitRegistry`.
@@ -87,6 +89,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
    - A dependency upgrade gets its own PR.
    - It must not be combined with refactoring.
    - It must keep scenario results the same.
+   - On an integration branch, the dependency change is its own commit, and the integration merge (e.g. P2.9) carries the "scenario results unchanged" check.
 9. **Don't touch secrets:** API keys live in Concrete config (`katalysis.ai.*`) and must never be logged or returned to the frontend.
 
 ## Testing

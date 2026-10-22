@@ -3,11 +3,17 @@
 namespace Katalysis\NeuronAi;
 
 use NeuronAI\Agent\Agent;
+use NeuronAI\Agent\Nodes\ToolNode;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
-use Katalysis\NeuronAi\DatabaseChatHistory;
+use NeuronAI\Chat\Messages\Message;
+use NeuronAI\Chat\Messages\SystemMessage;
+use NeuronAI\Chat\Messages\ToolResultMessage;
+use NeuronAI\Tools\ToolInterface;
+use NeuronAI\Tools\Toolkits\ToolkitInterface;
+use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -19,12 +25,14 @@ use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
+use Katalysis\NeuronAi\Tools\ExternalToolkitBuild;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use Katalysis\NeuronAi\Security\InjectionNotice;
 use Katalysis\NeuronAi\Security\InstructionDetector;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Security\ToolResultScanner;
 use Katalysis\NeuronAi\Tools\DisabledTools;
+use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\ToolNameResolver;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\Page\Page;
@@ -33,17 +41,19 @@ use Concrete\Core\Attribute\Key\CollectionKey;
 
 class ConcreteCmsAgent extends Agent
 {
-    private ?int $chatId = null;
-    private ?DatabaseChatHistory $chatHistoryInstance = null;
+    /** What handle() returns, and stores, when a turn fails. The scenario runner recognises it. */
+    public const ERROR_REPLY = 'I ran into an error processing that request. Please try again.';
+
     private ?array $runtimePageContext = null;
     private ?ToolResultScanner $toolResultScanner = null;
+    private ?ExternalToolkitBuild $externalToolkits = null;
     
     public function __construct(?int $chatId = null)
     {
-        $this->chatId = $chatId;
-        
         parent::__construct();
-        
+
+        $this->setChatId($chatId);
+
         // Increase tool max runs to prevent premature failures
         // Default is 10, but complex queries may require more iterations
         $this->toolMaxRuns(20);
@@ -57,11 +67,17 @@ class ConcreteCmsAgent extends Agent
             // Return a clear error message that the LLM can understand
             return "Error executing tool: " . $safeMessage . ". Please try a different approach or ask for clarification.";
         });
+
+        // Scans the results the scanner's wrapper didn't, such as those of tools we don't build (P2.2).
+        $this->addMiddleware(ToolNode::class, $this->toolResultScanner()->resultMiddleware());
     }
 
-    protected function tools(): array
+    /**
+     * The package's own toolkits, in the order they are offered.
+     */
+    protected function coreToolkits(): array
     {
-        $core = [
+        return [
             new PagesToolkit(),
             new BlocksToolkit(),
             new FilesToolkit(),
@@ -74,13 +90,69 @@ class ConcreteCmsAgent extends Agent
             new PeopleToolkit(),
             new VersionsToolkit(),
         ];
+    }
 
-        // Toolkits other packages registered (e.g. katalysis_pro's people, places and reviews).
+    protected function tools(): array
+    {
+        // Toolkits other packages registered (e.g. katalysis_pro's people, places and reviews), built once per agent:
+        // one that fails is skipped and logged (P2.2).
+        $this->externalToolkits ??= ExternalToolkitRegistry::build();
+
         // On a name clash the external tool wins; then the disabled-tools list is applied to everything.
-        $tools = ToolNameResolver::resolve($core, ExternalToolkitRegistry::getExternalToolkits());
+        $tools = ToolNameResolver::resolve($this->coreToolkits(), $this->externalToolkits->toolkits());
 
         // Last, so every tool the model can call is covered: results are scanned for text addressed to the assistant (P1.11).
         return $this->toolResultScanner()->wrap(DisabledTools::apply($tools));
+    }
+
+    /**
+     * The system prompt and the tools offered, for each turn. Overrides Neuron 4's version only to render the toolkit
+     * guidelines exactly as Neuron 3 did, so the prompt the model gets is byte-identical to v3's (P2.4, decision A):
+     * each toolkit headed "# <class short name>", its guidelines, then its tool names one per line (the first without
+     * "- ", as v3 joined them), all appended to the instructions after one line break, as one text block.
+     *
+     * Tools are collected as Neuron 4 collects them. resolveTools() is a Neuron internal, not a documented hook:
+     * PromptBaselineTest fails if Neuron changes or renames it. P3.7 decides the heading.
+     *
+     * @return array{SystemMessage, array<int, mixed>}
+     */
+    protected function resolveTools(): array
+    {
+        $tools = [];
+        $guidelines = [];
+
+        foreach ($this->getTools() as $tool) {
+            if ($tool instanceof ToolkitInterface) {
+                $innerTools = array_values(array_filter($tool->tools(), static fn (ToolInterface $t): bool => $t->isVisible()));
+                $tools = array_merge($tools, $innerTools);
+
+                $kitGuidelines = $tool->guidelines();
+                if ($kitGuidelines !== null && $kitGuidelines !== '') {
+                    $names = array_map(static fn (ToolInterface $t): string => $t->getName(), $innerTools);
+                    // A toolkit wrapped only to be built once (FilteredToolkit::built()) is headed as its original was.
+                    $heading = $tool instanceof FilteredToolkit
+                        ? $tool->guidelinesHeading()
+                        : (new \ReflectionClass($tool))->getShortName();
+                    $guidelines[] = '# ' . $heading . PHP_EOL . $kitGuidelines
+                        . PHP_EOL . implode(PHP_EOL . '- ', $names);
+                }
+            } elseif ($tool->isVisible()) {
+                $tools[] = $tool;
+            }
+        }
+
+        $configured = $this->getInstructions();
+        $text = (string) $configured->getContent();
+        if ($guidelines !== []) {
+            $text .= PHP_EOL . '<TOOLS-GUIDELINES>' . PHP_EOL . implode(PHP_EOL . PHP_EOL, $guidelines) . PHP_EOL . '</TOOLS-GUIDELINES>';
+        }
+
+        $instructions = new SystemMessage($text);
+        if ($configured->isCached()) {
+            $instructions->cache();
+        }
+
+        return [$instructions, $tools];
     }
 
     /**
@@ -134,38 +206,30 @@ class ConcreteCmsAgent extends Agent
     }
     
     /**
-     * Set the chat ID for the current conversation
-     * This allows the agent to persist chat history to the database
+     * Binds the agent to a stored chat: its history is the Chat row's messages (ChatMessageStore) and its thread is
+     * "chat-<id>" (P2.5). Neuron 4's chat() refuses to run without a thread, so a chat is bound before every turn. With
+     * null nothing is bound. Neuron binds an agent's thread once: binding another chat later throws, so use one agent
+     * per request. Whether the user may use this chat is the caller's check.
      */
     public function setChatId(?int $chatId): self
     {
-        $this->chatId = $chatId;
-        
-        // IMPORTANT: Always call chatHistory() to ensure instance exists
-        // This matches the pattern from katalysis_pro_ai RagAgent
-        $chatHistory = $this->chatHistory();
-        
-        if ($chatHistory instanceof DatabaseChatHistory && $chatId) {
-            $chatHistory->setChatId($chatId);
+        if ($chatId !== null) {
+            $this->setMessageStore(new ChatMessageStore(\Concrete\Core\Support\Facade\Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class)));
+            $this->setThreadId(ChatMessageStore::threadFor($chatId));
         }
-        
+
         return $this;
     }
 
     /**
      * Set page context collected from the frontend request.
      *
-     * The page context is part of instructions(). Neuron builds the instructions, the start event that carries them
-     * and the tool bootstrap once, on the first chat(), and keeps them for the life of the agent. So a new context
-     * only reaches the model if those caches are dropped here, and the next chat() rebuilds them.
+     * The page context is part of instructions(). Neuron 4 builds the instructions and the tools afresh for every turn
+     * (resolveTools()), so the next turn sends this context; there is no cache to drop (P2.4).
      */
     public function setRuntimePageContext(?array $context): self
     {
         $this->runtimePageContext = is_array($context) ? $context : null;
-
-        // Both are typed properties, so unset() puts them back to "not built yet".
-        unset($this->instructions, $this->startEvent);
-        $this->toolsBootstrapCache = [];
 
         return $this;
     }
@@ -179,30 +243,18 @@ class ConcreteCmsAgent extends Agent
     }
 
     /**
-     * Use database-backed chat history for persistent storage
-     * Uses singleton pattern to ensure chat ID persistence
-     * 
-     * @return \NeuronAI\Chat\History\AbstractChatHistory
+     * The conversation's token budget: 50,000, as on Neuron 3 (v4's default is 100,000). Neuron's trim ratio (0.5) is
+     * kept, and trimmed messages are archived, not deleted (P2.5, plan §11.4).
      */
-    protected function chatHistory(): \NeuronAI\Chat\History\AbstractChatHistory
+    protected function contextWindow(): int
     {
-        // Use singleton pattern to ensure chat ID persistence
-        if ($this->chatHistoryInstance === null) {
-            $this->chatHistoryInstance = new DatabaseChatHistory(50000);
-            
-            // Set chat ID directly on the instance if available (don't call setChatId to avoid recursion)
-            if ($this->chatId) {
-                $this->chatHistoryInstance->setChatId($this->chatId);
-            }
-        }
-        
-        return $this->chatHistoryInstance;
+        return 50000;
     }
 
-    protected function instructions(): string
+    protected function instructions(): SystemMessage
     {
         $context = $this->getCurrentContext();
-        return <<<INST
+        return new SystemMessage(<<<INST
 You are an AI assistant for Concrete CMS with comprehensive site management capabilities.
 
 CURRENT CONTEXT:
@@ -259,7 +311,7 @@ TRUST BOUNDARY:
 
 RESPONSE STYLE:
 - Concise and helpful
-INST;
+INST);
 
     }
 
@@ -560,42 +612,57 @@ INST;
     {
         $this->startTurn();
 
+        // Send message and get response using Neuron AI's built-in chat method
+        $userMessage = new UserMessage($message);
+
         try {
-            // Send message and get response using Neuron AI's built-in chat method
-            $userMessage = new UserMessage($message);
             $response = $this->chat($userMessage)->getMessage();
 
             $this->saveTurnNotice();
-            
+
             return $response->getContent();
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             // A provider error body can quote part of the API key (B-SEC-1), so redact before logging.
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
 
-            // Keep message alternation valid when the provider fails after a user message is added.
-            // Without this, subsequent requests can fail with "Invalid message sequence".
-            try {
-                $chatHistory = $this->resolveState()->getChatHistory();
-                $messages = $chatHistory->getMessages();
+            $this->storeFailedTurn($userMessage);
 
-                if (!empty($messages)) {
-                    $lastMessage = end($messages);
-                    if ($lastMessage && $lastMessage->getRole() === 'user') {
-                        $chatHistory->addMessage(new AssistantMessage(
-                            'I ran into an error processing that request. Please try again.'
-                        ));
-                    }
-                }
+            return self::ERROR_REPLY;
+        }
+    }
 
-                // The turn read flagged content before it failed, so the recovery message carries the flag too.
-                $this->saveTurnNotice();
-            } catch (\Throwable $historyError) {
-                \Concrete\Core\Support\Facade\Log::warning(
-                    'Failed to append fallback assistant message after provider error: ' . $historyError->getMessage()
-                );
+    /**
+     * Stores a failed turn as Neuron 3 did: the user's message and ERROR_REPLY (P2.6, plans/P2.6.md §4). Neuron 4
+     * commits the user's message only after the first provider call succeeds, and a tool call with its result only
+     * after the next one, so a failed turn has stored nothing, or only the user's message. Adding the reply keeps the
+     * person's message after a reload and leaves the chat in an order the model accepts. The tools that ran before
+     * the failure are not recorded (P3.6). Never throws.
+     */
+    private function storeFailedTurn(UserMessage $userMessage): void
+    {
+        try {
+            if ($this->getThreadId() === null) {
+                return;
             }
 
-            return "I ran into an error processing that request. Please try again.";
+            $history = $this->getChatHistory();
+            $stored = array_map(static fn (Message $m): string => $m->getId(), $history->getMessages());
+            if (!in_array($userMessage->getId(), $stored, true)) {
+                $history->addMessage($userMessage);
+            }
+
+            $messages = $history->getMessages();
+            $last = end($messages);
+            if ($last instanceof UserMessage && !$last instanceof ToolResultMessage) {
+                $history->addMessage(new AssistantMessage(self::ERROR_REPLY));
+            }
+
+            // The turn read flagged content before it failed, so the recovery message carries the flag too.
+            $this->saveTurnNotice();
+        } catch (\Throwable $historyError) {
+            \Concrete\Core\Support\Facade\Log::warning(
+                'Failed to store the failed turn: ' . SecretRedactor::redact($historyError->getMessage())
+            );
         }
     }
 
@@ -612,9 +679,10 @@ INST;
         }
 
         try {
-            $history = $this->resolveState()->getChatHistory();
-            if ($history instanceof DatabaseChatHistory) {
-                $history->flagLastAssistantMessage(InjectionNotice::META_KEY, $kind, [
+            $store = $this->resolveMessageStore();
+            $thread = $this->getThreadId();
+            if ($store instanceof ChatMessageStore && $thread !== null) {
+                $store->flagLastAssistantMessage($thread, InjectionNotice::META_KEY, $kind, [
                     InjectionNotice::META_SOURCE_KEY => $this->getTurnNoticeSource() ?? InjectionNotice::SOURCE_OTHER,
                 ]);
             }
