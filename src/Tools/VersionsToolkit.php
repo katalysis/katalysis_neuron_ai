@@ -11,6 +11,7 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Area\Area;
+use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
@@ -156,10 +157,8 @@ GUIDELINES;
 
                     // Get comments
                     $comments = $version->getVersionComments();
+                    // In full: no other tool returns version comments (BF-5).
                     $comments = $comments ? trim($comments) : "—";
-                    if (strlen($comments) > 40) {
-                        $comments = substr($comments, 0, 37) . "...";
-                    }
 
                     $output .= "| {$versionID} | {$status} | {$formattedDate} | {$author} | {$comments} |\n";
                 }
@@ -528,14 +527,17 @@ GUIDELINES;
                         
                         $output .= "- **{$blockType}** (Block ID: {$blockID})\n";
                         
-                        // Try to get content preview for common block types
-                        if ($blockType === 'Content') {
-                            $controller = $block->getController();
-                            if (method_exists($controller, 'getContent')) {
-                                $content = strip_tags($controller->getContent());
-                                $preview = strlen($content) > 100 ? substr($content, 0, 97) . "..." : $content;
-                                $output .= "  Preview: " . trim($preview) . "\n";
+                        // A preview for Content blocks, marked when shortened (BF-5). By handle: the block type
+                        // name can be empty here, so the old check on the name 'Content' never matched.
+                        $controller = $block->getBlockTypeHandle() === 'content' ? $block->getController() : null;
+                        if ($controller && method_exists($controller, 'getContent')) {
+                            $info = HtmlToText::previewInfo((string) $controller->getContent(), 100);
+                            $output .= "  Preview: " . str_replace("\n", ' ', $info['preview']) . "\n";
+                            if ($info['shortened']) {
+                                $output .= "  (shortened: 100 of {$info['fullLength']} characters; get_block_data returns the full text)\n";
                             }
+                        } else {
+                            $output .= "  (content not shown; get_block_data returns it)\n";
                         }
                     }
                     

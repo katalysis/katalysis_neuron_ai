@@ -105,4 +105,20 @@ class HtmlToText
 
         return mb_substr($text, 0, $maxLength) . '...';
     }
+
+    /**
+     * A preview, and whether it was shortened (BF-5: a shortened read says so).
+     *
+     * @return array{preview: string, shortened: bool, fullLength: int} fullLength is the text's length in characters
+     */
+    public static function previewInfo(string $html, int $maxLength = 180): array
+    {
+        $fullLength = mb_strlen(self::convert($html));
+
+        return [
+            'preview' => self::preview($html, $maxLength),
+            'shortened' => $fullLength > $maxLength,
+            'fullLength' => $fullLength,
+        ];
+    }
 }

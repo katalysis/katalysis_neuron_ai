@@ -705,6 +705,15 @@ class BlocksToolkit extends AbstractToolkit
 
                 $output .= "\n";
 
+                // Long text is printed in full once, under Raw Block Table Data; the other sections refer to it (BF-5).
+                $rawBlockData = $this->getRawBlockRecord($controller, $blockID);
+                $rawLongText = [];
+                foreach ($rawBlockData as $field => $value) {
+                    if (is_string($value) && strlen($value) > 100 && !isset($rawLongText[$value])) {
+                        $rawLongText[$value] = (string) $field;
+                    }
+                }
+
                 // Get data that's been set for the view (using getSets())
                 $viewData = $controller->getSets();
                 
@@ -712,14 +721,13 @@ class BlocksToolkit extends AbstractToolkit
                     $output .= "**View Data (what the block displays):**\n\n";
                     
                     foreach ($viewData as $key => $value) {
-                        $output .= $this->formatControllerValue($key, $value);
+                        $output .= $this->formatControllerValue($key, $value, $rawLongText);
                     }
                 } else {
                     $output .= "_No view data set_\n\n";
                 }
 
                 // Fallback to raw block table data for blocks that fail to populate runtime sets.
-                $rawBlockData = $this->getRawBlockRecord($controller, $blockID);
                 if (!empty($rawBlockData)) {
                     $output .= "**Raw Block Table Data:**\n\n";
                     foreach ($rawBlockData as $field => $value) {
@@ -736,6 +744,7 @@ class BlocksToolkit extends AbstractToolkit
                 $output .= "**Controller Properties:**\n\n";
                 $reflection = new \ReflectionObject($controller);
                 $properties = $reflection->getProperties(\ReflectionProperty::IS_PUBLIC);
+                $arrayProperties = [];
                 
                 foreach ($properties as $property) {
                     $propName = $property->getName();
@@ -747,9 +756,14 @@ class BlocksToolkit extends AbstractToolkit
                     $property->setAccessible(true);
                     $value = $property->getValue($controller);
                     
-                    if ($value !== null && !is_array($value)) {
-                        $output .= $this->formatControllerValue($propName, $value);
+                    if (is_array($value)) {
+                        $arrayProperties[] = $propName;
+                    } elseif ($value !== null) {
+                        $output .= $this->formatControllerValue($propName, $value, $rawLongText);
                     }
+                }
+                if ($arrayProperties !== []) {
+                    $output .= '- Not shown (arrays): ' . implode(', ', $arrayProperties) . "\n";
                 }
 
                 return $output;
@@ -802,9 +816,12 @@ class BlocksToolkit extends AbstractToolkit
     }
 
     /**
-     * Format a controller value for human-readable output
+     * Format a controller value for human-readable output. Strings are never shortened (BF-5): a long one that is
+     * already printed under Raw Block Table Data ($rawLongText, text => field) is referred to instead of repeated.
+     *
+     * @param array<string, string> $rawLongText
      */
-    private function formatControllerValue(string $key, $value): string
+    private function formatControllerValue(string $key, $value, array $rawLongText = []): string
     {
         $output = "";
         
@@ -838,19 +855,18 @@ class BlocksToolkit extends AbstractToolkit
         }
         // Handle arrays
         elseif (is_array($value)) {
-            $output .= "- **{$key}:** Array with " . count($value) . " items\n";
+            $output .= "- **{$key}:** Array with " . count($value) . " items (not shown; get_block_data returns the block's own table, and rows in other tables are not returned by any tool)\n";
         }
         // Handle objects (generic)
         elseif (is_object($value)) {
             $className = get_class($value);
-            $output .= "- **{$key}:** {$className} object\n";
+            $output .= "- **{$key}:** {$className} object (not shown)\n";
         }
         // Handle primitives
-        else {
-            $displayValue = is_string($value) && strlen($value) > 100 
-                ? substr($value, 0, 97) . "..." 
-                : $value;
-            $output .= "- **{$key}:** {$displayValue}\n";
+        elseif (is_string($value) && isset($rawLongText[$value])) {
+            $output .= "- **{$key}:** (same as raw field `{$rawLongText[$value]}`, shown in full under Raw Block Table Data)\n";
+        } else {
+            $output .= "- **{$key}:** {$value}\n";
         }
         
         return $output;
