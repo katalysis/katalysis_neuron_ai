@@ -47,7 +47,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
     - `gh pr merge`, `gh repo edit|delete` and non-GET `gh api`
     - commands that name `database.php`, `generated_overrides` or `.env`
 
-    It **asks** (a prompt even when an allow rule matches, WP-1b) for any command containing `run_scenarios`, however it is written, and for `curl` unless it only reads from `katalysis-pro.test`.
+    It **asks** (a prompt even when an allow rule matches, WP-1b) for any command containing `run_scenarios`, however it is written, for `curl` unless it only reads from `katalysis-pro.test`, and for a `git push` run in another repository (`git -C <path>`, `--git-dir`, `--work-tree`; P2.8), whose branch it can't check.
 
     **The guard does not fail safe.** If PHP is missing or the hook errors, Claude Code treats that as a non-blocking hook error and the command goes on to the permission rules. The deny rules in `.claude/settings.json` are the backstop. Don't work around a block: report it.
   - `.githooks/` (pre-commit: `vendor/`; pre-push: `main`, `development`, `integration/*`, non-fast-forward) is enabled once per clone with `git config core.hooksPath .githooks`. `--no-verify` skips it, so GitHub branch protection is the real guard.
