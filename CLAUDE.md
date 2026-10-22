@@ -35,7 +35,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
   Nothing is pushed straight to `development` or `main`.
 - **PROGRESS fields**, in every entry. Write "not recorded" rather than guess.
   - `Who / tool / model`: e.g. `Glyn; Claude Code (VS Code); claude-opus-5-5`
-  - `Time`: elapsed from `/start-task` to the PR, plus the person's own time (they estimate it)
+  - `Time`: elapsed from `/start-task` to the PR. Own time is "not recorded" unless the person volunteers it; don't ask for it.
   - `Scenario spend`: in $ (the runner's estimate), or "none"
 
   Claude Code usage (`/usage`) is not recorded per task: Glyn and Alex record their weekly `/usage` limit percentages separately.

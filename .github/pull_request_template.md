@@ -17,5 +17,5 @@ Task ID and title from `documentation/DELIVERY_PLAN.md`:
 
 ## Who / tool / model, time, scenario spend
 - Who / tool / model:
-- Time (elapsed; own time):
+- Time (elapsed; own time only if volunteered, otherwise "not recorded"):
 - Scenario spend:
