@@ -260,7 +260,8 @@ A spec document and starter template EPRA staff give to their own Claude, so new
   - **The registry contract** (decided on approving the P2.3 plan; P2.3 brings only the `ToolDefinition` class and its tests): how another package hands `ToolDefinition`s and its guidelines to `ExternalToolkitRegistry` without extending Neuron's `AbstractToolkit`, with the skip-and-log of P2.2 kept. A core-side PR into `integration/neuron4`, with the `katalysis_pro` PR
   - **Known defect, found in the Phase 1 exit review** (not caused by the upgrade): `add_person` fails in every run with `{"ok":false,"error":"Target class [user] does not exist."}`, from `KatalysisProEntitiesToolkit.php:740` (`$app->make('user')`). It has been visible since P1.6 loaded the external toolkits. It was seen under the scenario runner only; check it over HTTP first. It needs a `katalysis_pro` PR, and it need not wait for this task: do it with the guideline cleanup (remove `delete_person` and `delete_all_people` from `katalysis_pro`'s guidelines) as one small PR in that repo.
 - P2.9 Run the scenarios (a full run, on `integration/neuron4`), then merge `integration/neuron4` into `development`, once. **Exit: the pass rate is at least the P1.5 baseline, with no new failures**, and chat history works on v4 (stored, reloaded, listed).
-  - before the run (decided at P2.2's plan approval): re-apply the two-week rule to the Neuron pin; the PHPUnit known-failures list in PROGRESS is empty; the web class-origin check (P2.1 findings §2.3) after a successful chat turn; `katalysis_pro` on P2.8's conversion branch (or with it merged), and `KatalysisProToolsTest` passing (decided at P2.8's plan approval)
+  - before the run (decided at P2.2's plan approval): the PHPUnit known-failures list in PROGRESS is empty; the web class-origin check (P2.1 findings §2.3) after a successful chat turn; `katalysis_pro` on P2.8's conversion branch (or with it merged), and `KatalysisProToolsTest` passing (decided at P2.8's plan approval)
+  - the two-week rule for the Neuron pin moved from here to the release rule in §6, "before any non-dev install or merge to `main`" (decided at P2.9's start; 4.1.12 qualifies on 30 October 2026). Plan: [plans/P2.9.md](plans/P2.9.md).
 
 Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled back after P2.9's merge, roll back the code and clear the dev chats: back up, run `documentation/fixtures/clear_dev_chats.php --apply` (before the revert, which removes the script), then revert the merge. v3 code then finds no chats; v4 chats are not converted back (decided at P2.5's start). If P2.1 shows the adapter isn't workable, bump to the latest 3.17.x instead (a low-risk minor update), re-baseline, and do the v4 move during Phase 3 alongside the toolkit split.
 
@@ -335,6 +336,10 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
   6. `katalysis_pro` moved to a provider, and `PeopleToolkit` removed from core
   7. a shim for `ExternalToolkitRegistry` for one release
   8. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
+- P3.11 **Scenario suite** (decided at P2.9's start):
+  - a scenario through the browser and controller path, not only the in-process runner (from BF-1: the panel sent no page ID, which the runner can't see)
+  - a run of an injection scenario that never reads the injected content is marked `inconclusive`, not failed, and counts as neither a pass nor a fail (from P2.8: scenario 21 run 3 answered from `get_page_content` and never read the biography)
+  - coverage of the home page, dashboard pages and edit mode (from BF-1; scenario 22 covers the home page only)
 
 Exit: all scenarios pass, and per-request tool count and prompt size are within targets.
 
@@ -379,6 +384,7 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
 - **`main` and `development` are protected** (PRs only, no force pushes, no deletion). Each task's tick here and its PROGRESS entry go inside the task PR.
 - **Review:** Glyn or Alex reviews each PR. The other person reviews anything touching permissions, approval, the generator or dependencies.
 - **Releases:** bump `pkgVersion`, add a changelog entry, run the scenarios on the dev site, then deploy to EPRA.
+- **Before any non-dev install or merge to `main`:** the target meets the package's platform requirements (PHP 8.1+, `ext-curl`), and the Neuron pin is at least two weeks old (decided at P2.9's start; 4.1.12 qualifies on 30 October 2026).
 
 ### Working-practice tasks (WP)
 - [x] WP-1 **Agent tooling and working practice** (its own PR; before Phase 2). Done (PR #28). Glyn and Alex both use the Claude Code VS Code extension with `packages/katalysis_neuron_ai` as the workspace root, so `CLAUDE.md` and `.claude/settings.json` are loaded and enforced. Copilot is retired. `main` and `development` get branch protection (PRs only, no force pushes, no deletion), and `gh` uses a fine-grained token for this repo only: it can push branches and open PRs, but it can't change settings or merge. Once `development` is protected, the plan and PROGRESS ticks go inside the task PR. Committed files work for both developers, with no absolute or Herd-specific paths; personal settings go in `.claude/settings.local.json` (gitignored). Scope: permission rules (allow, ask, deny), a notification hook, tracked git hooks (`.githooks/`), a dev DB backup wrapper, test tiers (fast, full, scenarios), a working agreement in `CLAUDE.md`, and who, tool, model and time taken in each PROGRESS entry. Findings: [plans/WP-1-findings.md](plans/WP-1-findings.md).
