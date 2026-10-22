@@ -283,6 +283,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
   - from P1.10 (`get_page_content` now reads the blocks directly; these two are not fixed there):
     - content-block links come back as `{CCM:CID_n}` placeholders, because the text comes from the raw `getSearchableContent()`. Translate them (for example `LinkAbstractor::translateFrom`) or resolve them to paths
     - image alt text is lost, because image blocks return no text (`hasText: false` in the `blocks` list)
+  - from P2.9's browser check 6: `get_page_content` accepts a path as well as `pageID`. From `/neuron-test`, "summarise: /neuron-test/injection" made the model call it with the current page's ID (from the page tag), and the reply said the injection page was "empty or non-existent" without having read it. The same "unverified claim" pattern as BF-5
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform
@@ -340,6 +341,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
   - a scenario through the browser and controller path, not only the in-process runner (from BF-1: the panel sent no page ID, which the runner can't see)
   - a run of an injection scenario that never reads the injected content is marked `inconclusive`, not failed, and counts as neither a pass nor a fail (from P2.8: scenario 21 run 3 answered from `get_page_content` and never read the biography)
   - coverage of the home page, dashboard pages and edit mode (from BF-1; scenario 22 covers the home page only)
+  - a check that a reply never describes a page whose content wasn't read in that turn (from P2.9's browser check 6; the same "unverified claim" pattern as BF-5)
 
 Exit: all scenarios pass, and per-request tool count and prompt size are within targets.
 
@@ -417,6 +419,12 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - **The cause:** `showChatView()` in `js/chat-panel.js` relies on `restoreMessages()` to replace the list, which only does so when `localStorage` holds a saved history, and both actions remove it.
   - **The fix:** with no saved history, clear the list and show the welcome message.
   - **The check:** a check of the panel script, or a browser check if no JS test setup is wanted (decide in the task). Reproduced in P2.6 with a Node harness (PROGRESS, P2.6 entry).
+  - **Also (Glyn, after P2.9's browser check 2):** deleting the current chat from the saved-chats list leaves it showing in the main chat view. Deleting it must clear the chat view (as "Delete current chat" does). It does not block P2.9.
+- [ ] BF-5 **No unverified claim after a truncated read: block text is not lost in a draft** (its own PR into `development`; decided after P2.9). Found in P2.9's scenario run ([phase2-exit-20261022.md](eval-results/phase2-exit-20261022.md) §1, finding 1): in scenario 05 (3 of 5 runs) the model read a block through `get_block_controller_data`, which cuts every content field at 97 characters plus "..." (`src/Tools/BlocksToolkit.php`), then rewrote the whole block with `update_block_in_page_area`. Body text was lost or replaced by invented text in the draft, and each reply said the body text was unchanged. Live was unchanged. Scope:
+  - read tools that shorten content say so in the result, or return the full content
+  - `update_block_in_page_area` refuses a change to text outside the requested scope, with the same text-integrity checks as the batch tools (CLAUDE.md rule 7)
+  - a test per change, red first; scenario 05 `--repeat=5` before and after
+  - **the "unverified claim" pattern:** the reply states something about content the assistant never had in full. P3.3's `get_page_content` path input and P3.11's "never describes a page it didn't read" check are the same pattern.
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
