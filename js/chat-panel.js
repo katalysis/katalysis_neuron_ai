@@ -177,6 +177,8 @@
             } catch (error) {
                 this.restoreMessages();
             }
+
+            this.afterChangeReload();
         },
 
         extractHistoryArray(chatHistory) {
@@ -265,7 +267,7 @@
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/send_message', {
                     method: 'POST',
                     headers: this.postHeaders(),
-                    body: JSON.stringify({ message, pageContext })
+                    body: JSON.stringify({ message, pageContext, openBlockIDs: this.getOpenEditorBlockIDs() })
                 });
 
                 const contentType = response.headers.get('content-type') || '';
@@ -284,6 +286,8 @@
                 if (data.success) {
                     // data.notice is wording the server wrote (null when there is none); it is shown as it comes.
                     this.addMessage(data.response, 'assistant', true, data.notice);
+                    // Also after a failed turn: a write may have happened before it failed (BF-7).
+                    this.showChangesToThisPage(data.changes);
                 } else {
                     this.showFailure(data, 'Error: ');
                 }
@@ -293,6 +297,123 @@
             } finally {
                 this.setLoading(false);
             }
+        },
+
+        // BF-7: when the assistant changed the page this panel is on, reload it so the change shows, as a manual edit
+        // would (in edit mode too: the page stays in edit mode). Never over an open block editor: say what to do instead.
+        showChangesToThisPage(changes) {
+            const current = this.getCurrentPageId();
+            if (!current || !Array.isArray(changes) || !changes.some((c) => c && Number(c.pageID) === current)) {
+                return;
+            }
+
+            if (this.isEditorOpen()) {
+                this.addPageNotice('The assistant changed this page. Save or cancel your edit, then reload the page to see the change. '
+                    + 'If saving fails, cancel, reload and edit again.', true);
+                return;
+            }
+
+            this.addPageNotice('Updated: reloading to show the change.', false);
+            setTimeout(() => {
+                // An editor opened while the notice showed: don't reload over it.
+                if (this.isEditorOpen()) {
+                    this.addPageNotice('Save or cancel your edit, then reload the page to see the change.', true);
+                    return;
+                }
+                this.reloadForChange();
+            }, 1500);
+        },
+
+        reloadForChange() {
+            try {
+                sessionStorage.setItem('neuron-chat-reloaded', '1');
+                sessionStorage.setItem('neuron-chat-draft', this.input ? this.input.value : '');
+            } catch (e) {
+                // Private mode or storage off: the reload still happens, without the notice or the draft.
+            }
+            window.location.reload();
+        },
+
+        // After a reload for a change: one line saying why, and the message the user was typing.
+        afterChangeReload() {
+            let reloaded = null;
+            let draft = '';
+            try {
+                reloaded = sessionStorage.getItem('neuron-chat-reloaded');
+                draft = sessionStorage.getItem('neuron-chat-draft') || '';
+                sessionStorage.removeItem('neuron-chat-reloaded');
+                sessionStorage.removeItem('neuron-chat-draft');
+            } catch (e) {
+                return;
+            }
+            if (!reloaded) {
+                return;
+            }
+            this.addPageNotice('Reloaded to show the assistant\'s change.', false);
+            if (draft && this.input && !this.input.value) {
+                this.input.value = draft;
+            }
+        },
+
+        // A notice about the page, under the conversation. Not saved: it is about this view of the page only.
+        addPageNotice(text, withReloadButton) {
+            const notice = document.createElement('div');
+            notice.className = 'neuron-chat-notice neuron-chat-page-notice';
+            notice.setAttribute('role', 'status');
+            notice.textContent = text;
+            if (withReloadButton) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn btn-sm btn-secondary neuron-chat-reload';
+                button.textContent = 'Reload now';
+                button.addEventListener('click', () => this.reloadForChange());
+                notice.appendChild(document.createTextNode(' '));
+                notice.appendChild(button);
+            }
+            this.messages.appendChild(notice);
+            this.scrollToBottom();
+        },
+
+        isVisible(el) {
+            return !!el && window.getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0;
+        },
+
+        // Is a Concrete editor open that a reload would lose? Read from the page each time (Concrete 9.5.5, cms.js):
+        // - inline editing, or a block being added inline: .ccm-block-edit-inline-active / .ccm-area-edit-inline-active
+        // - a dialog (block edit, design, permissions, add block...): a visible jQuery UI .ui-dialog
+        // - a detail panel with a form (attributes, SEO, location, the Publish panel's comment): a visible .ccm-panel-detail
+        isEditorOpen() {
+            if (document.querySelector('.ccm-block-edit-inline-active, .ccm-area-edit-inline-active')) {
+                return true;
+            }
+            const visible = (selector) => Array.from(document.querySelectorAll(selector)).some((el) => this.isVisible(el));
+
+            return visible('.ui-dialog') || visible('.ccm-panel-detail');
+        },
+
+        // The blocks an editor is open on (BF-7), so the assistant leaves them alone: the block an inline edit is
+        // running on (its data-block-id), and the bID in the action of an open block form (Concrete's block controller
+        // adds &bID= to it, for the edit dialog and inline editing alike). The server keeps only positive integers.
+        getOpenEditorBlockIDs() {
+            const ids = new Set();
+            const add = (value) => {
+                const id = parseInt(value, 10);
+                if (Number.isFinite(id) && id > 0) {
+                    ids.add(id);
+                }
+            };
+            document.querySelectorAll('[data-block-id].ccm-block-edit-inline-active').forEach((el) => add(el.getAttribute('data-block-id')));
+            document.querySelectorAll('form#ccm-block-form, .ui-dialog form').forEach((form) => {
+                if (!form.closest('.ccm-block-edit-inline-active') && !this.isVisible(form)) {
+                    return;
+                }
+                const match = (form.getAttribute('action') || '').match(/[?&]bID=(\d+)/);
+                if (match) {
+                    add(match[1]);
+                }
+            });
+
+            return Array.from(ids);
         },
 
         getPageContext() {
