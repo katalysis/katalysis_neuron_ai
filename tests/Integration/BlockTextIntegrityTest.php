@@ -195,16 +195,18 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         $this->assertSame('Search the site', (string) $row['title'], 'A field the update left out must be kept');
         $this->assertSame('Find it now', (string) $row['buttonText']);
 
+        // buttonText, not title: the tool renames a `title` input to `Title` for every block type (an EPRA alias,
+        // found in BF-5 and left for Glyn), so a core block's title can't be set through it at all.
         $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => (int) $row['bID'],
-            'value' => ['title' => ''],
+            'value' => ['buttonText' => ''],
             'changeMode' => 'scoped_text',
-            'textFields' => ['title'],
-            'replacedText' => ['Search the site'],
+            'textFields' => ['buttonText'],
+            'replacedText' => ['Find it now'],
         ]));
         $row = $this->newestSearch($cID);
-        $this->assertSame('', (string) $row['title'], 'An explicit empty value clears the field');
-        $this->assertSame('Find it now', (string) $row['buttonText']);
+        $this->assertSame('', (string) $row['buttonText'], 'An explicit empty value clears the field');
+        $this->assertSame('Search the site', (string) $row['title']);
     }
 
     // ---- batch_update_page_content --------------------------------------------
