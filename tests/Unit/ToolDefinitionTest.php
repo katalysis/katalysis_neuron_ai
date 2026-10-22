@@ -49,7 +49,42 @@ final class ToolDefinitionTest extends TestCase
         $tool->execute();
 
         $this->assertSame(['thingID' => 3, 'withChildren' => null], $received);
-        $this->assertSame('done', $tool->getResult());
+        $this->assertSame('{"ok":true,"data":"done"}', $tool->getResult(), 'a result that is not an envelope is wrapped (P2.8)');
+    }
+
+    /**
+     * @return array<string, array{mixed, string}>
+     */
+    public static function results(): array
+    {
+        return [
+            'an envelope, as it is' => [['ok' => true, 'error' => null, 'count' => 2], '{"ok":true,"error":null,"count":2}'],
+            'a failed envelope, as it is' => [['ok' => false, 'error' => 'Not found'], '{"ok":false,"error":"Not found"}'],
+            'an array without ok' => [['count' => 2], '{"ok":true,"data":{"count":2}}'],
+            'a list' => [['a', 'b'], '{"ok":true,"data":["a","b"]}'],
+            'a string' => ['done', '{"ok":true,"data":"done"}'],
+            'null' => [null, '{"ok":true,"data":null}'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('results')]
+    public function testTheResultReachesTheModelInTheEnvelope(mixed $result, string $expected): void
+    {
+        $tool = ToolDefinition::make('get_thing', 'Reads a thing.')->handler(static fn (array $in): mixed => $result)->toNeuronTool();
+
+        $tool->execute();
+
+        $this->assertSame($expected, $tool->getResult());
+    }
+
+    public function testAnExceptionIsLeftToTheAgentsToolErrorHandler(): void
+    {
+        $tool = ToolDefinition::make('get_thing', 'Reads a thing.')
+            ->handler(static fn (array $in): never => throw new \RuntimeException('it broke'))
+            ->toNeuronTool();
+
+        $this->expectExceptionMessage('it broke');
+        $tool->execute();
     }
 
     public function testWritesIsRecorded(): void

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Unit;
 
+use Katalysis\NeuronAi\Extension\ToolDefinition;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
+use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -12,7 +14,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * P2.2 (P2.1 findings 5.4): a failing external toolkit is skipped and logged, permanently, so one package can't break
- * every chat turn. Each toolkit's tools are built once per build(), inside the try. No Concrete, no database.
+ * every chat turn. Each toolkit's tools are built once per build(), inside the try. P2.8: the same for a package's
+ * ToolDefinitions (registerToolDefinitions()), plus the login check. No Concrete, no database.
  */
 final class ExternalToolkitRegistryTest extends TestCase
 {
@@ -145,5 +148,138 @@ final class ExternalToolkitRegistryTest extends TestCase
 
         $this->assertSame([], $build->toolkits());
         $this->assertSame([], $build->skipped());
+    }
+
+    // P2.8: the ToolDefinition contract.
+
+    private static function definitions(\stdClass $counter): \Closure
+    {
+        return static function () use ($counter): array {
+            $counter->builds++;
+
+            return [
+                ToolDefinition::make('get_review', 'A review.')
+                    ->input('reviewID', ToolDefinition::INTEGER, 'The review', required: true)
+                    ->handler(static fn (array $in): array => ['ok' => true, 'review' => $in['reviewID']]),
+                ToolDefinition::make('list_reviews', 'Reviews.')->handler(static fn (array $in): array => ['a', 'b']),
+            ];
+        };
+    }
+
+    public function testToolDefinitionsAreOfferedAsOneToolkitWithTheirGuidelinesAndLabel(): void
+    {
+        $counter = (object) ['builds' => 0];
+        ExternalToolkitRegistry::registerToolDefinitions('reviews_package', self::definitions($counter), 'Use get_review for one review.', 'ReviewsToolkit');
+
+        $build = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true);
+
+        $this->assertSame([], $build->skipped());
+        $this->assertCount(1, $build->toolkits());
+        $toolkit = $build->toolkits()[0];
+        $this->assertInstanceOf(FilteredToolkit::class, $toolkit);
+        $this->assertSame(['get_review', 'list_reviews'], array_map(static fn ($tool): string => $tool->getName(), $toolkit->tools()));
+        $this->assertContainsOnlyInstancesOf(CallableTool::class, $toolkit->tools());
+        $this->assertSame('Use get_review for one review.', $toolkit->guidelines(), 'the guidelines are offered as they are');
+        $this->assertSame('ReviewsToolkit', $toolkit->guidelinesHeading(), 'the label heads the guidelines');
+
+        $toolkit->tools();
+        $this->assertSame(1, $counter->builds, 'the factory runs once per build');
+    }
+
+    public function testTheLabelDefaultsToTheKey(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('reviews_package', self::definitions((object) ['builds' => 0]));
+
+        $toolkit = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true)->toolkits()[0];
+
+        $this->assertSame('reviews_package', $toolkit->guidelinesHeading());
+        $this->assertNull($toolkit->guidelines());
+    }
+
+    public function testTheFirstRegistrationForAKeyWinsAcrossBothKinds(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('pkg', self::definitions((object) ['builds' => 0]), null, 'First');
+        ExternalToolkitRegistry::registerToolkitFactory('pkg', static fn (): array => [self::throwingToolkit()]);
+        ExternalToolkitRegistry::registerToolDefinitions('pkg', static fn (): array => [], null, 'Third');
+
+        $build = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true);
+
+        $this->assertSame([], $build->skipped());
+        $this->assertSame('First', $build->toolkits()[0]->guidelinesHeading());
+    }
+
+    public function testToolkitsAndDefinitionsKeepTheOrderTheyWereRegisteredIn(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('first', self::definitions((object) ['builds' => 0]), 'g', 'First');
+        ExternalToolkitRegistry::registerToolkitFactory('second', static fn (): array => [self::goodToolkit((object) ['builds' => 0])]);
+
+        $kits = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true)->toolkits();
+
+        $this->assertSame(['get_review', 'list_reviews'], array_map(static fn ($t): string => $t->getName(), $kits[0]->tools()));
+        $this->assertSame('Use get_review for reviews.', $kits[1]->guidelines());
+    }
+
+    public function testADefinitionsFactoryThatThrowsIsSkippedRedactedAndLogged(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('broken_defs', static function (): array {
+            throw new \RuntimeException('no database; key sk-proj-abcdefghijklmnop');
+        }, null, 'BrokenToolkit');
+        ExternalToolkitRegistry::registerToolkitFactory('good_package', static fn (): array => [self::goodToolkit((object) ['builds' => 0])]);
+
+        $build = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true);
+
+        $this->assertCount(1, $build->toolkits(), 'the other package is still offered');
+        $this->assertCount(1, $build->skipped());
+        $this->assertSame('broken_defs', $build->skipped()[0]['provider']);
+        $this->assertSame('BrokenToolkit', $build->skipped()[0]['toolkit']);
+        $this->assertStringContainsString('no database', $build->skipped()[0]['reason']);
+        $this->assertStringNotContainsString('sk-proj-abcdefghijklmnop', $build->skipped()[0]['reason']);
+        $this->assertStringNotContainsString('sk-proj-abcdefghijklmnop', $this->logged[0][1]);
+        $this->assertSame('warning', $this->logged[0][0]);
+    }
+
+    /**
+     * @return array<string, array{\Closure(): mixed, string}>
+     */
+    public static function notDefinitions(): array
+    {
+        return [
+            'a Neuron tool' => [static fn (): array => [new CallableTool('get_x', 'x')], CallableTool::class],
+            'a string' => [static fn (): array => ['get_x'], 'string'],
+            'not a list' => [static fn (): string => 'get_x', 'list of ToolDefinitions'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('notDefinitions')]
+    public function testAFactoryThatReturnsAnythingButToolDefinitionsIsSkipped(\Closure $factory, string $named): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('odd_defs', $factory);
+
+        $build = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true);
+
+        $this->assertSame([], $build->toolkits());
+        $this->assertCount(1, $build->skipped());
+        $this->assertStringContainsString($named, $build->skipped()[0]['reason']);
+    }
+
+    public function testADefinitionToolRunsOnlyForARegisteredUser(): void
+    {
+        $registered = false;
+        ExternalToolkitRegistry::registerToolDefinitions('reviews_package', self::definitions((object) ['builds' => 0]));
+        $tool = ExternalToolkitRegistry::build($this->logger(), static function () use (&$registered): bool {
+            return $registered;
+        })->toolkits()[0]->tools()[0];
+
+        $tool->setInputs(['reviewID' => 4]);
+        try {
+            $tool->execute();
+            $this->fail('a guest ran the tool');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Authentication required: Please log in to use this tool.', $e->getMessage());
+        }
+
+        $registered = true;
+        $tool->execute();
+        $this->assertSame('{"ok":true,"review":4}', $tool->getResult());
     }
 }
