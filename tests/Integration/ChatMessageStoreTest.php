@@ -418,4 +418,178 @@ final class ChatMessageStoreTest extends ConcreteTestCase
         $this->assertInstanceOf(ToolCallMessage::class, $messages[1]);
         $this->assertSame(ApprovalState::Pending, $messages[1]->getToolCalls()[0]->getApprovalState());
     }
+
+    // ---- BF-9: a chat never gets permanently stuck (plans/BF-9.md §4) ----------------------------------------------
+
+    /**
+     * A tool call as Neuron's pair-commit stores it: the call carries its result (the same ToolCall objects the tool
+     * wrote into).
+     */
+    private static function ranCall(string $result = '{"ok":true,"data":{"title":"Headings"}}'): ToolCallMessage
+    {
+        $call = new ToolCall('get_page_content', 'call_' . bin2hex(random_bytes(3)), ['pageID' => 1]);
+        $call->setResult($result);
+
+        return new ToolCallMessage(null, [$call]);
+    }
+
+    private static function resultOf(ToolCallMessage $call): ToolResultMessage
+    {
+        return new ToolResultMessage($call->getToolCalls());
+    }
+
+    /**
+     * What Neuron checks when the next turn's message is committed: the view plus a new user message.
+     *
+     * @param Message[] $messages
+     */
+    private function assertSendable(array $messages): void
+    {
+        (new HistoryTrimmer())->trim([...$messages, new UserMessage('Next question.')], PHP_INT_MAX);
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * @param Message[] $messages
+     * @return string[] each message's kind: user, assistant, tool_call, tool_result, or recovered (a placeholder)
+     */
+    private static function kinds(array $messages): array
+    {
+        return array_map(static fn (Message $m): string => match (true) {
+            $m instanceof ToolCallMessage => 'tool_call',
+            $m instanceof ToolResultMessage => str_starts_with($m->getId(), 'msg_recovered_') ? 'recovered_result' : 'tool_result',
+            str_starts_with($m->getId(), 'msg_recovered_') => 'recovered',
+            default => $m->getRole(),
+        }, $messages);
+    }
+
+    private function logMark(): int
+    {
+        return (int) $this->db()->fetchOne('SELECT COALESCE(MAX(logID), 0) FROM Logs');
+    }
+
+    /**
+     * @return string[]
+     */
+    private function loggedSince(int $mark): array
+    {
+        return $this->db()->fetchFirstColumn('SELECT message FROM Logs WHERE logID > ? ORDER BY logID', [$mark]);
+    }
+
+    public function testAChatEndingInAToolResultGetsAReplyPlaceholderAtTheEnd(): void
+    {
+        // What a turn that failed after its second tool round leaves (C3 failed, or the process timed out).
+        $thread = $this->newThread();
+        $call = self::ranCall();
+        $this->appendAll($thread, [new UserMessage('Read it twice.'), $call, self::resultOf($call)]);
+        $before = $this->checksum($thread);
+
+        $messages = $this->store()->loadActive($thread);
+
+        $this->assertSame(['user', 'tool_call', 'tool_result', 'recovered'], self::kinds($messages));
+        $this->assertInstanceOf(AssistantMessage::class, $messages[3]);
+        $this->assertStringContainsString('Recovered', (string) $messages[3]->getContent());
+        $this->assertSendable($messages);
+        $this->assertSame(
+            array_map(static fn (Message $m): string => $m->getId(), $messages),
+            array_map(static fn (Message $m): string => $m->getId(), $this->store()->loadActive($thread)),
+            'the same placeholder on every load'
+        );
+        $this->assertSame($before, $this->checksum($thread), 'loading never writes');
+    }
+
+    public function testAToolResultFollowedByAUserMessageGetsAReplyPlaceholderBetween(): void
+    {
+        // The two-tab shape: another request committed its question and reply after this one's tool result.
+        $thread = $this->newThread();
+        $call = self::ranCall();
+        $this->appendAll($thread, [new UserMessage('One.'), $call, self::resultOf($call), new UserMessage('Two.'), new AssistantMessage('Reply two.')]);
+
+        $messages = $this->store()->loadActive($thread);
+
+        $this->assertSame(['user', 'tool_call', 'tool_result', 'recovered', 'user', 'assistant'], self::kinds($messages));
+        $this->assertSame('msg_recovered_' . $messages[4]->getId(), $messages[3]->getId());
+        $this->assertSendable($messages);
+    }
+
+    public function testAToolCallWithItsResultsButNoResultMessageHasItsResultRebuilt(): void
+    {
+        // The database failed between the call's row and the result's row.
+        $thread = $this->newThread();
+        $call = self::ranCall('{"ok":true,"data":{"title":"Rebuilt from the call"}}');
+        $this->appendAll($thread, [new UserMessage('Read it.'), $call]);
+        $before = $this->checksum($thread);
+
+        $messages = $this->store()->loadActive($thread);
+
+        $this->assertSame(['user', 'tool_call', 'recovered_result', 'recovered'], self::kinds($messages));
+        $this->assertSame('msg_recovered_' . $messages[1]->getId(), $messages[2]->getId());
+        $rebuilt = $messages[2]->getToolCalls()[0];
+        $this->assertSame('{"ok":true,"data":{"title":"Rebuilt from the call"}}', $rebuilt->getResult(), 'the result the tool returned');
+        $this->assertSame($call->getToolCalls()[0]->getCallId(), $rebuilt->getCallId());
+        $this->assertNotSame($messages[1]->getToolCalls()[0], $rebuilt, 'a copy: the loaded call is not changed');
+        $this->assertSendable($messages);
+        $this->assertSame($before, $this->checksum($thread), 'loading never writes');
+    }
+
+    public function testAToolCallWithItsResultsFollowedByMoreMessagesHasItsResultRebuilt(): void
+    {
+        $thread = $this->newThread();
+        $call = self::ranCall();
+        $this->appendAll($thread, [new UserMessage('One.'), $call, new UserMessage('Two.'), new AssistantMessage('Reply two.')]);
+
+        $messages = $this->store()->loadActive($thread);
+
+        $this->assertSame(['user', 'tool_call', 'recovered_result', 'recovered', 'user', 'assistant'], self::kinds($messages));
+        $this->assertSendable($messages);
+    }
+
+    public function testAWaitingToolCallFollowedByAUserMessageIsLeftAlone(): void
+    {
+        // A call with no result is waiting for approval (P3.6): never rebuilt, never cut. The agent refuses the next
+        // turn before the provider instead (AgentRepairBeforeProviderTest).
+        $thread = $this->newThread();
+        $call = new ToolCall('update_page', 'call_1', ['pageId' => 12]);
+        $call->setApprovalState(ApprovalState::Pending);
+        $this->appendAll($thread, [new UserMessage('Rename the page.'), new ToolCallMessage(null, [$call]), new UserMessage('Hello?'), new AssistantMessage('Hi.')]);
+
+        $messages = $this->store()->loadActive($thread);
+
+        $this->assertSame(['user', 'tool_call', 'user', 'assistant'], self::kinds($messages));
+        $this->assertFalse($messages[1]->getToolCalls()[0]->hasResult());
+    }
+
+    public function testAnOrderNoRuleCoversStartsTheViewAtTheNextUserMessageItCanSend(): void
+    {
+        // A tool result with no call before it: nothing can be rebuilt for it.
+        $thread = $this->newThread();
+        $orphan = self::resultOf(self::ranCall());
+        $this->appendAll($thread, [new UserMessage('One.'), $orphan, new AssistantMessage('Reply one.'), new UserMessage('Two.'), new AssistantMessage('Reply two.')]);
+        $before = $this->checksum($thread);
+        $mark = $this->logMark();
+
+        $messages = $this->store()->loadActive($thread);
+
+        $this->assertSame(['Two.', 'Reply two.'], self::texts($messages));
+        $this->assertSendable($messages);
+        $logged = implode("\n", $this->loggedSince($mark));
+        $this->assertStringContainsString('chat ' . $this->chatId($thread), $logged);
+        $this->assertStringContainsString('3 messages left out', $logged);
+        $this->assertSame($before, $this->checksum($thread), 'loading never writes');
+        $this->assertCount(5, $this->store()->loadAll($thread), 'the transcript still shows every stored message');
+    }
+
+    public function testArchiveCountsTheToolResultPlaceholdersAsNeuronDoes(): void
+    {
+        $thread = $this->newThread();
+        $call = self::ranCall();
+        $this->appendAll($thread, [new UserMessage('One.'), $call, self::resultOf($call), new UserMessage('Two.'), new AssistantMessage('Three.')]);
+        $this->assertCount(6, $this->store()->loadActive($thread));
+
+        // Neuron's cut before "Two." drops 4 of its messages: 3 stored rows and the placeholder.
+        $this->store()->archive($thread, 4);
+
+        $this->assertSame(['Two.', 'Three.'], self::texts($this->store()->loadActive($thread)));
+        $this->assertSame(3, count(array_filter(array_column($this->rows($thread), 'archivedAt'))));
+    }
 }
