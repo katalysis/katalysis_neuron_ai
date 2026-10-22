@@ -74,13 +74,45 @@ final class NeuronBashGuard
             return 'it runs the scenario runner, which calls the AI provider and costs money';
         }
         foreach (self::segments($command) as $tokens) {
-            $reason = self::checkCurl($tokens);
+            $reason = self::checkCurl($tokens) ?? self::checkPushElsewhere($tokens);
             if ($reason !== null) {
                 return $reason;
             }
         }
 
         return null;
+    }
+
+    /**
+     * A push run in another repository (git -C <path>, --git-dir, --work-tree) asks (P2.8): a bare push there goes to
+     * that repository's current branch, which the guard can't see (it looks up the branch of the hook's cwd).
+     *
+     * @param list<array{string, bool}> $tokens
+     */
+    private static function checkPushElsewhere(array $tokens): ?string
+    {
+        $i = self::commandIndex($tokens, 'git');
+        if ($i === null) {
+            return null;
+        }
+
+        $n = count($tokens);
+        $elsewhere = false;
+        $i++;
+        while ($i < $n && str_starts_with($tokens[$i][0], '-') && !$tokens[$i][1]) {
+            $name = explode('=', $tokens[$i][0], 2)[0];
+            if (in_array($name, ['-C', '--git-dir', '--work-tree'], true)) {
+                $elsewhere = true;
+            }
+            if (in_array($tokens[$i][0], ['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--config-env'], true)) {
+                $i++;
+            }
+            $i++;
+        }
+
+        return $elsewhere && ($tokens[$i][0] ?? '') === 'push'
+            ? 'it pushes from another repository (git -C, --git-dir or --work-tree), whose branch the guard cannot check'
+            : null;
     }
 
     public static function main(string $input): int

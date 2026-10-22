@@ -6,18 +6,20 @@ namespace Katalysis\NeuronAi\Extension;
 
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\PropertyType;
-use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\ToolProperty;
 
 /**
  * Our own builder for a tool, with no Neuron types in its public methods (EXTENSIONS.md; from the P2.1 spike,
- * brought in by P2.3). How another package hands its ToolDefinitions to the core is P2.8's registry contract.
+ * brought in by P2.3). Another package hands its ToolDefinitions to the core with
+ * ExternalToolkitRegistry::registerToolDefinitions() (P2.8).
  *
  *     ToolDefinition::make('get_page_content', 'Read the text of a page.')
  *         ->input('pageID', ToolDefinition::INTEGER, 'The page ID', required: true)
  *         ->handler(fn (array $in): array => ...);
  *
  * The handler gets the declared inputs as one array, cast to their types, with null for an input the model left out.
+ * Its result reaches the model in the {ok, ...} envelope: an array with an "ok" key as it is, anything else as
+ * {ok: true, data: <result>}. An exception is left to the agent's tool error handler, which redacts and logs it.
  * Only the core calls toNeuronTool(); an extension never sees a Neuron class.
  *
  * Not yet here: group(), tier(), permission() and the handler's context argument (EXTENSIONS.md), which need
@@ -110,14 +112,14 @@ final class ToolDefinition
     /**
      * @internal For the core only.
      */
-    public function toNeuronTool(): ToolInterface
+    public function toNeuronTool(): CallableTool
     {
         if ($this->handler === null) {
             throw new \LogicException("Tool \"{$this->name}\" has no handler.");
         }
 
         $handler = $this->handler;
-        $tool = new CallableTool($this->name, $this->description, static fn (mixed ...$in): mixed => $handler($in));
+        $tool = new CallableTool($this->name, $this->description, static fn (mixed ...$in): array => self::envelope($handler($in)));
         foreach ($this->inputs as $input) {
             $tool->addProperty(new ToolProperty(
                 $input['name'],
@@ -128,5 +130,17 @@ final class ToolDefinition
         }
 
         return $tool;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function envelope(mixed $result): array
+    {
+        if (is_array($result) && array_key_exists('ok', $result)) {
+            return $result;
+        }
+
+        return ['ok' => true, 'data' => $result];
     }
 }

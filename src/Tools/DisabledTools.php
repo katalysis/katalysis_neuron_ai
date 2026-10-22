@@ -57,9 +57,9 @@ final class DisabledTools
             . 'removed in P3.10; re-enabled by the provider only behind approval (P3.6)',
         'update_person' => 'overwrites the person record live, no history, login-only check (P1.13); '
             . 'katalysis_pro tool; re-enabled behind permission checks (P3.5) and approval (P3.6)',
-        'add_person' => 'upsert by ID, email or name can overwrite a record; defaults to active (published); '
-            . 'login-only check; fails with "Target class [user] does not exist" (P1.13); returns after the katalysis_pro '
-            . 'PR (create-only, inactive) with P3.5 permissions and P3.6 approval',
+        'add_person' => 'writes to people records: upsert by ID, email or name can overwrite a record; defaults to '
+            . 'active (published); login-only check (P1.13); katalysis_pro tool; waiting for P3.5 permission checks '
+            . 'and P3.6 approval',
     ];
 
     /**
