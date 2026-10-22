@@ -16,6 +16,7 @@ use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
+use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -36,6 +37,8 @@ use Katalysis\NeuronAi\Security\ToolResultScanner;
 use Katalysis\NeuronAi\Tools\DisabledTools;
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\ToolNameResolver;
+use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
+use NeuronAI\Agent\Observability\ToolCalled;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Area\Area;
@@ -49,6 +52,10 @@ class ConcreteCmsAgent extends Agent
     private ?array $runtimePageContext = null;
     private ?ToolResultScanner $toolResultScanner = null;
     private ?ExternalToolkitBuild $externalToolkits = null;
+    private TurnChanges $turnChanges;
+
+    /** @var list<int> blocks the user has an editor open on, on the current page (BF-7) */
+    private array $openEditorBlockIDs = [];
     
     public function __construct(?int $chatId = null)
     {
@@ -74,6 +81,34 @@ class ConcreteCmsAgent extends Agent
         $this->addMiddleware(ToolNode::class, $this->toolResultScanner()->resultMiddleware());
         // Scans a tool result the store rebuilt, the first time it is sent (BF-9).
         $this->addMiddleware(ChatNode::class, $this->toolResultScanner()->recoveredResultMiddleware());
+
+        // The pages and blocks each turn changes, for the panel (BF-7).
+        $this->turnChanges = new TurnChanges();
+        $this->subscribe(ToolCalled::class, $this->turnChanges);
+    }
+
+    /**
+     * The pages and blocks the last turn changed (TurnChanges), also after a failed turn. The chat endpoint returns
+     * them, and the panel reloads the page when it is one of them (BF-7).
+     *
+     * @return list<array{pageID: int, path: string, name: string, tools: list<string>, blockIDs: list<int>, replacedBlockIDs: array<string, int>}>
+     */
+    public function getTurnChanges(): array
+    {
+        return $this->turnChanges->all();
+    }
+
+    /**
+     * The blocks the user has an editor open on, on the current page (the page context's ID), as the panel reports
+     * them. The block tools refuse them for the next turn only (EditModeGuard, BF-7).
+     *
+     * @param list<int> $blockIDs
+     */
+    public function setOpenEditorBlocks(array $blockIDs): self
+    {
+        $this->openEditorBlockIDs = array_values(array_unique(array_map('intval', $blockIDs)));
+
+        return $this;
     }
 
     /**
@@ -611,6 +646,7 @@ INST);
     public function startTurn(): void
     {
         $this->toolResultScanner()->reset();
+        $this->turnChanges->reset();
     }
 
     public function handle(string $message): string
@@ -632,6 +668,9 @@ INST);
             return self::ERROR_REPLY;
         }
 
+        $pageID = $this->runtimePageContext['id'] ?? null;
+        EditModeGuard::setOpenBlocks(is_numeric($pageID) ? (int) $pageID : null, $this->openEditorBlockIDs);
+
         try {
             $response = $this->chat($userMessage)->getMessage();
 
@@ -645,6 +684,8 @@ INST);
             $this->storeFailedTurn($userMessage);
 
             return self::ERROR_REPLY;
+        } finally {
+            EditModeGuard::clearOpenBlocks();
         }
     }
 

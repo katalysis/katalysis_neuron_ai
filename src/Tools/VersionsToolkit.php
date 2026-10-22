@@ -12,6 +12,8 @@ use Concrete\Core\User\User;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Area\Area;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
+use Katalysis\NeuronAi\Tools\Utilities\DraftState;
+use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
@@ -210,6 +212,7 @@ GUIDELINES;
                     return "❌ **Error:** Page ID {$pageID} or version {$versionID} not found.";
                 }
                 SystemPageGuard::refuse($page);
+                EditModeGuard::refuse($page);
 
                 // Check permissions
                 $permissions = new Checker($page);
@@ -295,6 +298,7 @@ GUIDELINES;
                     return "❌ **Error:** Page ID {$pageID} not found.";
                 }
                 SystemPageGuard::refuse($page);
+                EditModeGuard::refuse($page);
 
                 // Check permissions
                 $permissions = new Checker($page);
@@ -354,6 +358,7 @@ GUIDELINES;
                        "- Make your edits using this version ID\n" .
                        "- User should preview before approving\n" .
                        "- Publishing is done by a person in the CMS; this assistant cannot publish\n" .
+                       "- " . DraftState::summary((int) $newVersionID) . "\n" .
                        "- Use `discard_draft_version` to cancel";
 
             } catch (\Exception $e) {
@@ -398,6 +403,7 @@ GUIDELINES;
                     return "❌ **Error:** Page ID {$pageID} or version {$versionID} not found.";
                 }
                 SystemPageGuard::refuse($page);
+                EditModeGuard::refuse($page);
 
                 // Check permissions
                 $permissions = new Checker($page);
