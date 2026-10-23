@@ -34,6 +34,25 @@ use Concrete\Core\Support\Facade\Log;
  */
 final class DraftCleanup
 {
+    /** The tables keyed by a page version (cID, cvID) that fingerprint() reads. */
+    public const VERSION_TABLES = [
+        'BlockPermissionAssignments',
+        'CollectionAttributeValues',
+        'CollectionVersionAreaStyles',
+        'CollectionVersionBlocks',
+        'CollectionVersionBlocksCacheSettings',
+        'CollectionVersionBlockStyles',
+        'CollectionVersionRelatedEdits',
+        'CollectionVersions',
+        'CollectionVersionThemeCustomStyles',
+        'PageTypeComposerOutputBlocks',
+    ];
+
+    /** Tables keyed by a page version that are not part of what it holds, and why. */
+    public const NOT_VERSION_CONTENT = [
+        'CollectionVersionBlocksOutputCache' => 'cached block output, written when a page is viewed and rebuilt on the next view',
+    ];
+
     /**
      * The drafts and pages made by the call that is running, or null outside a call.
      *
