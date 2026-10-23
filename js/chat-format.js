@@ -22,8 +22,19 @@
     // Only to resolve relative URLs for the check; never part of a link.
     const CHECK_BASE = 'https://base.invalid/';
 
-    // One pass over a line, earliest match first: image markdown (kept as text), code, a link, bold, italic.
-    const INLINE = /!\[[^\]]*\]\([^)]*\)|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*\*(.+?)\*\*|\*(.+?)\*/g;
+    // One pass over a line, earliest match first: image markdown (made a link), code, a link, bold, italic.
+    const INLINE = /!\[([^\]]*)\]\(([^)\s]*)\)|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*\*(.+?)\*\*|\*(.+?)\*/g;
+
+    // Bare http(s) URLs and email addresses in plain text, only at the start or after a space or "(", as GitHub's
+    // markdown does: never inside raw HTML such as href="…". A URL stops at a space, a quote, < or >.
+    const AUTOLINK = /(^|[\s(])(?:(https?:\/\/[^\s<>"'`]+)|([A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+))/gi;
+    // Not part of a URL when it ends one: "see https://x.example/a." links to https://x.example/a.
+    const TRAILING = /[.,;:!?)\]]+$/;
+
+    // List lines: "- item", "1. item" (or "1) item"), and one level of sub-items indented by a tab or 2+ spaces.
+    const BULLET = /^- (.*)$/;
+    const NUMBERED = /^(\d{1,9})[.)] (.*)$/;
+    const SUB_ITEM = /^(?:\t+| {2,})[-*] (.*)$/;
 
     /**
      * The URL as written if it is a link the panel may make, otherwise null. The check uses the WHATWG URL parser,
@@ -56,63 +67,135 @@
         }
     }
 
+    // A markdown link, or a refused one shown as it was written.
+    function pushLink(pieces, text, url, written) {
+        const href = safeHref(url);
+        if (href === null) {
+            pushText(pieces, written);
+        } else {
+            pieces.push({ type: 'link', text, href });
+        }
+    }
+
+    // Plain text, with its bare URLs and email addresses made links.
+    function pushAutolinked(pieces, text) {
+        let at = 0;
+        AUTOLINK.lastIndex = 0;
+        let match;
+        while ((match = AUTOLINK.exec(text)) !== null) {
+            const [, before, url, email] = match;
+            const start = match.index + before.length;
+            let found = url !== undefined ? url : email;
+            if (url !== undefined) {
+                found = found.replace(TRAILING, '');
+            }
+            const href = safeHref(url !== undefined ? found : 'mailto:' + found);
+            if (href === null || found === '') {
+                continue;
+            }
+            pushText(pieces, text.slice(at, start));
+            pieces.push({ type: 'link', text: found, href });
+            at = start + found.length;
+            AUTOLINK.lastIndex = at;
+        }
+        pushText(pieces, text.slice(at));
+    }
+
     function parseInline(line) {
         const pieces = [];
         let at = 0;
         INLINE.lastIndex = 0;
         let match;
         while ((match = INLINE.exec(line)) !== null) {
-            pushText(pieces, line.slice(at, match.index));
-            const [written, code, linkText, linkUrl, bold, italic] = match;
-            if (code !== undefined) {
+            pushAutolinked(pieces, line.slice(at, match.index));
+            const [written, imageAlt, imageUrl, code, linkText, linkUrl, bold, italic] = match;
+            if (imageUrl !== undefined) {
+                // Image markdown: a link labelled with the alt text, never an image, never fetched.
+                pushLink(pieces, imageAlt !== '' ? imageAlt : imageUrl, imageUrl, written);
+            } else if (code !== undefined) {
                 pieces.push({ type: 'code', text: code });
             } else if (linkText !== undefined) {
-                const href = safeHref(linkUrl);
-                if (href === null) {
-                    // A refused link is shown as it was written.
-                    pushText(pieces, written);
-                } else {
-                    pieces.push({ type: 'link', text: linkText, href });
-                }
+                pushLink(pieces, linkText, linkUrl, written);
             } else if (bold !== undefined) {
                 pieces.push({ type: 'strong', text: bold });
-            } else if (italic !== undefined) {
-                pieces.push({ type: 'em', text: italic });
             } else {
-                // Image markdown: never an image, never fetched. Shown as written.
-                pushText(pieces, written);
+                pieces.push({ type: 'em', text: italic });
             }
             at = match.index + written.length;
         }
-        pushText(pieces, line.slice(at));
+        pushAutolinked(pieces, line.slice(at));
 
         return pieces;
     }
 
+    function listLine(line) {
+        let m = BULLET.exec(line);
+        if (m) {
+            return { kind: 'item', ordered: false, text: m[1] };
+        }
+        m = NUMBERED.exec(line);
+        if (m) {
+            return { kind: 'item', ordered: true, start: parseInt(m[1], 10), text: m[2] };
+        }
+        m = SUB_ITEM.exec(line);
+
+        return m ? { kind: 'sub', text: m[1] } : null;
+    }
+
     /**
-     * The text as blocks: {type: 'line', inline} and {type: 'list', items} for consecutive "- " lines. Inline pieces
-     * are {type: 'text' | 'strong' | 'em' | 'code', text} and {type: 'link', text, href}. Never HTML.
+     * The text as blocks: {type: 'line', inline}, and {type: 'list', ordered, start, items} where each item is
+     * {inline, items} and its items are the sub-items' inline pieces (one level). Inline pieces are
+     * {type: 'text' | 'strong' | 'em' | 'code', text} and {type: 'link', text, href}. Never HTML.
      */
     function parse(text) {
         if (typeof text !== 'string' || text === '') {
             return [];
         }
+        const lines = text.split(/\r\n|\r|\n/);
         const blocks = [];
-        for (const line of text.split(/\r\n|\r|\n/)) {
-            if (line.startsWith('- ')) {
-                const last = blocks[blocks.length - 1];
-                const item = parseInline(line.slice(2));
-                if (last && last.type === 'list') {
-                    last.items.push(item);
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const last = blocks[blocks.length - 1];
+            const list = last && last.type === 'list' ? last : null;
+            const found = listLine(line);
+
+            if (found && found.kind === 'item') {
+                const item = { inline: parseInline(found.text), items: [] };
+                if (list && list.ordered === found.ordered) {
+                    list.items.push(item);
                 } else {
-                    blocks.push({ type: 'list', items: [item] });
+                    blocks.push({ type: 'list', ordered: found.ordered, start: found.ordered ? found.start : 1, items: [item] });
                 }
+            } else if (found) {
+                const sub = parseInline(found.text);
+                if (list) {
+                    list.items[list.items.length - 1].items.push(sub);
+                } else {
+                    // A sub-item with no list before it starts a bullet list.
+                    blocks.push({ type: 'list', ordered: false, start: 1, items: [{ inline: sub, items: [] }] });
+                }
+            } else if (list && line.trim() === '' && continuesList(lines, i + 1, list)) {
+                // A blank line between items (a "loose" list) doesn't end the list or restart its numbering.
             } else {
                 blocks.push({ type: 'line', inline: parseInline(line) });
             }
         }
 
         return blocks;
+    }
+
+    // Whether the next line that isn't blank is another item of the same list, or a sub-item.
+    function continuesList(lines, from, list) {
+        for (let j = from; j < lines.length; j++) {
+            if (lines[j].trim() === '') {
+                continue;
+            }
+            const found = listLine(lines[j]);
+
+            return found !== null && (found.kind === 'sub' || found.ordered === list.ordered);
+        }
+
+        return false;
     }
 
     function renderInline(parent, pieces, doc) {
@@ -147,13 +230,26 @@
         let previousWasLine = false;
         for (const block of blocks) {
             if (block.type === 'list') {
-                const ul = doc.createElement('ul');
+                const list = doc.createElement(block.ordered ? 'ol' : 'ul');
+                const start = Number(block.start);
+                if (block.ordered && Number.isInteger(start) && start !== 1) {
+                    list.setAttribute('start', String(start));
+                }
                 for (const item of block.items) {
                     const li = doc.createElement('li');
-                    renderInline(li, item, doc);
-                    ul.appendChild(li);
+                    renderInline(li, item.inline, doc);
+                    if (item.items.length > 0) {
+                        const sub = doc.createElement('ul');
+                        for (const subItem of item.items) {
+                            const subLi = doc.createElement('li');
+                            renderInline(subLi, subItem, doc);
+                            sub.appendChild(subLi);
+                        }
+                        li.appendChild(sub);
+                    }
+                    list.appendChild(li);
                 }
-                container.appendChild(ul);
+                container.appendChild(list);
                 previousWasLine = false;
             } else {
                 if (previousWasLine) {
