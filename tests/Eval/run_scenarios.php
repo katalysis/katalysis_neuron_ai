@@ -39,6 +39,7 @@ use Katalysis\NeuronAi\Tests\Eval\ScenarioLoader;
 use Katalysis\NeuronAi\Tests\Eval\ScenarioRunner;
 use Katalysis\NeuronAi\Tests\Eval\SnapshotBuilder;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
+use Katalysis\NeuronAi\Tests\Support\FixtureLock;
 use Symfony\Component\Console\Output\OutputInterface;
 
 return (function () use ($args, $output): int {
@@ -71,6 +72,14 @@ return (function () use ($args, $output): int {
     $canonical = (string) $app->make('site')->getSite()->getConfigRepository()->get('seo.canonical_url');
     if (!ConcreteBoot::isDevHost($canonical)) {
         return $fail('Refusing to run: the canonical URL "' . $canonical . '" is not a .test/.localhost/localhost dev host.');
+    }
+
+    // WP-2: the fixture lock shared with the seed and the integration tests, held until the run ends. The seed resets
+    // this starts share it.
+    try {
+        $fixtureLock = FixtureLock::acquire('the scenario runner (run_scenarios.php' . ($args !== [] ? ' ' . implode(' ', $args) : '') . ')');
+    } catch (RuntimeException $e) {
+        return $fail($e->getMessage());
     }
 
     // ---- Options ---------------------------------------------------------------------------------------------

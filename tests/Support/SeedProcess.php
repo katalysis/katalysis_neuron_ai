@@ -30,12 +30,13 @@ final class SeedProcess
 
     /**
      * @param list<string> $options for the seed, such as ['--reset']
+     * @param array<string, string>|null $env the process environment; null inherits this one (and so the fixture lock, WP-2)
      *
      * @return array{code: int, output: string} output is stdout then stderr
      *
      * @throws \RuntimeException when the process could not be started
      */
-    public function run(array $options = []): array
+    public function run(array $options = [], ?array $env = null): array
     {
         $command = [$this->php, 'concrete/bin/concrete', 'c5:exec', $this->seedScript];
         if ($options !== []) {
@@ -43,7 +44,7 @@ final class SeedProcess
             array_push($command, ...$options);
         }
 
-        $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $this->siteDir);
+        $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $this->siteDir, $env);
         if (!is_resource($process)) {
             throw new \RuntimeException('Could not start the seed script.');
         }

@@ -31,6 +31,11 @@
  * with neither a stored ID nor its marker is not ours and is never deleted. If the stored root page has been moved
  * or is in the trash, --reset (and a plain run) refuses and says where it is, rather than delete or duplicate it.
  *
+ * WP-2: the script holds the fixture lock shared with the integration tests and the scenario runner (tests/Support/
+ * FixtureLock.php), and refuses to start while one of them holds it. Every successful run records a fingerprint of the
+ * fixture pages (Config: katalysis_neuron_ai / fixture / pages; --reset-only removes it), which the tests compare to
+ * report fixture drift.
+ *
  * Every successful run ends by clearing Concrete's cache,
  * as Dashboard > Optimization > Clear Cache does, because the permissions it changed are cached. It also removes the review
  * folder "Assistant – to delete" if a scenario created it, but only when nothing but fixture files is in it.
@@ -78,6 +83,21 @@ use Concrete\Core\User\Group\Group;
 use Concrete\Core\User\RegistrationServiceInterface;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
+use Katalysis\NeuronAi\Tests\Support\FixtureDrift;
+use Katalysis\NeuronAi\Tests\Support\FixtureLock;
+
+// WP-2: the fixture lock shared with the integration tests and the scenario runner, held until this script ends. A
+// seed started by one of them (in its own process) shares its lock. A refused run changes nothing.
+require_once dirname(__DIR__, 2) . '/tests/Support/FixtureLock.php';
+require_once dirname(__DIR__, 2) . '/tests/Support/FixtureLockHeld.php';
+require_once dirname(__DIR__, 2) . '/tests/Support/FixtureDrift.php';
+try {
+    $seedLock = FixtureLock::acquire('the seed (seed_test_content.php' . ($args !== [] ? ' ' . implode(' ', $args) : '') . ')');
+} catch (RuntimeException $e) {
+    $output->writeln('<error>' . $e->getMessage() . '</error>');
+
+    return 1;
+}
 
 $seedStatus = (function () use ($args, $output) {
     // What this script owns. Reset only ever touches things that match these markers.
@@ -1113,6 +1133,14 @@ $seedStatus = (function () use ($args, $output) {
 // nothing here (the dev-host guard exits before this point with a non-zero status).
 if ($seedStatus === 0) {
     $seedApp = Application::getFacadeApplication();
+    // WP-2: what the fixture pages look like now, so the tests can tell when one has drifted.
+    $seedDb = $seedApp->make('database')->connection();
+    if (in_array('--reset-only', $args, true)) {
+        FixtureDrift::forget($seedDb);
+    } else {
+        FixtureDrift::record($seedDb);
+    }
+
     $clearCache = new \Concrete\Core\Cache\Command\ClearCacheCommand();
     $clearCache->setLogCacheClear(true);
     $seedApp->executeCommand($clearCache);
