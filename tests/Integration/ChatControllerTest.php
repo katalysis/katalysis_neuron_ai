@@ -448,6 +448,33 @@ final class ChatControllerTest extends ConcreteTestCase
         $this->assertSame('Summarise this page for me.', self::text($history[0]), 'shown without the page tag');
     }
 
+    /**
+     * BF-11: a reload (and a load from the saved list) shows the person's messages and the final replies only, never
+     * the model's notes on its tool calls or the tool results, as the live reply does.
+     */
+    public function testTheHistoryShowsOnlyThePersonsMessagesAndTheFinalReplies(): void
+    {
+        $this->actAs('superuser');
+        $headings = (int) Page::getByPath('/neuron-test/headings')->getCollectionID();
+        $provider = new FakeAIProvider(
+            new ToolCallMessage('The first heading is "<h2>Seed Heading</h2>". Let me read the page.', [new ToolCall('get_page_content', 'call_1', ['pageID' => $headings])]),
+            new AssistantMessage('The page has three headings.'),
+        );
+
+        $body = $this->send($this->controller($provider), 'How many headings are there?');
+        $this->assertSame('The page has three headings.', $body['response']);
+        $chatId = $this->currentChatId();
+        $this->assertCount(4, $this->storedRows($chatId), 'the tool call and its result are stored');
+
+        $expected = ['How many headings are there?', 'The page has three headings.'];
+        $history = $this->reload();
+        $this->assertSame($expected, array_map([self::class, 'text'], $history));
+        $this->assertSame(['user', 'assistant'], array_column($history, 'role'));
+
+        [, $loaded] = $this->call($this->controller(), 'load', null, ['id' => (string) $chatId]);
+        $this->assertSame($expected, array_map([self::class, 'text'], json_decode($loaded['chat']['chatHistory'], true)));
+    }
+
     public function testAProviderFailureLeaksNothingAndIsStoredAsTheErrorReply(): void
     {
         $this->actAs('superuser');

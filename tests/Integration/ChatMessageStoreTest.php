@@ -330,6 +330,40 @@ final class ChatMessageStoreTest extends ConcreteTestCase
         $this->assertSame('[]', $this->store()->transcriptJson($this->newThread()));
     }
 
+    /**
+     * BF-11: the panel gets the person's messages and the final replies only. The model's notes on its tool calls and
+     * the tool results are never shown; the transcript still holds them.
+     */
+    public function testTheConversationJsonHasOnlyThePersonsMessagesAndTheFinalReplies(): void
+    {
+        $thread = $this->newThread();
+        $call = new ToolCallMessage('I will change it to "<h2>1 Heading</h2>". Let me update that.', [
+            (new ToolCall('get_page_content', 'call_bf11', ['pageID' => 1]))->setResult('{"ok":true,"data":{"title":"<h2>Headings</h2>"}}'),
+        ]);
+        $this->appendAll($thread, [
+            new UserMessage('Add 1 to the first heading.'),
+            $call,
+            self::resultOf($call),
+            new AssistantMessage('Done: the first heading is now "1 Heading".'),
+            new UserMessage('Thanks.'),
+            new AssistantMessage('You are welcome.'),
+        ]);
+        $this->store()->archive($thread, 1);
+
+        $list = json_decode($this->store()->conversationJson($thread), true);
+
+        $this->assertSame(['user', 'assistant', 'user', 'assistant'], array_column($list, 'role'));
+        $this->assertSame(
+            ['Add 1 to the first heading.', 'Done: the first heading is now "1 Heading".', 'Thanks.', 'You are welcome.'],
+            array_map(static fn (array $m): string => $m['content'][0]['content'], $list),
+            'archived messages are kept, in order'
+        );
+        $this->assertNotContains('tool_call', array_column($list, 'type'));
+        $this->assertNotContains('tool_call_result', array_column($list, 'type'));
+        $this->assertCount(6, json_decode($this->store()->transcriptJson($thread), true), 'the transcript is unchanged');
+        $this->assertSame('[]', $this->store()->conversationJson($this->newThread()));
+    }
+
     // ---- The repair (plan §6) --------------------------------------------------------------------------------
 
     public function testTwoUserMessagesInARowAreRepairedInMemoryOnly(): void

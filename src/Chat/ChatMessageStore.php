@@ -245,12 +245,28 @@ final class ChatMessageStore implements MessageStoreInterface
     }
 
     /**
-     * The whole stored chat, archived messages included, as the JSON list of messages the chat panel reads: each
-     * message as Message::jsonSerialize() writes it. No placeholders: it shows what was actually stored.
+     * The whole stored chat, archived messages included, as a JSON list of messages: each message as
+     * Message::jsonSerialize() writes it. No placeholders: it shows what was actually stored.
      */
     public function transcriptJson(string $threadId): string
     {
         return (string) json_encode(array_map(static fn (Message $m): array => $m->jsonSerialize(), $this->loadAll($threadId)), JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * What the chat panel shows (BF-11): the transcript with only the person's messages and the final replies. The
+     * model's notes on its tool calls and the tool results are left out, as in the live reply. The same rule as the
+     * chat list's count: a tool result has the user role but isn't the person's.
+     */
+    public function conversationJson(string $threadId): string
+    {
+        $shown = array_filter(
+            $this->loadAll($threadId),
+            static fn (Message $m): bool => ($m instanceof UserMessage && !$m instanceof ToolResultMessage)
+                || ($m instanceof AssistantMessage && !$m instanceof ToolCallMessage)
+        );
+
+        return (string) json_encode(array_values(array_map(static fn (Message $m): array => $m->jsonSerialize(), $shown)), JSON_THROW_ON_ERROR);
     }
 
     /**

@@ -624,7 +624,12 @@
                     this.messages.innerHTML = '<div class="neuron-chat-list-empty">No saved chats found.</div>';
                 }
             } catch (error) {
-                this.messages.innerHTML = `<div class="neuron-chat-list-error">Error loading chats: ${error.message}</div>`;
+                // As text (BF-11): a JSON parse error's message quotes the start of the server's reply.
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'neuron-chat-list-error';
+                errorDiv.textContent = 'Error loading chats: ' + error.message;
+                this.messages.innerHTML = '';
+                this.messages.appendChild(errorDiv);
             }
         },
         
@@ -634,33 +639,43 @@
                 return;
             }
             
-            let html = '<div class="neuron-chat-list">';
-            
+            // Built as nodes (BF-11): the titles and IDs come from the server.
+            const element = (tag, className, text) => {
+                const el = document.createElement(tag);
+                el.className = className;
+                if (text !== undefined) {
+                    el.textContent = text;
+                }
+                return el;
+            };
+            const button = (className, title, iconClass) => {
+                const btn = element('button', className);
+                btn.title = title;
+                btn.appendChild(element('i', iconClass));
+                return btn;
+            };
+
+            const list = element('div', 'neuron-chat-list');
             chats.forEach(chat => {
-                const timeStr = this.formatChatTime(chat.updatedDate || chat.createdDate);
-                const firstMsg = chat.firstMessage || 'New conversation';
-                
-                html += `
-                    <div class="neuron-chat-list-item" data-chat-id="${chat.id}">
-                        <div class="neuron-chat-list-item-content">
-                            <div class="neuron-chat-list-item-title">${this.escapeHtml(firstMsg)}</div>
-                            <div class="neuron-chat-list-item-time">${timeStr}</div>
-                        </div>
-                        <div class="neuron-chat-list-item-actions">
-                            <button class="neuron-chat-list-item-load" title="Load chat">
-                                <i class="fas fa-arrow-right"></i>
-                            </button>
-                            <button class="neuron-chat-list-item-delete" title="Delete chat">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-                `;
+                const item = element('div', 'neuron-chat-list-item');
+                item.dataset.chatId = String(chat.id);
+
+                const content = element('div', 'neuron-chat-list-item-content');
+                content.appendChild(element('div', 'neuron-chat-list-item-title', String(chat.firstMessage || 'New conversation')));
+                content.appendChild(element('div', 'neuron-chat-list-item-time', this.formatChatTime(chat.updatedDate || chat.createdDate)));
+
+                const actions = element('div', 'neuron-chat-list-item-actions');
+                actions.appendChild(button('neuron-chat-list-item-load', 'Load chat', 'fas fa-arrow-right'));
+                actions.appendChild(button('neuron-chat-list-item-delete', 'Delete chat', 'fas fa-trash'));
+
+                item.appendChild(content);
+                item.appendChild(actions);
+                list.appendChild(item);
             });
-            
-            html += '</div>';
-            this.messages.innerHTML = html;
-            
+
+            this.messages.innerHTML = '';
+            this.messages.appendChild(list);
+
             // Bind click handlers
             this.messages.querySelectorAll('.neuron-chat-list-item-load').forEach(btn => {
                 btn.addEventListener('click', (e) => {
@@ -847,12 +862,6 @@
             }
         },
         
-        escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        },
-
         normalizeMessageContent(content) {
             if (typeof content === 'string') {
                 return content;
@@ -899,10 +908,21 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = 'neuron-chat-content';
             
-            // Simple markdown-like rendering
-            const formattedContent = this.formatContent(content);
-            const icon = type === 'assistant' ? 'fa-robot' : 'fa-user';
-            contentDiv.innerHTML = `<span class="neuron-chat-inline-icon"><i class="fas ${icon}"></i></span>${formattedContent}`;
+            const iconSpan = document.createElement('span');
+            iconSpan.className = 'neuron-chat-inline-icon';
+            const icon = document.createElement('i');
+            icon.className = type === 'assistant' ? 'fas fa-robot' : 'fas fa-user';
+            iconSpan.appendChild(icon);
+            contentDiv.appendChild(iconSpan);
+
+            // Never as HTML (BF-11): a reply is parsed into data and built as nodes (chat-format.js); the person's own
+            // message is plain text.
+            const text = this.normalizeMessageContent(content);
+            if (type === 'assistant') {
+                window.NeuronChatFormat.renderInto(contentDiv, window.NeuronChatFormat.parse(text), document);
+            } else {
+                contentDiv.appendChild(document.createTextNode(text));
+            }
 
             messageDiv.appendChild(contentDiv);
 
@@ -967,39 +987,6 @@
             const welcome = "Hello! I'm your AI assistant for Concrete CMS. What would you like to do?";
 
             return normalized !== welcome;
-        },
-        
-        formatContent(content) {
-            // Simple formatting
-            let formatted = this.normalizeMessageContent(content);
-
-            // Hard guard: never allow non-string values into replace() calls.
-            if (typeof formatted !== 'string') {
-                formatted = String(formatted ?? '');
-            }
-            
-            // Bold: **text**
-            formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-            
-            // Italic: *text*
-            formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
-            
-            // Code: `code`
-            formatted = formatted.replace(/`(.+?)`/g, '<code>$1</code>');
-            
-            // Links: [text](url)
-            formatted = formatted.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>');
-            
-            // Line breaks
-            formatted = formatted.replace(/\n/g, '<br>');
-            
-            // Lists (basic)
-            formatted = formatted.replace(/^- (.+)$/gm, '<li>$1</li>');
-            if (formatted.includes('<li>')) {
-                formatted = '<ul>' + formatted.replace(/(<li>.+<\/li>)/g, '$1') + '</ul>';
-            }
-            
-            return formatted;
         },
         
         showLoading() {
