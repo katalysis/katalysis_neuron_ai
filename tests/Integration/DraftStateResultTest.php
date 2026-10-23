@@ -100,7 +100,10 @@ final class DraftStateResultTest extends ConcreteTestCase
         $this->assertStringContainsString('"Publish Changes"', $state['summary']);
         $this->assertStringContainsString('"Approve Version"', $state['summary']);
         $this->assertStringContainsString('Page Versions', $state['summary']);
-        $this->assertStringContainsString('Done. You can see it on the page now; it goes live when you publish.', $state['reply']);
+        // Glyn, after BF-7's scenario run: say what was actually done first, then the one line about publishing.
+        $this->assertStringContainsString('Describe what was actually done', $state['reply']);
+        $this->assertStringContainsString('the original block was kept', $state['reply']);
+        $this->assertStringContainsString('You can see it on the page now; it goes live when you publish.', $state['reply']);
     }
 
     public function testANewPageSaysItIsUnpublished(): void
@@ -117,6 +120,7 @@ final class DraftStateResultTest extends ConcreteTestCase
         $this->assertSame('unpublished', $state['status']);
         $this->assertSame((int) $result['id'], $state['pageID']);
         $this->assertStringContainsString('"Approve Version"', $state['summary']);
+        $this->assertStringContainsString('Describe what was actually done', $state['reply']);
         $this->assertStringContainsString('not published yet', $state['reply']);
     }
 
