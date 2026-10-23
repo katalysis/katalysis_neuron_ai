@@ -435,6 +435,8 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
              WHERE c1.TABLE_SCHEMA = DATABASE() AND c1.COLUMN_NAME = 'cID' ORDER BY 1"
         );
         $known = array_merge(DraftCleanup::VERSION_TABLES, array_keys(DraftCleanup::NOT_VERSION_CONTENT));
+        // Sorted in PHP on both sides: MySQL's collation orders these names differently.
+        sort($tables);
         sort($known);
 
         $this->assertSame($tables, $known, 'A table keyed by a page version is neither in the fingerprint nor listed as not part of a version.');
