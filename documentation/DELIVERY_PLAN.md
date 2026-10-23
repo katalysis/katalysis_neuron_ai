@@ -458,7 +458,16 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - fix any tool description that steers the model towards the published version
   - a fixture with content as edit mode saves it (CR LF line breaks between elements, `&nbsp;`), used in scenario 05 and a single heading edit. Every scenario starts from the seed, whose HTML is on one line with no entities, so no scenario saw content as Concrete's editor stores it; `saved_html_valid` (BF-7) checks the saved HTML
   - tests and scenario checks
-- [ ] BF-11 **The panel shows replies as text, never as live HTML** (significant: the injection safety layer; its own PR into `development`; **before WP-2**; Glyn's decision after BF-4). Found in Glyn's browser check: on a `/neuron-test` page, "add 1 to the first heading" gave a reply in which quoted headings showed as formatted headings. The model put HTML (`<h2>…</h2>`) in its text and the panel rendered it. Investigate first, then plan.
+- [ ] BF-11 **The panel shows replies as text, never as live HTML** (significant: the injection safety layer; its own PR into `development`; **top priority, before WP-2**; Glyn's decision after BF-4). Found in Glyn's browser check: on a `/neuron-test` page, "add 1 to the first heading" gave a reply in which quoted headings showed as formatted headings. The model put HTML (`<h2>…</h2>`) in its text and the panel rendered it. Investigate first, then plan.
+  - **Investigation result:** model output reaches the page as live HTML. In headless Chrome with the real panel script, a reply's `<img onerror>` ran, a quote in a markdown link's URL broke out of `href` and added an event handler, `javascript:` links were made, and forms and iframes rendered; stored replies render again on every reload. Pre-existing (v3's panel rendered the same way). The in-between notes come from the text on stored tool-call messages, which the server's history returns on reload.
+  - **Decisions (Glyn, after the investigation):**
+    - the formatter becomes a pure string function tested with `node --test` (in SETUP, the fast tier and `/finish-task`, with an allow rule); the headless-Chrome page stays as the manual check
+    - escape everything first; links only for `http(s)`, `mailto` and relative URLs, built as DOM elements with `rel="noopener noreferrer"`; no `<img>` from replies, ever
+    - audit every `innerHTML` (and similar) in `chat-panel.js`, listing each with its fix
+    - red-first `node --test` cases for every payload in the investigation, plus quote break-out, `javascript:`, `data:` and mixed-case schemes
+    - the server's history returns only genuine user messages and final assistant replies; tool-call notes and tool results never appear
+    - report whether the site sends a Content-Security-Policy header, as information only; no change in BF-11
+  - plan: `plans/BF-11.md`, after #54 is merged into `development` and `development` is merged into the branch
   - **Security first:** how `js/chat-panel.js` turns a reply into the page, and whether model output reaches it as live HTML (script, event handlers, links, forms, iframes), with a harmless proof such as `<img src=x onerror=console.log('xss')>`
   - **The in-between messages:** the panel shows the model's notes from between tool calls ("I will change it… Let me update that"). Was that so on v3? Propose: the final reply only, or the notes as a subdued "working" line
   - the wording finding goes to P3.7 (the version-state item)
