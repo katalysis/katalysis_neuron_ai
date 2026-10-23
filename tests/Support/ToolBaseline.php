@@ -44,6 +44,14 @@ final class ToolBaseline
     public const DELIBERATE_CHANGES = [
         'PagesToolkit::update_block_in_page_area' => 'BF-5: changeMode, textFields and replacedText inputs; the description says existing text is kept',
         'PagesToolkit::batch_update_page_content' => 'BF-5: changeMode keep_text by default, freeform removed; replacedText per block',
+        'PagesToolkit::get_page' => 'BF-10: reads the newest version by default; version takes "newest" or "published"',
+        'PagesToolkit::get_page_content' => 'BF-10: reads the newest version by default; version takes "newest" or "published"',
+        'PagesToolkit::get_page_blocks' => 'BF-10: version takes "newest" (default) or "published"; the description no longer calls it a draft',
+        'PagesToolkit::get_current_page_context' => 'BF-10: the description says it shows the newest version',
+        'BlocksToolkit::get_block_data' => 'BF-10: versionID defaults to the newest version',
+        'BlocksToolkit::list_page_blocks_by_type' => 'BF-10: version (newest by default) replaces includeInactive',
+        'BlocksToolkit::search_blocks_by_type' => 'BF-10: version (newest by default) replaces includeInactive',
+        'BlocksToolkit::list_container_blocks' => 'BF-10: version (newest by default) replaces includeInactive',
     ];
 
     /**
