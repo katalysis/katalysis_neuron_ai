@@ -452,7 +452,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - a test per change, red first; scenario 05 `--repeat=5` before and after
   - **the "unverified claim" pattern:** the reply states something about content the assistant never had in full. P3.3's `get_page_content` path input and P3.11's "never describes a page it didn't read" check are the same pattern.
   - plan: [plans/BF-5.md](plans/BF-5.md)
-- [ ] BF-6 **Lists say when there are more** (significant; its own PR into `development`; decided on approving BF-5's plan). Found in BF-5's audit ([plans/BF-5.md](plans/BF-5.md) §3.3): list tools cap their results with no offset and no sign that more exist, and some report the capped count as a total (B-TRU-3). Scope:
+- [x] BF-6 **Lists say when there are more** (significant; its own PR into `development`; decided on approving BF-5's plan). Done (PR #57; `katalysis_pro` #43). Found in BF-5's audit ([plans/BF-5.md](plans/BF-5.md) §3.3): list tools cap their results with no offset and no sign that more exist, and some report the capped count as a total (B-TRU-3). Scope:
   - every capped list returns a true total (or `more: true`) and takes an offset: `search_blocks_by_type`, `list_pages`, `get_page_children`, `list_files`, `list_users`, `search_users`, `list_page_versions`, core `list_people`, and `katalysis_pro`'s `list_people`, `list_places` and `list_reviews` (a `katalysis_pro` PR)
   - `get_topic_tree_structure`: say when `max_depth` cut the tree, and don't report `hasChildren: false` for a node whose children were cut (BF-5 R14)
   - a test per tool, red first
