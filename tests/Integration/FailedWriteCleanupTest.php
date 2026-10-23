@@ -15,6 +15,7 @@ use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
+use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -420,6 +421,23 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         sort($expected);
         sort($found);
         $this->assertSame($found, $expected, 'A write tool takes a page but no BF-3 case covers what it leaves when it fails.');
+    }
+
+    /**
+     * The fingerprint covers every table keyed by a page version (cID and cvID), so a Concrete upgrade that adds one
+     * fails here rather than letting a used version look unused (plans/BF-3.md §10).
+     */
+    public function testTheFingerprintCoversEveryTableKeyedByAVersion(): void
+    {
+        $tables = $this->db()->fetchFirstColumn(
+            "SELECT c1.TABLE_NAME FROM information_schema.COLUMNS c1
+             JOIN information_schema.COLUMNS c2 ON c2.TABLE_SCHEMA = c1.TABLE_SCHEMA AND c2.TABLE_NAME = c1.TABLE_NAME AND c2.COLUMN_NAME = 'cvID'
+             WHERE c1.TABLE_SCHEMA = DATABASE() AND c1.COLUMN_NAME = 'cID' ORDER BY 1"
+        );
+        $known = array_merge(DraftCleanup::VERSION_TABLES, array_keys(DraftCleanup::NOT_VERSION_CONTENT));
+        sort($known);
+
+        $this->assertSame($tables, $known, 'A table keyed by a page version is neither in the fingerprint nor listed as not part of a version.');
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------
