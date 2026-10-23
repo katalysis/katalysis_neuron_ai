@@ -14,9 +14,11 @@ use Concrete\Core\Entity\Attribute\Key\PageKey;
 use Concrete\Core\Entity\Attribute\Key\Key;
 use Concrete\Core\Entity\Attribute\Type as AttributeTypeEntity;
 use Concrete\Core\Support\Facade\Application;
+use Concrete\Core\Page\Page;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Tools\Utilities\PageByName;
+use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
@@ -612,7 +614,7 @@ class AttributesToolkit extends AbstractToolkit
             }
 
             // Edit the page's draft: the newest version if it is already a draft, else a new one.
-            $pageToModify = PageDraft::of($page);
+            $pageToModify = $this->getDraftOf($page);
 
             // Set the attribute
             $pageToModify->setAttribute($ak, $attributeValue);
@@ -981,7 +983,16 @@ class AttributesToolkit extends AbstractToolkit
                 throw new \RuntimeException('Authentication required: Please log in to use this tool.');
             }
 
-            return $callable(...$args);
+            // A call that fails leaves no draft it made behind (BF-3).
+            return DraftCleanup::run(static fn () => $callable(...$args));
         };
+    }
+
+    /**
+     * The version of the page to edit (see PageDraft::of()).
+     */
+    protected function getDraftOf(Page $page): Page
+    {
+        return PageDraft::of($page);
     }
 }

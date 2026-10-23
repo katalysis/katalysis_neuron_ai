@@ -31,6 +31,7 @@ use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
+use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
@@ -524,7 +525,7 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'blocks',
             PropertyType::ARRAY,
-            'Array of block updates. Each item must have: areaHandle (string), blockID (number from current version), value (object with block data). With changeMode "scoped_text", each item also has textFields (fields whose text may change) and replacedText (the stored text the change replaces or removes, word for word). Fields left out of value keep their stored values.',
+            'Array of block updates. Each item must have: areaHandle (string), blockID (number from current version), value (object with block data). An item may have its own changeMode, which applies to that block instead of the top-level one. With changeMode "scoped_text", the item also has textFields (fields whose text may change) and replacedText (the stored text the change replaces or removes, word for word). Fields left out of value keep their stored values. Every item is checked before anything is saved: a refused item is left unchanged and keeps its block ID.',
             true
         ));
 
@@ -538,7 +539,7 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'continueOnError',
             PropertyType::BOOLEAN,
-            'Whether to continue processing remaining block updates after a failure (default: true)',
+            'Whether to apply the block updates that pass their checks when another one fails (default: true). With false, nothing is applied if any block update fails its check.',
             false
         ));
 
@@ -556,6 +557,8 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("blocks must be a non-empty array. Provide at least one block update.");
             }
 
+            // Neuron passes null for an input the model left out: the default is true, as the description says.
+            $continueOnError ??= true;
             $mode = TextIntegrity::mode($changeMode);
 
             // Validate block update structure
@@ -575,6 +578,15 @@ class PagesToolkit extends AbstractToolkit
 
                 if (!is_array($block['value'])) {
                     throw new \RuntimeException("blocks[{$index}].value must be an object/array, got: " . gettype($block['value']));
+                }
+
+                // An item's own changeMode overrides the top-level one for that item (BF-3).
+                $itemMode = $mode;
+                if (isset($block['changeMode'])) {
+                    if (!is_string($block['changeMode']) || !in_array(strtolower(trim($block['changeMode'])), TextIntegrity::MODES, true)) {
+                        throw new \RuntimeException("blocks[{$index}].changeMode must be one of: " . implode(', ', TextIntegrity::MODES) . '. Nothing was changed.');
+                    }
+                    $itemMode = TextIntegrity::mode($block['changeMode']);
                 }
 
                 $textFields = null;
@@ -597,6 +609,7 @@ class PagesToolkit extends AbstractToolkit
                     'areaHandle' => $block['areaHandle'],
                     'blockID' => $block['blockID'],
                     'value' => $block['value'],
+                    'changeMode' => $itemMode,
                     'textFields' => $textFields,
                     'replacedText' => $replacedText,
                 ];
@@ -631,6 +644,44 @@ class PagesToolkit extends AbstractToolkit
                 BlockNotFound::refuseUnlessInNewestVersion($page, (string) $update['areaHandle'], (int) $update['blockID']);
             }
 
+            // Check every item on the newest version before any draft exists (BF-3): the draft shares its blocks with
+            // it, so a refused item is never copied and its block ID stays valid for a retry.
+            $blockResults = [];
+            $checked = [];
+            foreach ($updates as $index => $update) {
+                try {
+                    $checked[$index] = $this->checkBatchItem($page, $update);
+                } catch (\Exception $e) {
+                    $blockResults[$index] = [
+                        'areaHandle' => $update['areaHandle'],
+                        'oldBlockID' => $update['blockID'],
+                        'changeMode' => $update['changeMode'],
+                        'ok' => false,
+                        'error' => $e->getMessage(),
+                    ];
+                }
+            }
+
+            $failureCount = count($blockResults);
+            if ($checked === [] || ($failureCount > 0 && !$continueOnError)) {
+                // Nothing is applied: no draft is made.
+                foreach ($checked as $index => $item) {
+                    $blockResults[$index] = [
+                        'areaHandle' => $updates[$index]['areaHandle'],
+                        'oldBlockID' => $updates[$index]['blockID'],
+                        'changeMode' => $updates[$index]['changeMode'],
+                        'ok' => false,
+                        'error' => 'Not applied: another block failed its check and continueOnError is false. Nothing was changed.',
+                    ];
+                }
+                ksort($blockResults);
+
+                return $this->batchResult($page, $blockResults, $mode, (bool) $continueOnError) + [
+                    'note' => 'Nothing was changed and no draft was made. Fix the blocks listed with ok: false and send the call again; '
+                        . 'the block IDs are unchanged.',
+                ];
+            }
+
             // Capture block layout BEFORE creating new version
             try {
                 $beforeAreas = BlockIdRemapper::captureAreaSnapshot($page);
@@ -652,25 +703,23 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Failed to capture block layout after versioning: " . $e->getMessage());
             }
 
-            // Remap block IDs
+            // Remap block IDs, for the items that passed their check
+            $indexes = array_keys($checked);
             try {
-                $remapped = BlockIdRemapper::remap($beforeAreas, $afterAreas, $updates);
+                $remapped = BlockIdRemapper::remap($beforeAreas, $afterAreas, array_map(static fn (int $i): array => $updates[$i], $indexes));
             } catch (BlockRemapException $e) {
                 throw new \RuntimeException("Block ID remapping failed: " . $e->getMessage() . ". This usually means blocks couldn't be matched between versions. Use get_page_blocks tool to verify block IDs and areas.");
             }
 
             // Update each block
-            $blockResults = [];
             $successCount = 0;
-            $failureCount = 0;
 
-            foreach ($remapped as $index => $update) {
+            foreach ($remapped as $position => $update) {
+                $index = $indexes[$position];
+                $item = $checked[$index];
                 $areaHandle = $update['areaHandle'];
                 $newBlockID = $update['newBlockID'];
-                $value = $update['value'];
-                // The remap returns one entry per update, in order, without the text options: take them from the request.
-                $textFields = $updates[$index]['textFields'] ?? null;
-                $replacedText = $updates[$index]['replacedText'] ?? null;
+                $itemMode = $updates[$index]['changeMode'];
 
                 try {
                     // Get the area and block
@@ -692,89 +741,47 @@ class PagesToolkit extends AbstractToolkit
                     }
                     $newBlockID = (int) $block->getBlockID();
 
-                    $controller = $block->getController();
-                    $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
-                    $beforeRecord = $this->getBlockTableRecord($dbTable, $newBlockID);
-
-                    $normalizedValue = $this->normalizeCustomBlockPayload($block->getBlockTypeHandle(), (array) ($value ?? []));
-                    if ($block->getBlockTypeHandle() === 'epra_resources_list' && !array_key_exists('slide', $normalizedValue)) {
-                        // Preserve existing repeatable rows for layout-only updates in batch mode.
-                        $normalizedValue['slide'] = $this->loadEpraResourceEntries((int) $newBlockID);
-                    }
-                    // Fields the update leaves out keep their stored values (BF-5).
-                    $kept = TextIntegrity::keepOmittedFields($beforeRecord, $normalizedValue);
-                    $normalizedValue = $kept['value'];
-
-                    $textPolicy = TextIntegrity::evaluate($beforeRecord, $normalizedValue, $mode, $textFields, $replacedText);
-                    if (!$textPolicy['ok']) {
-                        throw new \RuntimeException($textPolicy['message']);
-                    }
-
-                    $watchedFields = $textPolicy['watchedFields'];
-                    $beforeChecksums = TextIntegrity::checksums($beforeRecord, $watchedFields);
+                    $watchedFields = $item['textPolicy']['watchedFields'];
+                    $beforeChecksums = TextIntegrity::checksums($item['beforeRecord'], $watchedFields);
 
                     // Update the block
-                    $block->update($normalizedValue);
+                    $block->update($item['value']);
 
-                    $afterRecord = $this->getBlockTableRecord($dbTable, $newBlockID);
+                    $afterRecord = $this->getBlockTableRecord($item['dbTable'], $newBlockID);
                     $afterChecksums = TextIntegrity::checksums($afterRecord, $watchedFields);
 
-                    $blockResults[] = [
+                    $blockResults[$index] = [
                         'areaHandle' => $areaHandle,
                         'oldBlockID' => $update['oldBlockID'],
                         'newBlockID' => $newBlockID,
                         'blockType' => $block->getBlockTypeHandle(),
-                        'changeMode' => $mode,
+                        'changeMode' => $itemMode,
                         'watchedTextFields' => $watchedFields,
-                        'textCheck' => $textPolicy['fields'],
-                        'keptFields' => $kept['keptFields'],
+                        'textCheck' => $item['textPolicy']['fields'],
+                        'keptFields' => $item['keptFields'],
                         'textChecksumsBefore' => $beforeChecksums,
                         'textChecksumsAfter' => $afterChecksums,
                         'ok' => true,
                     ];
                     $successCount++;
                 } catch (\Exception $e) {
-                    $blockResults[] = [
+                    $blockResults[$index] = [
                         'areaHandle' => $areaHandle,
                         'oldBlockID' => $update['oldBlockID'],
                         'newBlockID' => $newBlockID,
-                        'changeMode' => $mode,
+                        'changeMode' => $itemMode,
                         'ok' => false,
                         'error' => $e->getMessage(),
                     ];
-                    $failureCount++;
 
                     if (!$continueOnError) {
                         break;
                     }
                 }
             }
+            ksort($blockResults);
 
-            $result = [
-                'id' => $pageToModify->getCollectionID(),
-                'path' => $pageToModify->getCollectionPath(),
-                'name' => $pageToModify->getCollectionName(),
-                'version' => [
-                    'cvID' => $pageToModify->getVersionID(),
-                    'isActive' => $pageToModify->isActive(),
-                ],
-                'summary' => [
-                    'totalBlocks' => count($blockResults),
-                    'successCount' => $successCount,
-                    'failureCount' => $failureCount,
-                    'changeMode' => $mode,
-                    'continueOnError' => (bool) $continueOnError,
-                ],
-                'blocks' => $blockResults,
-                'safety' => [
-                    'textPolicy' => $mode,
-                    'checksumAlgorithm' => 'sha1(normalizedText)',
-                ],
-            ];
-
-            if ($failureCount > 0) {
-                $result['warning'] = "{$failureCount} block update(s) failed. See blocks array for details.";
-            }
+            $result = $this->batchResult($pageToModify, $blockResults, $mode, (bool) $continueOnError);
             if ($successCount > 0) {
                 $result += DraftState::of($pageToModify);
             }
@@ -783,6 +790,88 @@ class PagesToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * One batch item's checks, on the newest version and before any draft (BF-3): the value as it will be saved, and
+     * the text check with the item's own mode.
+     *
+     * @param array{areaHandle: string, blockID: int, value: array, changeMode: string, textFields: ?array, replacedText: ?array} $update
+     * @return array{value: array, keptFields: array, textPolicy: array, beforeRecord: array, dbTable: mixed}
+     * @throws \RuntimeException with the reason the item is refused; nothing has been changed
+     */
+    private function checkBatchItem(Page $page, array $update): array
+    {
+        $areaHandle = (string) $update['areaHandle'];
+        $blockID = (int) $update['blockID'];
+        $area = $page->getArea($areaHandle);
+        $block = $area ? Block::getByID($blockID, $page, $area) : null;
+        if (!$block) {
+            throw new \RuntimeException(BlockNotFound::explain($page, $areaHandle, $blockID));
+        }
+
+        $controller = $block->getController();
+        $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
+        $beforeRecord = $this->getBlockTableRecord($dbTable, $blockID);
+
+        $value = $this->normalizeCustomBlockPayload($block->getBlockTypeHandle(), (array) ($update['value'] ?? []));
+        if ($block->getBlockTypeHandle() === 'epra_resources_list' && !array_key_exists('slide', $value)) {
+            // Preserve existing repeatable rows for layout-only updates in batch mode.
+            $value['slide'] = $this->loadEpraResourceEntries($blockID);
+        }
+        // Fields the update leaves out keep their stored values (BF-5).
+        $kept = TextIntegrity::keepOmittedFields($beforeRecord, $value);
+
+        $textPolicy = TextIntegrity::evaluate($beforeRecord, $kept['value'], $update['changeMode'], $update['textFields'], $update['replacedText']);
+        if (!$textPolicy['ok']) {
+            throw new \RuntimeException($textPolicy['message']);
+        }
+
+        return [
+            'value' => $kept['value'],
+            'keptFields' => $kept['keptFields'],
+            'textPolicy' => $textPolicy,
+            'beforeRecord' => $beforeRecord,
+            'dbTable' => $dbTable,
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blockResults
+     * @return array<string, mixed>
+     */
+    private function batchResult(Page $page, array $blockResults, string $mode, bool $continueOnError): array
+    {
+        $successCount = count(array_filter($blockResults, static fn (array $r): bool => $r['ok'] === true));
+        $failureCount = count($blockResults) - $successCount;
+
+        $result = [
+            'id' => $page->getCollectionID(),
+            'path' => $page->getCollectionPath(),
+            'name' => $page->getCollectionName(),
+            'version' => [
+                'cvID' => $page->getVersionID(),
+                'isActive' => $page->isActive(),
+            ],
+            'summary' => [
+                'totalBlocks' => count($blockResults),
+                'successCount' => $successCount,
+                'failureCount' => $failureCount,
+                'changeMode' => $mode,
+                'continueOnError' => $continueOnError,
+            ],
+            'blocks' => array_values($blockResults),
+            'safety' => [
+                'textPolicy' => $mode,
+                'checksumAlgorithm' => 'sha1(normalizedText)',
+            ],
+        ];
+
+        if ($failureCount > 0) {
+            $result['warning'] = "{$failureCount} block update(s) failed. See blocks array for details.";
+        }
+
+        return $result;
     }
 
     /**
@@ -972,12 +1061,16 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}");
             }
 
-            $pageToModify = $this->getDraftOf($page);
+            // Neuron passes null for an input the model left out: the default is true, as the description says.
+            $continueOnError ??= true;
+
             $contentBt = BlockType::getByHandle('content');
             if (!$contentBt) {
                 throw new \RuntimeException('Content block type is not available');
             }
 
+            // Read pass, on the newest version and before any draft (BF-3): find the headings to change. A new draft
+            // shares its blocks with the newest version, so the block IDs found here are the draft's until copied.
             $conn = Application::getFacadeApplication()->make('database')->connection();
             $qb = $conn->createQueryBuilder();
             $qb->select('b.bID', 'cvb.arHandle', 'cvb.cvID', 'cv.cvIsApproved')
@@ -985,12 +1078,12 @@ class PagesToolkit extends AbstractToolkit
                 ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
                 ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
                 ->where('cvb.cID = :cID')
-                // Only the blocks of the draft being edited: the draft shares blocks with the live
+                // Only the blocks of the version being edited: the draft shares blocks with the live
                 // version until they are copied, and the live copies must never be updated.
                 ->andWhere('cvb.cvID = :cvID')
                 ->andWhere('b.btID = :btID')
                 ->setParameter('cID', $pageID)
-                ->setParameter('cvID', $pageToModify->getVersionID())
+                ->setParameter('cvID', $page->getVersionID())
                 ->setParameter('btID', $contentBt->getBlockTypeID())
                 ->orderBy('b.bID', 'ASC')
                 ->addOrderBy('cv.cvIsApproved', 'DESC')
@@ -1038,6 +1131,7 @@ class PagesToolkit extends AbstractToolkit
             }
 
             $pendingHeadings = $normalizedTitles;
+            $planned = [];
             $updated = [];
             $failed = [];
 
@@ -1052,13 +1146,13 @@ class PagesToolkit extends AbstractToolkit
                 }
 
                 try {
-                    $area = $pageToModify->getArea($areaHandle);
+                    $area = $page->getArea($areaHandle);
                     if (!$area) {
                         $area = new Area($areaHandle);
-                        $area->c = $pageToModify;
+                        $area->c = $page;
                     }
 
-                    $block = Block::getByID((int) $blockID, $pageToModify, $area);
+                    $block = Block::getByID((int) $blockID, $page, $area);
                     if (!$block) {
                         continue;
                     }
@@ -1106,35 +1200,18 @@ class PagesToolkit extends AbstractToolkit
                     }
 
                     // Never change a block under the user's open editor (BF-7): reported with the failures.
-                    EditModeGuard::refuseOpenBlock($pageToModify, (int) $blockID);
-                    $oldBlockID = (int) $blockID;
+                    EditModeGuard::refuseOpenBlock($page, (int) $blockID);
 
-                    // Copy the block into the draft before changing it (see getBlockToEdit), so the live
-                    // version keeps its text. The copy has a new block ID.
-                    $editBlock = $this->getBlockToEdit($pageToModify, $area, $areaHandle, (int) $blockID);
-                    if (!$editBlock) {
-                        throw new \RuntimeException("Block {$blockID} could not be prepared for editing in area '{$areaHandle}'");
-                    }
-                    $blockID = (int) $editBlock->getBlockID();
-                    $editBlock->update(['content' => $transformedContent]);
-
-                    $afterRecord = $this->getBlockTableRecord($dbTable, (int) $blockID);
-                    $afterContent = is_string($afterRecord['content'] ?? null) ? (string) $afterRecord['content'] : '';
-
-                    $updated[] = [
+                    $planned[] = [
                         'blockID' => (int) $blockID,
-                        'oldBlockID' => $oldBlockID,
                         'areaHandle' => $areaHandle,
+                        'dbTable' => $dbTable,
+                        'headingKey' => $headingKey,
                         'headingText' => $headingText,
-                        'targetTag' => $targetTag,
-                        'matchMode' => $matchMode,
-                        'textChecksumBefore' => sha1($beforeText),
-                        'textChecksumAfter' => sha1(TextIntegrity::normalize($afterContent)),
+                        'transformedContent' => $transformedContent,
+                        'beforeText' => $beforeText,
                     ];
-
-                    if (isset($pendingHeadings[$headingKey])) {
-                        unset($pendingHeadings[$headingKey]);
-                    }
+                    unset($pendingHeadings[$headingKey]);
                 } catch (\Throwable $e) {
                     $failed[] = [
                         'blockID' => (int) $blockID,
@@ -1145,6 +1222,62 @@ class PagesToolkit extends AbstractToolkit
 
                     if (!$continueOnError) {
                         break;
+                    }
+                }
+            }
+
+            // Write pass: only when there is something to change, and (with continueOnError false) nothing failed.
+            $pageToModify = null;
+            if ($planned !== [] && ($continueOnError || $failed === [])) {
+                $pageToModify = $this->getDraftOf($page);
+
+                foreach ($planned as $change) {
+                    $blockID = $change['blockID'];
+                    $areaHandle = $change['areaHandle'];
+                    try {
+                        $area = $pageToModify->getArea($areaHandle);
+                        if (!$area) {
+                            $area = new Area($areaHandle);
+                            $area->c = $pageToModify;
+                        }
+                        $oldBlockID = $blockID;
+
+                        // Copy the block into the draft before changing it (see getBlockToEdit), so the live
+                        // version keeps its text. The copy has a new block ID.
+                        $editBlock = $this->getBlockToEdit($pageToModify, $area, $areaHandle, $blockID);
+                        if (!$editBlock) {
+                            throw new \RuntimeException("Block {$blockID} could not be prepared for editing in area '{$areaHandle}'");
+                        }
+                        $blockID = (int) $editBlock->getBlockID();
+                        $editBlock->update(['content' => $change['transformedContent']]);
+
+                        $afterRecord = $this->getBlockTableRecord($change['dbTable'], $blockID);
+                        $afterContent = is_string($afterRecord['content'] ?? null) ? (string) $afterRecord['content'] : '';
+
+                        $updated[] = [
+                            'blockID' => $blockID,
+                            'oldBlockID' => $oldBlockID,
+                            'areaHandle' => $areaHandle,
+                            'headingText' => $change['headingText'],
+                            'targetTag' => $targetTag,
+                            'matchMode' => $matchMode,
+                            'textChecksumBefore' => sha1($change['beforeText']),
+                            'textChecksumAfter' => sha1(TextIntegrity::normalize($afterContent)),
+                        ];
+                    } catch (\Throwable $e) {
+                        $failed[] = [
+                            'blockID' => $blockID,
+                            'areaHandle' => $areaHandle,
+                            'matchMode' => $matchMode,
+                            'error' => $e->getMessage(),
+                        ];
+                        if (isset($normalizedTitles[$change['headingKey']])) {
+                            $pendingHeadings[$change['headingKey']] = $normalizedTitles[$change['headingKey']];
+                        }
+
+                        if (!$continueOnError) {
+                            break;
+                        }
                     }
                 }
             }
@@ -1168,7 +1301,7 @@ class PagesToolkit extends AbstractToolkit
                     'checksumAlgorithm' => 'sha1(normalizedText)',
                     'note' => 'Updates are skipped if normalized text content changes.',
                 ],
-            ] + ($updated !== [] ? DraftState::of($pageToModify) : []);
+            ] + ($updated !== [] && $pageToModify !== null ? DraftState::of($pageToModify) : []);
         }));
 
         return $tool;
@@ -1729,14 +1862,27 @@ class PagesToolkit extends AbstractToolkit
                 $data['description'] = $description;
             }
             
-            $page = $parent->add($pt, $data, $pageTemplate);
-
-            if ($attributes !== null) {
+            // Refuse an unknown handle and build the attribute values before the page exists, as update_page does (BF-3).
+            $attributeMap = null;
+            if (!empty($attributes)) {
+                foreach (array_keys($attributes) as $handle) {
+                    if (!CollectionKey::getByHandle((string) $handle)) {
+                        throw new \RuntimeException("'{$handle}' is not a page attribute handle, so nothing was changed. Use list_page_attributes to see the handles.");
+                    }
+                }
                 $category = Application::getFacadeApplication()->make(PageCategory::class);
                 $attributeValueMapFactory = Application::getFacadeApplication()->make(AttributeValueMapFactory::class);
                 $attributeMap = $attributeValueMapFactory->createFromRequestData($category, $attributes);
+            }
+
+            $page = $parent->add($pt, $data, $pageTemplate);
+            // If the call fails from here on, the page it made is deleted under DraftCleanup's rule (BF-3).
+            DraftCleanup::createdPage($page);
+
+            if ($attributeMap !== null) {
                 foreach ($attributeMap->getEntries() as $entry) {
                     $page->setAttribute($entry->getAttributeKey(), $entry->getAttributeValue());
+                    DraftCleanup::ownChange($page);
                 }
             }
             
@@ -1942,8 +2088,21 @@ class PagesToolkit extends AbstractToolkit
                 );
             }
 
+            // Nothing to change makes no draft (BF-3).
+            if ($name === null && $description === null && !$targetTemplate && empty($attributes)) {
+                throw new \RuntimeException('No change was given: pass name, description, template or attributes. Nothing was changed.');
+            }
+
+            // Build the attribute values before the draft, so a bad value leaves nothing behind (BF-3).
+            $attributeMap = null;
+            if (!empty($attributes)) {
+                $category = Application::getFacadeApplication()->make(PageCategory::class);
+                $attributeValueMapFactory = Application::getFacadeApplication()->make(AttributeValueMapFactory::class);
+                $attributeMap = $attributeValueMapFactory->createFromRequestData($category, $attributes);
+            }
+
             $pageToModify = $this->getDraftOf($page);
-            
+
             $data = [];
             if ($name !== null) {
                 $data['cName'] = $name;
@@ -1959,15 +2118,12 @@ class PagesToolkit extends AbstractToolkit
                 $pageToModify->update($data);
             }
 
-            if ($attributes !== null) {
-                $category = Application::getFacadeApplication()->make(PageCategory::class);
-                $attributeValueMapFactory = Application::getFacadeApplication()->make(AttributeValueMapFactory::class);
-                $attributeMap = $attributeValueMapFactory->createFromRequestData($category, $attributes);
+            if ($attributeMap !== null) {
                 foreach ($attributeMap->getEntries() as $entry) {
                     $pageToModify->setAttribute($entry->getAttributeKey(), $entry->getAttributeValue());
                 }
             }
-            
+
             return $this->serializePage($pageToModify) + DraftState::of($pageToModify);
         }));
 
@@ -2886,7 +3042,8 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException('Authentication required: Please log in to use this tool.');
             }
 
-            return $callable(...$args);
+            // A call that fails leaves no draft or page it made behind (BF-3).
+            return DraftCleanup::run(static fn () => $callable(...$args));
         };
     }
 

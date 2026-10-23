@@ -35,6 +35,8 @@ final class PageDraft
         $created = $draft !== $latest;
         if ($created) {
             self::cacheAsLatest($draft);
+            // A call that fails later may discard this version, under DraftCleanup's rule (BF-3).
+            DraftCleanup::created($draft);
         }
 
         return $draft;
