@@ -102,7 +102,13 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 - Plan changes proposed:
   - Scenario 05's reply checks ("draft/unpublished", "undo") still don't fit the short publishing line; left as they are (Glyn: no change to 05 in BF-7).
   - P3.3: `batch_update_content_headings` changes only one matching heading per block (05 runs 1 and 3 here); worth raising its priority.
-- Questions for review: none open. Glyn answered the 05 re-run question (no) and the reply checks (10 changed, 07 kept with new guidance).
+  - **Browser checks 5 and 7 passed (Glyn, 23 October):** 5 was refused clearly, naming `neuron_editor`; 7's button reads "Approve Version", so the wording stands.
+  - **Check 6 failed, then fixed (plan §14):**
+    - **Cause:** the same user's hand edit in edit mode had copied the block under a new ID in the draft, and the model read the published version, so it used the old ID. The write tool said only "Block 31610 not found", and the model guessed at a lock or permissions.
+    - **Fix:** `BlockNotFound` gives the update, delete, move and batch tools the exact reason and the ID the newest version has at that position. `StaleBlockIDTest`, red first, reproduces the two-tab case.
+    - **Full suite after the fix:** OK (1128 tests).
+    - **Proposed for Glyn, not done:** `get_page_content` could read the newest version by default.
+- Questions for review: re-run browser check 6.
 
 ### 2026-10-22: BF-9 A chat never gets permanently stuck
 - Branch / PR: `task/BF-9-chat-never-stuck`, PR #50 into `development`. Significant task; plan [plans/BF-9.md](plans/BF-9.md), approved by Glyn with the decisions in §10.

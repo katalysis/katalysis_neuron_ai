@@ -197,3 +197,19 @@ These are server-side replays, not browser runs: the browser checks in §7.3 con
 - **Scenario 10:** the reply check accepts the agreed short form ("it goes live when you publish"). Undo wording is no longer required, because the tool result holds the undo route. Changed in its own commit, with the reason.
 - **Scenario 07:** the check is kept. The suggested reply in the tool results (`DraftState::REPLY`) now says to describe what was actually done (for example, that the original block was kept), then add the one line about publishing. 07 ×3 re-run: 3 of 3 pass (about $0.28; BF-7 total about $1.30, cap $1.50).
 - **Fixture drift seen on the way:** before the 07 re-run, `PromptBaselineTest` failed because `/neuron-test/headings` had an `exclude_nav: false` attribute value, most likely saved during browser check 4 (the attributes panel). The runner's fixture reset removed it, and the full suite passed afterwards. It was not a code change.
+
+## 14. Browser check 6 failed: the cause and the fix (2026-10-23)
+- **What happened (chat 3693; log 11:15:17–11:15:23):**
+  - Admin, in edit mode in tab 1, edited block 31610 by hand at 11:14:56. That made version 2 (unpublished, `cvIsNew`) and copied the block into it as block 31662.
+  - In tab 2 the model read the page with `get_page_content` and `get_page_blocks`, both with `version: "active"`, so it saw the published version and block 31610.
+  - It called `update_block_in_page_area` with 31610 three times. The write tools edit the newest version, version 2, where 31610 no longer is. Each call got only "Block 31610 not found in area 'Main' on page 21175", so the model guessed at "a lock, permissions, or another concurrent modification".
+- **Cause:** block IDs changed by edit mode (the hand edit's copy), together with the model reading the published version. It was not the edit-mode check (the same user passed it, as intended) and not the open-editor check (31610 wasn't sent, and nothing was refused by it).
+- **Fix (`BlockNotFound`):** when a block write tool can't find the block in the newest version, it says why and what to use instead:
+  - which version the block is in
+  - that the newest version is unpublished, and who saved it
+  - that a change in edit mode or by the assistant copied the block under a new ID
+  - which block the newest version has at the same position (the ID to use)
+  - that nothing was changed
+
+  A block in another area is named with its area, and a block that isn't on the page says so. This applies to update, delete and move, and to `batch_update_page_content` before any draft. `StaleBlockIDTest` (red first) reproduces the two-tab case per tool and through the agent: the stale ID first, then the retry with the ID the error gave.
+- **Not changed, proposed:** `get_page_content` reads the published version by default ("active"). The write tools edit the newest version, and editors see the newest version on the page. Reading the newest version by default would avoid the mismatch, but it changes a read tool's behaviour, and in this run the model asked for "active" explicitly anyway. For Glyn.
