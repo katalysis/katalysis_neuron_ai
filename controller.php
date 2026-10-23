@@ -82,14 +82,21 @@ class Controller extends Package
                 return;
             }
 
+            // The file's modified time in the URL, so browsers fetch a changed file after an update (BF-4).
+            $assetUrl = static function (string $file) use ($pkg): string {
+                $mtime = @filemtime($pkg->getPackagePath() . '/' . $file);
+
+                return $pkg->getRelativePath() . '/' . $file . '?v=' . ($mtime ?: $pkg->getPackageVersion());
+            };
+
             // Add CSS
             $view->addHeaderItem(
-                '<link rel="stylesheet" href="' . $pkg->getRelativePath() . '/css/chat-panel.css">'
+                '<link rel="stylesheet" href="' . $assetUrl('css/chat-panel.css') . '">'
             );
 
             // Add JS
             $view->addFooterItem(
-                '<script src="' . $pkg->getRelativePath() . '/js/chat-panel.js"></script>'
+                '<script src="' . $assetUrl('js/chat-panel.js') . '"></script>'
             );
 
             // Add chat panel element

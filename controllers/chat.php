@@ -365,11 +365,12 @@ class Chat extends AbstractController
     }
     
     /**
-     * Load a specific chat by ID
+     * Load a specific chat by ID. It becomes the session's chat (BF-4), so the next message, "Delete current chat" and
+     * a reload act on the chat on screen; that changes state, so the panel's token is needed.
      */
     public function load()
     {
-        if ($refusal = $this->refuseIfNotAllowed(false)) {
+        if ($refusal = $this->refuseIfNotAllowed(true)) {
             return $refusal;
         }
 
@@ -397,6 +398,8 @@ class Chat extends AbstractController
                 return $this->json(['success' => false, 'error' => 'Chat not found or access denied'], 404);
             }
 
+            $this->makeSessionChat($chat, $entityManager);
+
             return $this->json([
                 'success' => true,
                 'chat' => [
@@ -413,6 +416,26 @@ class Chat extends AbstractController
         } catch (\Throwable $e) {
             return $this->failed('Error loading chat', 'Unable to load this chat.', $e);
         }
+    }
+
+    /**
+     * Binds the chat to this browser session: every action finds "the current chat" by its sessionId. The chat the
+     * session had before is unbound (it stays in the saved list) and the chat leaves any other session it was in.
+     */
+    private function makeSessionChat(ChatEntity $chat, EntityManagerInterface $entityManager): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $sessionId = session_id();
+
+        foreach ($entityManager->getRepository(ChatEntity::class)->findBy(['sessionId' => $sessionId]) as $other) {
+            if ($other->getId() !== $chat->getId()) {
+                $other->setSessionId(null);
+            }
+        }
+        $chat->setSessionId($sessionId);
+        $entityManager->flush();
     }
 
     /**
