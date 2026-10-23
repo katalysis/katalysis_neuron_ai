@@ -69,8 +69,9 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       .every((el) => ['SPAN', 'I', 'STRONG', 'EM', 'CODE', 'A', 'BR', 'UL', 'LI'].includes(el.tagName)),
     'no img, form, input, iframe, script, h2': m.querySelectorAll('img, form, input, iframe, script, h2').length === 0,
     'the payload text is visible as text': m.textContent.includes('<img src=x onerror=') && m.textContent.includes('<h2>updated Seed Heading</h2>'),
-    // Two links: the safe one, and the no-space break-out, whose quotes stay inside its https href value.
-    'only the https links are links': links.length === 2 && links.every((a) => /^https:\/\//.test(a.getAttribute('href'))),
+    // Four links, all https: the safe one; the no-space break-out, whose quotes stay inside its href value; the
+    // break-out's bare URL, auto-linked up to the quote; and the image markdown, as a link (BF-11 browser check 4).
+    'only the https links are links': links.length === 4 && links.every((a) => /^https:\/\//.test(a.getAttribute('href'))),
     'links open safely': links.every((a) => a.getAttribute('rel') === 'noopener noreferrer' && a.getAttribute('target') === '_blank'),
     'no link has an event attribute': links.every((a) => [...a.attributes].every((attr) => !/^on/i.test(attr.name))),
     'the formatting still works': m.querySelectorAll('strong').length === 1 && m.querySelectorAll('em').length === 1 && m.querySelectorAll('code').length === 1 && m.querySelectorAll('ul li').length === 2,

@@ -77,9 +77,10 @@ test('a javascript: link is shown as the text that was written, not as a link', 
 });
 
 test('a quote in a link URL cannot add attributes', () => {
-    // With spaces the markdown is not a link at all.
+    // With spaces the markdown is not a markdown link. Since BF-11's browser check 4 the bare URL after "(" is
+    // auto-linked, and the link stops at the quote: the handler stays text.
     let blocks = parse(PROOF_PAYLOADS['quote break-out']);
-    assert.ok(!pieces(blocks).some((p) => p.type === 'link'));
+    assert.deepEqual(pieces(blocks).filter((p) => p.type === 'link'), [{ type: 'link', text: 'https://example.invalid/', href: 'https://example.invalid/' }]);
     assert.equal(visibleText(blocks), PROOF_PAYLOADS['quote break-out']);
 
     // Without spaces it is a link, and the quotes are part of the href value, never markup.
@@ -157,11 +158,11 @@ test('a markdown link with a refused scheme is plain text', () => {
 
 // ---- No images, ever ------------------------------------------------------------------------------------------
 
-test('image markdown is plain text: no image, no link', () => {
-    const written = '![x](https://elsewhere.example/?d=1)';
-    const blocks = parse(written);
-    assert.deepEqual(pieces(blocks).map((p) => p.type), ['text']);
-    assert.equal(visibleText(blocks), written);
+// Changed after BF-11's browser check 4 (Glyn): image markdown was plain text; it is now a normal safe link labelled
+// with the alt text. Still never an image, so nothing is fetched without a click.
+test('image markdown is a link labelled with the alt text: never an image', () => {
+    const blocks = parse('![x](https://elsewhere.example/?d=1)');
+    assert.deepEqual(pieces(blocks), [{ type: 'link', text: 'x', href: 'https://elsewhere.example/?d=1' }]);
 });
 
 // ---- Entities stay literal ------------------------------------------------------------------------------------
@@ -203,11 +204,21 @@ test('code is literal: no bold inside it', () => {
     assert.deepEqual(parse('`**not bold**`'), [{ type: 'line', inline: [{ type: 'code', text: '**not bold**' }] }]);
 });
 
+// The list shape changed after BF-11's browser check 4 (Glyn: numbered lists and sub-items): {ordered, start} and
+// items of {inline, items}.
 test('lines and a list', () => {
     assert.deepEqual(parse('First line\nSecond line\n- one\n- **two**\nAfter'), [
         { type: 'line', inline: [{ type: 'text', text: 'First line' }] },
         { type: 'line', inline: [{ type: 'text', text: 'Second line' }] },
-        { type: 'list', items: [[{ type: 'text', text: 'one' }], [{ type: 'strong', text: 'two' }]] },
+        {
+            type: 'list',
+            ordered: false,
+            start: 1,
+            items: [
+                { inline: [{ type: 'text', text: 'one' }], items: [] },
+                { inline: [{ type: 'strong', text: 'two' }], items: [] },
+            ],
+        },
         { type: 'line', inline: [{ type: 'text', text: 'After' }] },
     ]);
 });
@@ -396,8 +407,11 @@ test('renderInto builds only the allowed elements, with safe link attributes, an
         assert.ok(['div', 'strong', 'em', 'code', 'a', 'br', 'ul', 'li'].includes(tag), `unexpected element <${tag}>`);
     }
     const links = doc.made.filter((el) => el.tag === 'a');
-    assert.equal(links.length, 1, 'only the safe link becomes an <a>');
-    assert.deepEqual(links[0].attributes, { href: 'https://example.com/', target: '_blank', rel: 'noopener noreferrer' });
+    // Since BF-11's browser check 4 the break-out payload's bare URL is auto-linked too, up to the quote.
+    assert.deepEqual(links.map((a) => a.attributes), [
+        { href: 'https://example.invalid/', target: '_blank', rel: 'noopener noreferrer' },
+        { href: 'https://example.com/', target: '_blank', rel: 'noopener noreferrer' },
+    ], 'only safe links become an <a>');
     for (const el of doc.made) {
         if (el.tag !== 'a') {
             assert.deepEqual(el.attributes, {}, `<${el.tag}> gets no attributes`);
