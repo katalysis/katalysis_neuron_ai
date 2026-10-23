@@ -42,11 +42,17 @@ An **expectation, not a result.** It records that, from reading the code in P1.1
 
 ### `setup`
 
-Optional. Content a scenario needs that the seed doesn't have, so the seed (and scenarios 03, 04 and 12) stay as they are. The one step type is `create_person: {name, email, biography, short_biography, active}`. Rules:
+Optional. Content a scenario needs that the seed doesn't have, so the seed (and scenarios 03, 04 and 12) stay as they are. Step types:
+
+- `create_person: {name, email, biography, short_biography, active}`
+- `hand_edit: {page, find, replace}` (BF-10): a hand edit in edit mode, as the scenario's user, through the block edit dialog's own server path, in the Content block of the page's newest version that contains `find`. It leaves an unpublished version with that block copied under a new ID, as an editor's edit in another tab does (scenario 24). The page must be under `/neuron-test/`; the next reset discards the version like any draft.
+
+Rules:
 
 - It runs after the fixture reset and before the first turn. The "before" snapshot that `nothing_changed` compares with is taken **after** the setup, so the setup is not counted as a change.
 - The name must start with "Test Person " and the email must end with `@neuron-test.invalid`, so the next reset removes it even if a run crashes. The loader refuses anything else.
 - The runner deletes exactly the people it created, by ID, when the scenario ends, whether it passed, failed or threw.
+- A `hand_edit` page must be under `/neuron-test/`, and its text must be found, or the setup fails.
 
 ### `rubric`
 
