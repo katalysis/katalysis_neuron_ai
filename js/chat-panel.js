@@ -766,12 +766,11 @@
                 this.showChatView();
                 this.messages.innerHTML = '<div class="neuron-chat-list-loading"><i class="fas fa-spinner fa-spin"></i> Loading chat...</div>';
                 
-                // Fetch the chat from backend
-                const response = await fetch(`/ccm/system/katalysis_neuron_ai/chat/load?id=${chatId}`, {
+                // Fetch the chat from backend. Loading makes it the session's chat (BF-4), so it
+                // sends the token like the POST actions.
+                const response = await fetch(`/ccm/system/katalysis_neuron_ai/chat/load?id=${encodeURIComponent(chatId)}`, {
                     method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
+                    headers: this.postHeaders()
                 });
                 
                 const data = await response.json();
@@ -808,7 +807,7 @@
                     }
                 } else {
                     this.messages.innerHTML = '';
-                    this.addMessage('Error: Could not load chat. ' + (data.error || 'Chat not found'), 'assistant');
+                    this.showFailure(data, 'Error: Could not load chat. ');
                 }
             } catch (error) {
                 this.messages.innerHTML = '';
