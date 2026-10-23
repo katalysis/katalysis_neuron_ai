@@ -187,3 +187,13 @@ These are server-side replays, not browser runs: the browser checks in §7.3 con
 - **`versionState` only when something was written:** the two batch tools add it when at least one block changed. `batch_update_page_content`'s old `note` ("not auto-approved…") is replaced by it.
 - **Existing test changed, approved by Glyn during the task:** `OutboundDataTest` (P2.7) asserted an agent has no Neuron listener at all; it now allows exactly the agent's own `TurnChanges` on `ToolCalled`. Its own commit, with the reason.
 - **Dev site:** the probes' Publish steps left six workflow rows (`WorkflowProgressHistory` / `WorkflowRequestObjects` 207–212) for the deleted probe pages, and the first red run of `EditModeWriteRefusalTest` left its 50 throwaway pages and one workflow row (213), because its `tearDown()` called the class that didn't exist yet before deleting them. All removed with a one-off script (dry run first); the table counts are back to what they were before the probes. `tearDown()` now deletes the pages first.
+
+## 13. After the scenario run and the browser checks (Glyn, 2026-10-23)
+- **Browser checks:**
+  - 1–4: work well.
+  - 5–6: not run as written, because `neuron_editor` doesn't see the chat. Check 5 needs `neuron_editor` only to hold edit mode on a `/neuron-test` page, where the seed gives it edit rights. `EditModeWriteRefusalTest` covers the refusal.
+  - 7: `create_page` makes the page, which offers a modal for approval.
+- **Scenario 05:** no re-run. Its failures are the P3.3 headings bug.
+- **Scenario 10:** the reply check accepts the agreed short form ("it goes live when you publish"). Undo wording is no longer required, because the tool result holds the undo route. Changed in its own commit, with the reason.
+- **Scenario 07:** the check is kept. The suggested reply in the tool results (`DraftState::REPLY`) now says to describe what was actually done (for example, that the original block was kept), then add the one line about publishing. 07 ×3 re-run: 3 of 3 pass (about $0.28; BF-7 total about $1.30, cap $1.50).
+- **Fixture drift seen on the way:** before the 07 re-run, `PromptBaselineTest` failed because `/neuron-test/headings` had an `exclude_nav: false` attribute value, most likely saved during browser check 4 (the attributes panel). The runner's fixture reset removed it, and the full suite passed afterwards. It was not a code change.
