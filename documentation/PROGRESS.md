@@ -78,21 +78,32 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
     - `safeHref()` allows `http(s)`, `mailto` and relative URLs, with the WHATWG URL parser.
     - `renderInto()` builds the nodes with `createElement` and `textContent`; links get `target="_blank"` and `rel="noopener noreferrer"`.
     - No images: image markdown is text. A refused link is shown as written.
+  - **After browser check 4** (the people reply showed as plain text; plan §12):
+    - bare email addresses and `http(s)` URLs are auto-linked by the same rule, only at the start or after a space or "(", never inside raw HTML
+    - numbered lists (keeping the first number) and one level of indented sub-items; a blank line between items doesn't end the list
+    - image markdown is a safe link labelled with the alt text
+    - five existing checks changed with Glyn's approval, in their own commit
+    - the old `formatContent()` made none of these lists and linked no bare addresses
   - **Panel:** the person's messages are plain text (decision 4; `white-space: pre-wrap`). The chat list is built as nodes. The list error is text. `formatContent()` and `escapeHtml()` are removed. The `innerHTML` audit is in plan §4.
   - **History:** `ChatMessageStore::conversationJson()` returns the person's messages and the final replies only, used by `historyForPanel()`. `transcriptJson()` is unchanged.
   - **Tooling:** `node --test` is in the fast tier, the full run and `/finish-task` (it stops without Node), with an allow rule. SETUP has "Running the JS tests" and the manual page, and says both developers need Node 20+. CLAUDE.md's tiers include it. BEHAVIOUR_SPEC has B-INJ-7 and a B-INJ-4 note.
 - Not done / left for later: a CSP (outside follow-up, above); exfiltration by a clicked link (B-INJ-4); the wording (P3.7); a "working" line (P3.6, if wanted).
 - Checks:
   - **PHPUnit:** full suite OK (1205 tests, 7467 assertions). Red first: `ChatControllerTest` (the reload showed the tool-call note and an empty tool result) and `ChatMessageStoreTest` (no `conversationJson()`).
-  - **JS:** `node --test tests/js/*.test.mjs`, 41 of 41 pass. Red first: the module didn't exist.
-  - **Manual:** the headless proof page `tests/js/manual/reply-rendering.html`, all 12 checks ok and nothing ran. Against `development`'s panel: 11 of 12 FAIL, and `onerror` ran.
+  - **JS:** `node --test tests/js/*.test.mjs`, 55 of 55 pass. Red first: the module didn't exist; after check 4, 11 new cases failed before the change.
+  - **Manual:** the headless proof page `tests/js/manual/reply-rendering.html`, all 12 checks ok and nothing ran, re-run after check 4's changes. Against `development`'s panel: 11 of 12 FAIL, and `onerror` ran. The stored people reply rendered in headless Chrome as a numbered list with sub-lists and mailto links.
   - **Scenarios:** none (decision 2).
-  - **Browser checks:** listed in the PR, for Glyn.
+  - **Browser checks (Glyn):** check 4 failed (the people reply as plain text) and is fixed in this PR, to check again. Results for checks 3 and 5–8 not recorded yet.
+  - **The `your-domain` bug, investigated only:** `list_people` (katalysis_pro's, which wins the name clash, `ConcreteCmsAgent.php:141`) returns `imagePath` as a site-relative path (`File::getRelativePathFromID()`, `katalysis_pro/src/KatalysisPro/Ai/KatalysisProEntitiesToolkit.php:821`). The stored tool result in chat 5729 holds `/application/files/7817/8231/1835/person-1.jpg`; "your-domain" first appears in the model's final reply. No code, prompt or tool text contains it, so the model invented the host.
   - The **CSP check**, for information: the dev site sends no Content-Security-Policy header.
 - Who / tool / model: Glyn; Claude Code (VS Code); claude-opus-5-5
 - Time: about 25 minutes from the branch (15:02Z) to the PR (15:28Z), including the plan stop; the investigation before the branch was not recorded; own time not recorded
 - Scenario spend: none
-- Plan changes proposed: none.
+- Plan changes proposed:
+  - **A new BF task for the invented host** (Glyn decides):
+    - `katalysis_pro`'s `mapPerson()` returns an absolute `imageUrl` from the site's canonical URL (`File::getURL()`), next to or instead of `imagePath`, in a `katalysis_pro` PR. The model then has a real URL and no reason to invent one.
+    - The same check across this package's tools, which return file IDs or relative paths (`PeopleToolkit` returns only the file ID).
+    - A scenario reply check that no reply contains a host the tools didn't return (`your-domain`, `example.com`, `yourdomain`). It's the "unverified claim" pattern of BF-5 and P3.11.
 - Questions for review: none.
 
 ### 2026-10-23: BF-4 "Back to chat" always shows the chat
