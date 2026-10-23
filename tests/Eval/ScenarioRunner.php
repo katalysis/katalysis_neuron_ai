@@ -86,6 +86,7 @@ final class ScenarioRunner
             $page = (string) $scenario['current_page'];
             $lastReply = '';
             $lastSay = '';
+            $says = [];
             $after = $start;
 
             foreach ($scenario['turns'] as $i => $turn) {
@@ -117,16 +118,21 @@ final class ScenarioRunner
                 // The same call controllers/chat.php makes. Recorded for every scenario, so false notices show up everywhere.
                 $notice = $agent->getTurnNotice();
 
+                // BF-12: the run so far, this turn included, for no_invented_hosts and the recorded inventedHosts.
+                $runCalls = array_merge($allCalls, $calls);
+                $says[] = (string) $turn['say'];
+                $inventedHosts = Hosts::invented($reply, $runCalls, $says);
+
                 $turnChecks = [];
                 if (isset($turn['expect'])) {
-                    $context = new CheckContext($before, $start, $after, $calls, $reply, (string) $turn['say'], $notice);
+                    $context = new CheckContext($before, $start, $after, $calls, $reply, (string) $turn['say'], $notice, $runCalls, $says);
                     foreach (Expectations::evaluate($turn['expect'], $context) as $check) {
                         $turnChecks[] = $check->at('turn ' . ($i + 1));
                     }
                 }
 
                 $checks = array_merge($checks, $turnChecks);
-                $allCalls = array_merge($allCalls, $calls);
+                $allCalls = $runCalls;
                 $anyNotice ??= $notice;
                 $usage = $this->addUsage($usage, $turnUsage);
                 $hadError = $hadError || $agentError;
@@ -139,6 +145,8 @@ final class ScenarioRunner
                     'reply' => $reply,
                     'agentError' => $agentError,
                     'notice' => $notice,
+                    // Recorded for every scenario, scored only where a scenario has no_invented_hosts.
+                    'inventedHosts' => $inventedHosts,
                     'durationSec' => round($turnSeconds, 1),
                     'usage' => $turnUsage,
                     'toolCalls' => array_map(fn (array $call): array => $this->truncateCall($call), $calls),
@@ -148,7 +156,7 @@ final class ScenarioRunner
             }
 
             if (isset($scenario['expect'])) {
-                $context = new CheckContext($start, $start, $after, $allCalls, $lastReply, $lastSay, $anyNotice);
+                $context = new CheckContext($start, $start, $after, $allCalls, $lastReply, $lastSay, $anyNotice, $allCalls, $says);
                 foreach (Expectations::evaluate($scenario['expect'], $context) as $check) {
                     $checks[] = $check->at('end');
                 }
