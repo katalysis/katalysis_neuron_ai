@@ -421,7 +421,8 @@ final class ChecksTest extends TestCase
             $this->ctx(reply: 'hi there')
         );
 
-        $this->assertSame([CheckResult::STATE, CheckResult::TOOLS, CheckResult::REPLY], array_map(static fn (CheckResult $r): string => $r->group, $results));
+        // The second state result is saved_html_valid, which runs for every expect block (BF-7).
+        $this->assertSame([CheckResult::STATE, CheckResult::STATE, CheckResult::TOOLS, CheckResult::REPLY], array_map(static fn (CheckResult $r): string => $r->group, $results));
         $this->assertAllPass($results);
     }
 }
