@@ -1,0 +1,103 @@
+<!doctype html>
+<!--
+  BF-11 manual check (plans/BF-11.md §8): the real chat-format.js and chat-panel.js, with a fake server, render harmless
+  payloads. Nothing here talks to the site or the AI. Open it in a browser, or run it headless (documentation/SETUP.md,
+  "Running the JS tests"), and read the report at the end: every check should say "ok".
+-->
+<html>
+<head><meta charset="utf-8"><title>BF-11 reply rendering check</title></head>
+<body>
+<div id="neuron-chat-panel" data-csrf-token="FAKE-TOKEN">
+  <button id="neuron-chat-load"><i></i></button>
+  <button id="neuron-chat-new"></button>
+  <button id="neuron-chat-delete-current"></button>
+  <div class="neuron-chat-messages" id="neuron-chat-messages"></div>
+  <textarea id="neuron-chat-input"></textarea>
+  <button id="neuron-chat-send"></button>
+</div>
+<script>
+window.fired = [];
+// Each payload only records that it ran. None of them does anything else.
+const payloads = {
+  img: "Heading is <img src=x onerror=\"fired.push('img onerror')\">",
+  jslink: "[click me](javascript:fired.push('javascript link'))",
+  jslinkMixed: "[click me](JaVaScRiPt:fired.push('mixed-case javascript link'))",
+  datalink: "[open](data:text/html,<script>parent.fired.push('data link')<\/script>)",
+  breakout: "[hover me](https://example.invalid/\" id=\"breakout\" onmouseover=\"fired.push('quote break-out'))",
+  breakoutNoSpace: "[hover](https://example.invalid/\"onmouseover=\"fired.push('break-out-no-space'))",
+  form: "<form id=\"f\" action=\"https://example.invalid/\"><input name=\"pw\" type=\"password\"></form><iframe id=\"fr\" srcdoc=\"<b>framed</b>\"></iframe>",
+  heading: "The first heading on the page is \"<h2>updated Seed Heading</h2>\".",
+  script: "<script>fired.push('script tag')<\/script>",
+  image: "![x](https://example.invalid/?d=1)",
+  ok: "**bold** *italic* `code` [a safe link](https://example.com/)\n- one\n- two",
+};
+const history = [
+  { role: 'user', content: "<img src=x onerror=\"fired.push('user message img')\"> **not bold**" },
+  ...Object.values(payloads).map((content) => ({ role: 'assistant', content })),
+];
+let mode = 'current';
+window.fetch = async (url) => ({
+  headers: { get: () => 'application/json' },
+  json: async () => {
+    if (url.includes('/chat/current')) {
+      return { success: true, chat: { id: 1, chatHistory: JSON.stringify(history) } };
+    }
+    if (url.includes('/chat/list')) {
+      if (mode === 'list-error') {
+        // What a non-JSON reply does: the parse error quotes the start of the body.
+        return JSON.parse("<img src=x onerror=fired.push('list error')>");
+      }
+      return { success: true, chats: [{ id: "1\" onclick=\"fired.push('chat id')", firstMessage: "<img src=x onerror=\"fired.push('chat title')\">", updatedDate: null }] };
+    }
+    return { success: true };
+  },
+});
+</script>
+<script src="../../../js/chat-format.js"></script>
+<script src="../../../js/chat-panel.js"></script>
+<script>
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+(async () => {
+  await wait(500);
+  const m = document.getElementById('neuron-chat-messages');
+  const breakout = document.getElementById('breakout');
+  if (breakout) breakout.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  m.querySelectorAll('a').forEach((a) => a.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+  const links = [...m.querySelectorAll('a')];
+  const checks = {
+    'no element from a reply other than strong, em, code, a, br, ul, li': [...m.querySelectorAll('.neuron-chat-content *')]
+      .every((el) => ['SPAN', 'I', 'STRONG', 'EM', 'CODE', 'A', 'BR', 'UL', 'LI'].includes(el.tagName)),
+    'no img, form, input, iframe, script, h2': m.querySelectorAll('img, form, input, iframe, script, h2').length === 0,
+    'the payload text is visible as text': m.textContent.includes('<img src=x onerror=') && m.textContent.includes('<h2>updated Seed Heading</h2>'),
+    // Two links: the safe one, and the no-space break-out, whose quotes stay inside its https href value.
+    'only the https links are links': links.length === 2 && links.every((a) => /^https:\/\//.test(a.getAttribute('href'))),
+    'links open safely': links.every((a) => a.getAttribute('rel') === 'noopener noreferrer' && a.getAttribute('target') === '_blank'),
+    'no link has an event attribute': links.every((a) => [...a.attributes].every((attr) => !/^on/i.test(attr.name))),
+    'the formatting still works': m.querySelectorAll('strong').length === 1 && m.querySelectorAll('em').length === 1 && m.querySelectorAll('code').length === 1 && m.querySelectorAll('ul li').length === 2,
+    'the person\'s message is plain text': (m.querySelector('.neuron-chat-user .neuron-chat-content') || {}).textContent.includes('**not bold**'),
+  };
+
+  // The saved-chats list, then the list error.
+  await window.NeuronChat.showChatListView();
+  await wait(200);
+  checks['the chat list title is text'] = m.textContent.includes("<img src=x onerror=") && m.querySelectorAll('img').length === 0;
+  checks['the chat list id is data, not markup'] = [...m.querySelectorAll('.neuron-chat-list-item')].every((el) => !el.hasAttribute('onclick'));
+  window.NeuronChat.isListView = false;
+  mode = 'list-error';
+  await window.NeuronChat.showChatListView();
+  await wait(200);
+  checks['the list error is text'] = m.querySelectorAll('img').length === 0 && m.textContent.includes('Error loading chats');
+
+  await wait(300);
+  checks['nothing ran'] = window.fired.length === 0;
+
+  const report = Object.entries(checks).map(([name, ok]) => `${ok ? 'ok  ' : 'FAIL'}  ${name}`);
+  report.push('', `ran: ${window.fired.length ? window.fired.join(', ') : 'nothing'}`);
+  const pre = document.createElement('pre');
+  pre.id = 'report';
+  pre.textContent = report.join('\n');
+  document.body.appendChild(pre);
+})();
+</script>
+</body>
+</html>
