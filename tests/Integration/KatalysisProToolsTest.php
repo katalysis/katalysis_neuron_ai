@@ -34,6 +34,18 @@ final class KatalysisProToolsTest extends ConcreteTestCase
     /** The guidelines after P2.8 (decision D3): the first sentence of v3's. */
     private const GUIDELINES = 'Use these tools to manage Katalysis Pro entities.';
 
+    /**
+     * Tools whose definition was changed on purpose after the v3 capture, with the task and the reason (as
+     * ToolBaseline::DELIBERATE_CHANGES for the core tools). Each must really differ from the capture.
+     *
+     * @var array<string, string> tool name => reason
+     */
+    private const DELIBERATE_CHANGES = [
+        'list_people' => 'BF-6: offset input; the result says total, more and how to get the next people',
+        'list_places' => 'BF-6: offset input; the result says total, more and how to get the next places',
+        'list_reviews' => 'BF-6: offset input; the result says total, more and how to get the next reviews',
+    ];
+
     /** @var array<string, mixed>|null */
     private ?array $originalFactories = null;
 
@@ -92,7 +104,21 @@ final class KatalysisProToolsTest extends ConcreteTestCase
 
         $this->assertSame(array_column($expected, 'name'), array_column($actual, 'name'), 'the same tools, in the same order');
         foreach ($expected as $i => $tool) {
+            if (isset(self::DELIBERATE_CHANGES[$tool['name']])) {
+                $this->assertNotSame($tool, $actual[$i], "{$tool['name']} is listed as changed but matches the v3 capture");
+                continue;
+            }
             $this->assertSame($tool, $actual[$i], $tool['name']);
+        }
+    }
+
+    public function testEveryDeliberateChangeNamesATool(): void
+    {
+        $names = array_map(static fn (ToolDefinition $d): string => $d->name(), $this->definitions());
+
+        foreach (self::DELIBERATE_CHANGES as $name => $reason) {
+            $this->assertContains($name, $names);
+            $this->assertNotSame('', trim($reason));
         }
     }
 
