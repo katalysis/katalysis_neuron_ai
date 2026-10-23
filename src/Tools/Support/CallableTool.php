@@ -90,6 +90,15 @@ class CallableTool extends Tool
         parent::execute();
     }
 
+    /**
+     * An array result is encoded by ToolResultEncoding, not Neuron's json_encode(): no escaped slashes, no line breaks
+     * in HTML, so the model is never handed escaped HTML it could copy back into a write (BF-7, browser check 6).
+     */
+    public function setResult(mixed $result): static
+    {
+        return parent::setResult(is_array($result) ? ToolResultEncoding::encode($result) : $result);
+    }
+
     public function __invoke(mixed ...$inputs): mixed
     {
         return ($this->handler)(...$inputs);

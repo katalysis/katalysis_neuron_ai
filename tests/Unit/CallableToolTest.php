@@ -162,4 +162,32 @@ final class CallableToolTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->runTool(new CallableTool('no_handler', 'Nothing.'), []);
     }
+
+    /**
+     * BF-7, browser check 6: a read result's HTML reached the model as "<\/h2>\r\n\r\n<p>", and the model copied it
+     * back as text. Results are encoded without escaped slashes, and line breaks inside HTML are removed (between
+     * elements) or become a space (inside text), so there is no escape sequence in HTML to copy. <pre> keeps its lines.
+     */
+    public function testAnArrayResultHasNoEscapedSlashesAndItsHtmlNoLineBreaks(): void
+    {
+        $tool = new CallableTool('get_thing', 'Reads a thing.', static fn (): array => [
+            'html' => "<h2>Seed Heading Two</h2>\r\n\r\n<p>This paragraph\r\nsits under the h2 heading.</p>\r\n",
+            'nested' => ['content' => "<ul>\n  <li>One</li>\n</ul>"],
+            'pre' => "<pre>line one\r\nline two</pre>",
+            'text' => "Line one\r\nLine two",
+            'path' => '/neuron-test/headings',
+        ]);
+
+        $result = (string) $this->runTool($tool, []);
+
+        $this->assertStringNotContainsString('<\/', $result);
+        $this->assertStringNotContainsString('\/', $result, 'no escaped slash anywhere, paths included');
+        $this->assertStringNotContainsString('\r', $result);
+        $decoded = json_decode($result, true);
+        $this->assertSame('<h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p>', $decoded['html']);
+        $this->assertSame('<ul><li>One</li></ul>', $decoded['nested']['content']);
+        $this->assertSame("<pre>line one\nline two</pre>", $decoded['pre']);
+        $this->assertSame("Line one\nLine two", $decoded['text']);
+        $this->assertSame('/neuron-test/headings', $decoded['path']);
+    }
 }

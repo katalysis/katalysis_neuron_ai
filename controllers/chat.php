@@ -152,6 +152,8 @@ class Chat extends AbstractController
 
             $agent = $this->agentForThisRequest();
             $agent->setRuntimePageContext($pageContext);
+            // Blocks the user has an editor open on, on this page: the tools leave them alone this turn (BF-7).
+            $agent->setOpenEditorBlocks($this->extractOpenBlockIDs($data));
 
             $this->updateChatLocationFromContext($pageContext);
 
@@ -165,6 +167,8 @@ class Chat extends AbstractController
                 'response' => $response,
                 // The fixed notice text when a tool result held text addressed to the assistant, else null (P1.11).
                 'notice' => $agent->getTurnNotice(),
+                // The pages and blocks the turn changed, also when it failed: the panel reloads the page it is on (BF-7).
+                'changes' => $agent->getTurnChanges(),
                 'timestamp' => time(),
                 'history_count' => count($agent->getChatHistory()->getMessages())
             ]);
@@ -233,6 +237,21 @@ class Chat extends AbstractController
         $referrerPath = PageContextResolver::referrerPath($_SERVER['HTTP_REFERER'] ?? null, $_SERVER['HTTP_HOST'] ?? null);
 
         return (new PageContextResolver())->fromBrowser($payload, $referrerPath);
+    }
+
+    /**
+     * The block IDs the panel reports an editor open on (BF-7). Untrusted: only positive integers are kept, at most 50.
+     * They can only make the tools refuse more.
+     *
+     * @return list<int>
+     */
+    private function extractOpenBlockIDs($data): array
+    {
+        $ids = is_array($data) && isset($data['openBlockIDs']) && is_array($data['openBlockIDs']) ? $data['openBlockIDs'] : [];
+        $ids = array_filter($ids, static fn ($id): bool => is_int($id) || (is_string($id) && ctype_digit($id)));
+        $ids = array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0);
+
+        return array_slice(array_values(array_unique($ids)), 0, 50);
     }
 
     private function updateChatLocationFromContext(array $pageContext): void

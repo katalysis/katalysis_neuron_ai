@@ -146,6 +146,20 @@
     border-radius: 4px;
 }
 
+/* BF-7: a notice about the page (reloading, or "save or cancel your edit"), under the conversation. */
+.neuron-chat-page-notice {
+    margin: 8px 0;
+    color: #0c4a6e;
+    background: #e0f2fe;
+    border-left-color: #0284c7;
+}
+
+.neuron-chat-page-notice .neuron-chat-reload {
+    margin-left: 4px;
+    padding: 1px 8px;
+    font-size: 12px;
+}
+
 .neuron-chat-content ul {
     margin: 10px 0;
     padding-left: 20px;

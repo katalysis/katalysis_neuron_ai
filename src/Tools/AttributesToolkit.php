@@ -17,6 +17,8 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Tools\Utilities\PageByName;
+use Katalysis\NeuronAi\Tools\Utilities\DraftState;
+use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
@@ -526,6 +528,7 @@ class AttributesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
 
             // Check permissions
             $checker = new \Concrete\Core\Permission\Checker($page);
@@ -636,7 +639,7 @@ class AttributesToolkit extends AbstractToolkit
                     'type' => $type ? $type->getAttributeTypeHandle() : 'unknown',
                     'valueSet' => $setValueDisplay,
                 ],
-            ];
+            ] + DraftState::of($pageToModify);
         }));
 
         return $tool;

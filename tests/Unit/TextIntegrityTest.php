@@ -198,4 +198,112 @@ final class TextIntegrityTest extends TestCase
         $this->assertSame('', $cleared['value']['title']);
         $this->assertSame([], $cleared['keptFields']);
     }
+
+    // ---- BF-7, Glyn's browser check 6: escaped JSON copied back into a write ------------------------------------
+
+    /** The block as the hand edit in edit mode stored it: real CR LF line breaks between the elements. */
+    private const STORED_CRLF = "<h2>Seed Heading Two Changed</h2>\r\n\r\n<p>This paragraph sits under the h2 heading.</p>\r\n\r\n"
+        . "<h3>Seed Heading Three A</h3>\r\n\r\n<p>Text under the first h3 heading.</p>\r\n\r\n"
+        . "<h3>Seed Heading Three B</h3>\r\n\r\n<p>Text under the second h3 heading.</p>\r\n";
+
+    /** What the model wrote back (chat 3995): the JSON-encoded read copied as text, so "<\/h2>" and "\r\n" are literal. */
+    private const CORRUPT = '<h2>Seed Heading Two Changed Again!<\/h2>\r\n\r\n<p>This paragraph sits under the h2 heading.<\/p>\r\n\r\n'
+        . '<h3>Seed Heading Three A<\/h3>\r\n\r\n<p>Text under the first h3 heading.<\/p>\r\n\r\n'
+        . '<h3>Seed Heading Three B<\/h3>\r\n\r\n<p>Text under the second h3 heading.<\/p>';
+
+    public function testTheBrowserCheck6CorruptionIsRefused(): void
+    {
+        $result = TextIntegrity::evaluate(['content' => self::STORED_CRLF], ['content' => self::CORRUPT], 'scoped_text', ['content'], ['Seed Heading Two Changed']);
+
+        $this->assertFalse($result['ok'], 'the corrupted value passed the text check');
+        $this->assertStringContainsString("Field 'content' contains JSON escape sequences", $result['message']);
+        $this->assertStringContainsString('<\/', $result['message']);
+        $this->assertStringContainsString('\r\n', $result['message']);
+        $this->assertStringContainsString('Nothing was changed', $result['message']);
+    }
+
+    public function testTheSameEditWrittenAsHtmlPasses(): void
+    {
+        $fixed = str_replace('Seed Heading Two Changed', 'Seed Heading Two Changed Again!', self::STORED_CRLF);
+
+        $result = TextIntegrity::evaluate(['content' => self::STORED_CRLF], ['content' => $fixed], 'scoped_text', ['content'], ['Seed Heading Two Changed']);
+
+        $this->assertTrue($result['ok'], $result['message']);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function escapeProvider(): array
+    {
+        return [
+            'escaped slash' => ['<p>Text under the first h3 heading.<\/p>'],
+            'CR LF' => ['<p>Text under the first h3 heading.</p>\r\n'],
+            'LF' => ['<p>Text under the first h3 heading.</p>\n'],
+            'escaped quote' => ['<p>Text under the first h3 heading. <a href=\"/x\">x</a></p>'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('escapeProvider')]
+    public function testEachEscapeSequenceIsRefusedInEveryMode(string $added): void
+    {
+        foreach (['keep_text', 'formatting_only', 'scoped_text'] as $mode) {
+            $after = $mode === 'formatting_only' ? str_replace('<p>Text under the first h3 heading.</p>', $added, self::SEED) : self::SEED . $added;
+            $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], $mode, $mode === 'scoped_text' ? ['content'] : null);
+
+            $this->assertFalse($result['ok'], "{$mode} let an escape sequence through: {$added}");
+            $this->assertStringContainsString('JSON escape sequences', $result['message']);
+        }
+    }
+
+    public function testAnEscapeSequenceTheStoredTextAlreadyHasIsAllowed(): void
+    {
+        $before = '<p>Type C:\new\folder to open it.</p>';
+
+        $result = TextIntegrity::evaluate(['content' => $before], ['content' => '<h2>Type C:\new\folder to open it.</h2>'], 'keep_text');
+
+        $this->assertTrue($result['ok'], $result['message']);
+    }
+
+    public function testHtmlThatIsNoLongerWellFormedIsRefused(): void
+    {
+        $after = str_replace('</h2>', '', self::SEED);
+
+        $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'keep_text');
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString("Field 'content': the new HTML is not well-formed", $result['message']);
+        $this->assertStringContainsString('<h2>', $result['message']);
+    }
+
+    public function testAWellFormedFixOfCorruptedStoredHtmlIsAllowed(): void
+    {
+        // Rewriting the whole corrupted block: every stored piece is named as replaced.
+        $result = TextIntegrity::evaluate(['content' => self::CORRUPT], ['content' => self::SEED], 'scoped_text', ['content'], [TextIntegrity::normalize(self::CORRUPT)]);
+
+        $this->assertTrue($result['ok'], $result['message']);
+    }
+
+    public function testKeepTextRefusesARemovedElementButAllowsARenamedOrAddedOne(): void
+    {
+        $withLink = '<p>Read <a href="/x">the guide</a> first.</p>';
+
+        $unlinked = TextIntegrity::evaluate(['content' => $withLink], ['content' => '<p>Read the guide first.</p>'], 'keep_text');
+        $this->assertFalse($unlinked['ok'], 'keep_text dropped a link');
+        $this->assertStringContainsString('tag structure changed', $unlinked['message']);
+        $this->assertStringContainsString('<a>', $unlinked['message']);
+
+        $merged = TextIntegrity::evaluate(['content' => '<p>A.</p><p>B.</p>'], ['content' => '<p>A. B.</p>'], 'keep_text');
+        $this->assertFalse($merged['ok'], 'keep_text merged two paragraphs');
+
+        $this->assertTrue(TextIntegrity::evaluate(['content' => $withLink], ['content' => '<h2>Read <a href="/x">the guide</a> first.</h2>'], 'keep_text')['ok']);
+        $this->assertTrue(TextIntegrity::evaluate(['content' => $withLink], ['content' => $withLink . '<p>New.</p>'], 'keep_text')['ok']);
+    }
+
+    public function testANewValueIsCheckedOnItsOwn(): void
+    {
+        $this->assertNull(TextIntegrity::checkNewValue(['content' => '<h1>A further New Page Test</h1>']));
+        $this->assertStringContainsString('JSON escape sequences', (string) TextIntegrity::checkNewValue(['content' => '<h1>A<\/h1>']));
+        $this->assertStringContainsString('not well-formed', (string) TextIntegrity::checkNewValue(['content' => '<h1>A<p>B</p>']));
+    }
 }

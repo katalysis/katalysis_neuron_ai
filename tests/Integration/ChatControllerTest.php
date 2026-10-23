@@ -18,6 +18,7 @@ use Katalysis\NeuronAi\PageContextTag;
 use Katalysis\NeuronAi\Security\InjectionNotice;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use NeuronAI\Chat\History\HistoryTrimmer;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
@@ -51,6 +52,9 @@ final class ChatControllerTest extends ConcreteTestCase
     private const POST_ACTIONS = ['send_message', 'new_chat', 'delete_chat', 'delete_current_chat'];
     private const GET_ACTIONS = ['chat_list', 'load', 'current'];
 
+    /** Throwaway pages for the BF-7 cases, deleted in tearDown(). */
+    private ?ThrowawayPages $pages = null;
+
     public static function setUpBeforeClass(): void
     {
         parent::setUpBeforeClass();
@@ -75,6 +79,8 @@ final class ChatControllerTest extends ConcreteTestCase
 
     protected function tearDown(): void
     {
+        $this->pages?->restore();
+        $this->pages = null;
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_destroy();
         }
@@ -616,5 +622,117 @@ final class ChatControllerTest extends ConcreteTestCase
         [$status] = $this->call($this->controller(), 'delete_chat', ['id' => $adminChat]);
         $this->assertSame(404, $status);
         $this->assertSame(1, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM KatalysisNeuronAiChats WHERE id = ?', [$adminChat]), "the admin's chat is still there");
+    }
+
+    // ---- BF-7: the pages a turn changed, and blocks open in the user's editor --------------------------------------
+
+    public function testATurnWithNoWritesReportsNoChanges(): void
+    {
+        $this->actAs('superuser');
+
+        $body = $this->send($this->controller(new FakeAIProvider(new AssistantMessage('Hello.'))), 'Hello.');
+
+        $this->assertSame([], $body['changes']);
+    }
+
+    /**
+     * A formatting-only edit of the block on the throwaway page, as the model would call it.
+     */
+    private function editBlockCall(int $cID, int $bID): ToolCallMessage
+    {
+        $html = trim((string) $this->db()->fetchOne('SELECT content FROM btContentLocal WHERE bID = ?', [$bID]));
+
+        return new ToolCallMessage(null, [new ToolCall('update_block_in_page_area', 'call_' . bin2hex(random_bytes(3)), [
+            'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
+            'value' => ['content' => (string) preg_replace('/^<p>(.*)<\/p>$/s', '<h2>$1</h2>', $html)],
+            'changeMode' => 'formatting_only',
+        ])]);
+    }
+
+    public function testATurnThatChangesThePageReportsItSoThePanelCanReload(): void
+    {
+        $this->pages = new ThrowawayPages($this->db());
+        $page = $this->pages->create('Controller changes');
+        $cID = (int) $page->getCollectionID();
+        [$b1] = $this->pages->blockIDs($cID);
+        $this->actAs('superuser');
+
+        $body = $this->send(
+            $this->controller(new FakeAIProvider($this->editBlockCall($cID, $b1), new AssistantMessage('Done.'))),
+            'Make it a heading.',
+            (string) $page->getCollectionPath()
+        );
+
+        $this->assertSame('Done.', $body['response']);
+        $this->assertCount(1, $body['changes']);
+        $this->assertSame($cID, $body['changes'][0]['pageID']);
+        $this->assertSame(['update_block_in_page_area'], $body['changes'][0]['tools']);
+    }
+
+    public function testAFailedTurnStillReportsTheChangeItMadeBeforeFailing(): void
+    {
+        $this->pages = new ThrowawayPages($this->db());
+        $page = $this->pages->create('Controller changes, failed');
+        $cID = (int) $page->getCollectionID();
+        [$b1] = $this->pages->blockIDs($cID);
+        $this->actAs('superuser');
+        $provider = new class ($this->editBlockCall($cID, $b1)) extends FakeAIProvider {
+            public function chat(Message ...$messages): ProviderResponse
+            {
+                if ($this->getCallCount() >= 1) {
+                    throw new \RuntimeException('The provider went away.');
+                }
+
+                return parent::chat(...$messages);
+            }
+        };
+
+        $body = $this->send($this->controller($provider), 'Make it a heading.', (string) $page->getCollectionPath());
+
+        $this->assertSame(self::ERROR_REPLY, $body['response']);
+        $this->assertSame($cID, $body['changes'][0]['pageID'] ?? null);
+    }
+
+    public function testABlockOpenInTheUsersEditorIsNotChanged(): void
+    {
+        $this->pages = new ThrowawayPages($this->db());
+        $page = $this->pages->create('Controller open editor');
+        $cID = (int) $page->getCollectionID();
+        [$b1] = $this->pages->blockIDs($cID);
+        $before = $this->pages->state($cID);
+        $this->actAs('superuser');
+        $provider = new FakeAIProvider($this->editBlockCall($cID, $b1), new AssistantMessage('It is open in your editor.'));
+
+        [$status, $body, $raw] = $this->call($this->controller($provider), 'send_message', [
+            'message' => 'Make it a heading.',
+            'pageContext' => self::pageContext((string) $page->getCollectionPath()),
+            'openBlockIDs' => [$b1, 'not a number', -4],
+        ]);
+
+        $this->assertSame(200, $status, $raw);
+        $this->assertSame([], $body['changes']);
+        $this->assertSame($before, $this->pages->state($cID), 'the block open in the editor is unchanged, and no draft was made');
+        $toolResults = (string) $this->db()->fetchOne(
+            "SELECT GROUP_CONCAT(CONCAT(COALESCE(content, ''), COALESCE(meta, ''))) FROM KatalysisNeuronAiChatMessages WHERE chatId = ?",
+            [$this->currentChatId()]
+        );
+        $this->assertStringContainsString("is open in the user's editor", $toolResults);
+    }
+
+    public function testOpenBlockIDsApplyToThatRequestOnly(): void
+    {
+        $this->pages = new ThrowawayPages($this->db());
+        $page = $this->pages->create('Controller open editor, next request');
+        $cID = (int) $page->getCollectionID();
+        [$b1] = $this->pages->blockIDs($cID);
+        $this->actAs('superuser');
+        $path = (string) $page->getCollectionPath();
+        $this->call($this->controller(new FakeAIProvider(new AssistantMessage('Noted.'))), 'send_message', [
+            'message' => 'Hello.', 'pageContext' => self::pageContext($path), 'openBlockIDs' => [$b1],
+        ]);
+
+        $body = $this->send($this->controller(new FakeAIProvider($this->editBlockCall($cID, $b1), new AssistantMessage('Done.'))), 'Now change it.', $path);
+
+        $this->assertSame($cID, $body['changes'][0]['pageID'] ?? null, 'the editor was closed by the next message: the block may change');
     }
 }

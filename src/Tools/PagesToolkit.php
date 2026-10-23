@@ -29,7 +29,10 @@ use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
+use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
+use Katalysis\NeuronAi\Tools\Utilities\DraftState;
+use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
@@ -649,8 +652,10 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found. The page may not exist or may have been deleted.");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
             foreach ($updates as $update) {
                 SystemPageGuard::refuseGlobalArea($page, (string) $update['areaHandle']);
+                EditModeGuard::refuseOpenBlock($page, (int) $update['blockID']);
             }
 
             $permissions = new Checker($page);
@@ -661,6 +666,10 @@ class PagesToolkit extends AbstractToolkit
             // Blocks in container or area layout columns can't be remapped between versions (the remap
             // only sees top-level areas). Refuse them now, before any draft exists, so nothing is left behind.
             $this->refuseBlocksInSubAreas($page, $updates);
+            // A block the newest version doesn't hold gets the reason and the ID to use, before any draft (BF-7).
+            foreach ($updates as $update) {
+                BlockNotFound::refuseUnlessInNewestVersion($page, (string) $update['areaHandle'], (int) $update['blockID']);
+            }
 
             // Capture block layout BEFORE creating new version
             try {
@@ -797,17 +806,19 @@ class PagesToolkit extends AbstractToolkit
                     'continueOnError' => (bool) $continueOnError,
                 ],
                 'blocks' => $blockResults,
-                'note' => 'Page version was not auto-approved. Approve it manually if needed.',
                 'safety' => [
                     'textPolicy' => $mode,
                     'checksumAlgorithm' => 'sha1(normalizedText)',
                 ],
             ];
-            
+
             if ($failureCount > 0) {
                 $result['warning'] = "{$failureCount} block update(s) failed. See blocks array for details.";
             }
-            
+            if ($successCount > 0) {
+                $result += DraftState::of($pageToModify);
+            }
+
             return $result;
         }));
 
@@ -994,6 +1005,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
 
             $permissions = new Checker($page);
             if (!$permissions->canEditPageContents()) {
@@ -1133,6 +1145,10 @@ class PagesToolkit extends AbstractToolkit
                         throw new \RuntimeException("text integrity check failed for '{$headingText}' (body text changed)");
                     }
 
+                    // Never change a block under the user's open editor (BF-7): reported with the failures.
+                    EditModeGuard::refuseOpenBlock($pageToModify, (int) $blockID);
+                    $oldBlockID = (int) $blockID;
+
                     // Copy the block into the draft before changing it (see getBlockToEdit), so the live
                     // version keeps its text. The copy has a new block ID.
                     $editBlock = $this->getBlockToEdit($pageToModify, $area, $areaHandle, (int) $blockID);
@@ -1147,6 +1163,7 @@ class PagesToolkit extends AbstractToolkit
 
                     $updated[] = [
                         'blockID' => (int) $blockID,
+                        'oldBlockID' => $oldBlockID,
                         'areaHandle' => $areaHandle,
                         'headingText' => $headingText,
                         'targetTag' => $targetTag,
@@ -1191,7 +1208,7 @@ class PagesToolkit extends AbstractToolkit
                     'checksumAlgorithm' => 'sha1(normalizedText)',
                     'note' => 'Updates are skipped if normalized text content changes.',
                 ],
-            ];
+            ] + ($updated !== [] ? DraftState::of($pageToModify) : []);
         }));
 
         return $tool;
@@ -1289,6 +1306,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
 
             $permissions = new Checker($page);
             if (!$permissions->canEditPageContents()) {
@@ -1762,7 +1780,7 @@ class PagesToolkit extends AbstractToolkit
                 }
             }
             
-            return $this->serializePage($page) + [
+            return $this->serializePage($page) + DraftState::ofNewPage($page) + [
                 'published' => false,
                 'note' => 'The page is unpublished: visitors cannot see it. A person publishes it from Page Versions in the CMS;'
                     . ' this assistant cannot publish.',
@@ -1926,6 +1944,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
             
             // Check permissions
             $checker = new Checker($page);
@@ -1989,7 +2008,7 @@ class PagesToolkit extends AbstractToolkit
                 }
             }
             
-            return $this->serializePage($pageToModify);
+            return $this->serializePage($pageToModify) + DraftState::of($pageToModify);
         }));
 
         return $tool;
@@ -2029,6 +2048,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
             
             $newParent = Page::getByID($newParentID);
             if (!$newParent || $newParent->isError()) {
@@ -2077,6 +2097,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
 
             if ($page->isInTrash()) {
                 throw new \RuntimeException('This page is pending deletion.');
@@ -2239,6 +2260,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
 
             $bt = BlockType::getByHandle($blockType);
@@ -2247,6 +2269,11 @@ class PagesToolkit extends AbstractToolkit
             }
 
             $normalizedValue = $this->normalizeCustomBlockPayload((string) $blockType, $value ?? []);
+            // No escaped or broken HTML in a new block either (BF-7, browser check 6).
+            $valueProblem = TextIntegrity::checkNewValue($normalizedValue);
+            if ($valueProblem !== null) {
+                throw new \RuntimeException($valueProblem);
+            }
 
             /** @var mixed $pageForArea */
             $pageForArea = $page;
@@ -2258,15 +2285,16 @@ class PagesToolkit extends AbstractToolkit
 
             // The command makes its own draft from the page it is given. Give it the draft, so a
             // second write in this request adds to the same draft (see PageDraft::of()).
+            $draft = $this->getDraftOf($page);
             $command = new AddBlockToPageCommand();
-            $command->setPage($this->getDraftOf($page));
+            $command->setPage($draft);
             $command->setArea($area);
             $command->setBlockType($bt);
             $command->setData($normalizedValue);
 
             $block = Application::getFacadeApplication()->executeCommand($command);
 
-            return $this->serializeBlock($block, true);
+            return $this->serializeBlock($block, true) + DraftState::of($draft);
         }));
 
         return $tool;
@@ -2346,7 +2374,9 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
+            EditModeGuard::refuseOpenBlock($page, $blockID);
 
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
@@ -2360,10 +2390,8 @@ class PagesToolkit extends AbstractToolkit
                 }
                 $fallbackBlock = Block::getByID($blockID, $page, $fallbackArea);
                 if (!$fallbackBlock) {
-                    if ($e instanceof AreaNotFoundException) {
-                        throw new \RuntimeException("Area '{$areaHandle}' not found on page {$pageID}");
-                    }
-                    throw new \RuntimeException("Block {$blockID} not found in area '{$areaHandle}' on page {$pageID}");
+                    // Where the block is instead, and the ID to use (BF-7, browser check 6).
+                    throw new \RuntimeException(BlockNotFound::explain($page, $areaHandle, $blockID));
                 }
                 $area = $fallbackArea;
                 $block = $fallbackBlock;
@@ -2421,7 +2449,7 @@ class PagesToolkit extends AbstractToolkit
                     'checksumsBefore' => TextIntegrity::checksums($beforeRecord, $textPolicy['watchedFields']),
                     'checksumsAfter' => TextIntegrity::checksums($afterRecord, $textPolicy['watchedFields']),
                 ],
-            ];
+            ] + DraftState::of($pageToModify);
         }));
 
         return $tool;
@@ -2728,12 +2756,14 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
+            EditModeGuard::refuseOpenBlock($page, $blockID);
 
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
             } catch (AreaNotFoundException|BlockNotFoundException $e) {
-                throw new \RuntimeException("Block {$blockID} not found in area '{$areaHandle}' on page {$pageID}");
+                throw new \RuntimeException(BlockNotFound::explain($page, $areaHandle, $blockID));
             }
 
             $checker = new Checker($block);
@@ -2768,7 +2798,7 @@ class PagesToolkit extends AbstractToolkit
                 'areaHandle' => $areaHandle,
                 'blockID' => $blockID,
                 'deleted' => true,
-            ];
+            ] + DraftState::of($pageToModify);
         }));
 
         return $tool;
@@ -2824,13 +2854,15 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page with ID {$pageID} not found");
             }
             SystemPageGuard::refuse($page);
+            EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $fromAreaHandle);
             SystemPageGuard::refuseGlobalArea($page, $toAreaHandle);
+            EditModeGuard::refuseOpenBlock($page, $blockID);
 
             try {
                 [, $block] = $this->getBlockToWorkWith($page, $fromAreaHandle, $blockID);
             } catch (AreaNotFoundException|BlockNotFoundException $e) {
-                throw new \RuntimeException("Block {$blockID} not found in area '{$fromAreaHandle}' on page {$pageID}");
+                throw new \RuntimeException(BlockNotFound::explain($page, $fromAreaHandle, $blockID));
             }
 
             $sourceChecker = new Checker($block);
@@ -2860,7 +2892,7 @@ class PagesToolkit extends AbstractToolkit
 
             $movedBlock = Block::getByID($editableBlock->getBlockID(), $pageToModify, $destinationArea);
 
-            return $this->serializeBlock($movedBlock ?: $editableBlock, true);
+            return $this->serializeBlock($movedBlock ?: $editableBlock, true) + DraftState::of($pageToModify);
         }));
 
         return $tool;
