@@ -43,7 +43,7 @@ final class ToolBaseline
      */
     public const DELIBERATE_CHANGES = [
         'PagesToolkit::update_block_in_page_area' => 'BF-5: changeMode, textFields and replacedText inputs; the description says existing text is kept',
-        'PagesToolkit::batch_update_page_content' => 'BF-5: changeMode keep_text by default, freeform removed; replacedText per block',
+        'PagesToolkit::batch_update_page_content' => 'BF-5: changeMode keep_text by default, freeform removed; replacedText per block; BF-3: changeMode per block, every item checked before saving, continueOnError described',
         'PagesToolkit::get_page' => 'BF-10: reads the newest version by default; version takes "newest" or "published"',
         'PagesToolkit::get_page_content' => 'BF-10: reads the newest version by default; version takes "newest" or "published"',
         'PagesToolkit::get_page_blocks' => 'BF-10: version takes "newest" (default) or "published"; the description no longer calls it a draft',
