@@ -62,6 +62,13 @@ class PagesToolkit extends AbstractToolkit
     }
     use ValidateBlockRequestTrait;
 
+    /**
+     * The block types whose write payloads get the EPRA row and field renaming (normalizeCustomBlockPayload()). Every
+     * other block's fields reach its controller as given (BF-8). EPRA knowledge in core, kept here only as an interim
+     * fix: P3.4 moves it to the EPRA package and P3.10's descriptors replace it.
+     */
+    private const EPRA_PAYLOAD_BLOCK_HANDLES = ['epra_resources_list'];
+
     public function guidelines(): ?string
     {
         return "Use these tools to manage pages in Concrete CMS. You can list, create, read and update pages. A page made with create_page is unpublished: a person publishes it from Page Versions. Moving and deleting pages are not available yet (they return with approvals), so say so instead of trying another tool. Always check permissions before modifying content.";
@@ -830,7 +837,7 @@ class PagesToolkit extends AbstractToolkit
         $beforeRecord = $this->getBlockTableRecord($dbTable, $blockID);
 
         $value = $this->normalizeCustomBlockPayload($block->getBlockTypeHandle(), (array) ($update['value'] ?? []));
-        if ($block->getBlockTypeHandle() === 'epra_resources_list' && !array_key_exists('slide', $value)) {
+        if (in_array($block->getBlockTypeHandle(), self::EPRA_PAYLOAD_BLOCK_HANDLES, true) && !array_key_exists('slide', $value)) {
             // Preserve existing repeatable rows for layout-only updates in batch mode.
             $value['slide'] = $this->loadEpraResourceEntries($blockID);
         }
@@ -2544,7 +2551,7 @@ class PagesToolkit extends AbstractToolkit
             }
 
             $body = $this->normalizeCustomBlockPayload($block->getBlockTypeHandle(), (array) ($value ?? []));
-            if ($block->getBlockTypeHandle() === 'epra_resources_list' && !array_key_exists('slide', $body)) {
+            if (in_array($block->getBlockTypeHandle(), self::EPRA_PAYLOAD_BLOCK_HANDLES, true) && !array_key_exists('slide', $body)) {
                 // Preserve existing repeatable rows for layout-only updates (e.g., gridStructure changes).
                 $body['slide'] = $this->loadEpraResourceEntries((int) $blockID);
             }
@@ -2598,7 +2605,7 @@ class PagesToolkit extends AbstractToolkit
 
     private function normalizeCustomBlockPayload(string $blockTypeHandle, array $payload): array
     {
-        if ($payload === []) {
+        if ($payload === [] || !in_array($blockTypeHandle, self::EPRA_PAYLOAD_BLOCK_HANDLES, true)) {
             return $payload;
         }
 
