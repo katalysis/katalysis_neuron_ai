@@ -97,7 +97,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - JS safety tests (BF-11): `node --test tests/js/*.test.mjs`, with Node 20+ on `PATH` (no npm packages). Both developers need Node: `/finish-task` stops without it. Manual check: `tests/js/manual/reply-rendering.html` (SETUP).
 - **Test tiers:**
   - **Fast**, after every change: `php tools/phpunit/vendor/bin/phpunit --exclude-group slow` (about 18 s) and `node --test tests/js/*.test.mjs` (under a second). The `slow` group is `SeedResetTest`. A new test class that takes more than about 2 s goes in it too (`#[Group('slow')]`), with a note in PROGRESS.
-  - **Full**, before every PR (in `/finish-task`): `php tools/phpunit/vendor/bin/phpunit` (about 35 s) and the JS safety tests.
+  - **Full**, before every PR (in `/finish-task`): `php tools/phpunit/vendor/bin/phpunit` (about 43 s) and the JS safety tests.
   - **Scenarios** cost money and call the AI. Run them only when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit. The plan names the scenarios and `--repeat`. They don't run on every merge.
 - **No test may call the AI provider or use an API key.** Only the scenario runner does that.
 - Tests that change shared fixtures restore the state they found. They never assume or force a fixed starting state.

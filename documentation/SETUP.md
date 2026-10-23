@@ -196,7 +196,7 @@ COMPOSER=composer.dev.json composer install
 
 # run the tests
 php tools/phpunit/vendor/bin/phpunit --exclude-group slow   # fast tier, after every change (about 18 s, 1,210 tests)
-php tools/phpunit/vendor/bin/phpunit                        # everything, before every PR (about 35 s)
+php tools/phpunit/vendor/bin/phpunit                        # everything, before every PR (about 43 s, 1,223 tests)
 php tools/phpunit/vendor/bin/phpunit --testsuite unit
 php tools/phpunit/vendor/bin/phpunit --testsuite integration
 ```
