@@ -7,6 +7,8 @@
       "Bash(php tools/phpunit/vendor/bin/phpunit *)",
       "Bash(php -l *)",
       "Bash(php -v)",
+      "Bash(node --test *)",
+      "Bash(node -v)",
       "Bash(ls)",
       "Bash(ls *)",
       "Bash(cat *)",

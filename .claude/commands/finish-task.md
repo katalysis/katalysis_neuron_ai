@@ -4,7 +4,7 @@ Run each command as its own Bash call: no `&&` or `;` chains, and no `cd` prefix
 
 The **base branch** is the one `/start-task` recorded: `git config branch.<branch>.description` ends `; base <base>`. If it is missing, take it from `DELIVERY_PLAN.md` as `/start-task` step 2 does (an integration branch named in the phase's Branching note, otherwise `development`).
 
-1. Run the full PHPUnit suite (`php tools/phpunit/vendor/bin/phpunit`). Run scenarios only if the task touches prompts, tools, the safety layers, the model or provider, or the Neuron version (CLAUDE.md, Test tiers), and only the ones the plan names. They are an `ask` because they cost money. Report the results honestly, failures included, against the last recorded baseline.
+1. Run the full PHPUnit suite (`php tools/phpunit/vendor/bin/phpunit`) and the JS safety tests (`node --test tests/js/*.test.mjs`, BF-11). If `node -v` fails, STOP: "Node is required for the JS safety tests" (SETUP, "Running the JS tests"). Don't open the PR without them. Run scenarios only if the task touches prompts, tools, the safety layers, the model or provider, or the Neuron version (CLAUDE.md, Test tiers), and only the ones the plan names. They are an `ask` because they cost money. Report the results honestly, failures included, against the last recorded baseline.
 2. Show `git diff --stat <base>...HEAD`. Confirm that nothing outside the approved plan (or, for a small task, outside its scope) changed, and that nothing was deleted without being in the plan.
 3. If the work had to differ from `DELIVERY_PLAN.md` or a design doc, say so clearly. Don't change the plan or design docs yourself; list the proposed change under "Plan changes proposed".
 4. Push the branch and open the PR, as two calls:

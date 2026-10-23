@@ -27,7 +27,7 @@ For working on this package (Glyn and Alex: macOS, Herd, the Claude Code VS Code
    { "env": { "NEURON_BACKUP_DIR": "~/Herd/backups" } }
    ```
    `NEURON_BACKUP_DIR` must be an existing directory outside the repo and the web root. Add `"NEURON_NOTIFY": "off"` to turn off the desktop notifications.
-5. Make sure `php` (8.2+), `git`, and for backups `mysqldump`, are on `PATH`. The hooks need only `php` and `git`.
+5. Make sure `php` (8.2+), `git`, **`node` (20+)**, and for backups `mysqldump`, are on `PATH`. The hooks need only `php` and `git`. Both developers need Node: the JS safety tests run in the fast tier and `/finish-task` stops without them (BF-11; "Running the JS tests" below).
 
 What you get: a guard on risky Bash commands (`.claude/hooks/guard-bash.php`), a notification when Claude is waiting for you or has finished (`.claude/hooks/notify.php`), and git hooks that refuse `vendor/` commits and pushes to `main` or `development`. `CLAUDE.md`, "Working agreement", describes what each one does and doesn't cover.
 
@@ -178,6 +178,23 @@ php tools/phpunit/vendor/bin/phpunit --testsuite integration
 - Test content comes from the seed script above (`neuron_editor`, `/neuron-test`).
 - Before Concrete boots, `ConcreteBoot` also refuses to run if the site's `database.php` points at a host that is not local (127.0.0.1, localhost, ::1 or a unix socket).
 - **`katalysis_pro` must match this package** (P2.8). `katalysis_pro` is a separate git clone in `httpdocs/packages/katalysis_pro`. On Neuron 4 (`development` since P2.9, PR #47), it needs its `ToolDefinition` version, which is on `themeintegrationtemplates` since katalysis/katalysis_pro#42. On Neuron 3 (`main` of this package, until a release takes `development` there), it needs `katalysis_pro`'s older toolkit, from before #42. A mismatched pair fails safe on the site: there's no error page, the `katalysis_pro` tools just aren't offered, and on Neuron 4 the settings page shows the skip. In the tests, it fails: `KatalysisProToolsTest`, `PromptBaselineTest` and the `katalysis_pro` cases of `ToolRegistryTest` and `ToolResultScanningTest` name the reason.
+
+## Running the JS tests
+
+The chat panel's reply formatter (`js/chat-format.js`) has tests that keep model output from becoming live HTML in the panel (BF-11). They use Node's built-in test runner: Node 20 or later, no `npm install`, no `package.json`, and no dev site. Run them after every change, with the fast tier, and before every PR. `/finish-task` stops if Node is missing ("Node is required for the JS safety tests").
+
+```bash
+node -v                              # 20 or later
+node --test tests/js/*.test.mjs      # under a second
+```
+
+**Manual check:** `tests/js/manual/reply-rendering.html` loads the real `chat-format.js` and `chat-panel.js` with a fake server and harmless payloads (an `<img onerror>`, `javascript:` and `data:` links, a quote break-out, a form, an iframe, a script tag, image markdown, a chat-list title and ID, a list error). Nothing talks to the site. Open it in a browser, or run it headless and read the report at the end, where every line should say `ok` and "ran: nothing":
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
+  --user-data-dir="$(mktemp -d)" --virtual-time-budget=5000 \
+  --dump-dom "file://$PWD/tests/js/manual/reply-rendering.html" 2>/dev/null | grep -A 20 'id="report"'
+```
 
 ## Running the scenario runner (dev site only, costs money)
 
