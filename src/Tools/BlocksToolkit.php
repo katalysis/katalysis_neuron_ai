@@ -13,6 +13,8 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
+use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -77,16 +79,16 @@ class BlocksToolkit extends AbstractToolkit
         ));
 
         $tool->addProperty(new ToolProperty(
-            'includeInactive',
-            PropertyType::BOOLEAN,
-            'Include draft/pending version placements (default: true)',
+            'version',
+            PropertyType::STRING,
+            PageVersionRead::DESCRIPTION,
             false
         ));
 
         $tool->setHandler(function (
             ?int $pageID = null,
             ?string $blockTypeHandle = null,
-            ?bool $includeInactive = true
+            ?string $version = null
         ): string {
             if (!$pageID || !$blockTypeHandle) {
                 return "❌ Error: pageID and blockTypeHandle are required";
@@ -96,10 +98,8 @@ class BlocksToolkit extends AbstractToolkit
             $db = $app->make('database')->connection();
 
             try {
-                $page = Page::getByID($pageID, 'ACTIVE');
-                if (!$page || $page->isError()) {
-                    return "❌ Error: Page {$pageID} not found";
-                }
+                // BF-10: one version of the page, the newest by default, as editors see it.
+                [$page, $versionInfo] = PageVersionRead::load((int) $pageID, $version);
 
                 $resolution = $this->resolveBlockTypeHandle((string) $blockTypeHandle, $db);
                 $bt = $resolution['blockType'];
@@ -130,52 +130,26 @@ class BlocksToolkit extends AbstractToolkit
                     ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
                     ->leftJoin('cvb', 'PagePaths', 'pp', 'cvb.cID = pp.cID AND pp.ppIsCanonical = 1')
                     ->where('cvb.cID = :cID')
+                    ->andWhere('cvb.cvID = :cvID')
                     ->andWhere('b.btID = :btID')
                     ->setParameter('cID', $pageID)
+                    ->setParameter('cvID', (int) $page->getVersionID())
                     ->setParameter('btID', $bt->getBlockTypeID())
-                    ->orderBy('b.bID', 'ASC')
-                    ->addOrderBy('cvb.cvID', 'DESC');
-
-                if (!$includeInactive) {
-                    $qb->andWhere('cv.cvIsApproved = 1');
-                }
+                    ->orderBy('b.bID', 'ASC');
 
                 $rows = $qb->execute()->fetchAllAssociative();
                 if (empty($rows)) {
-                    return "No '{$bt->getBlockTypeHandle()}' blocks found on page {$pageID}.";
+                    return "No '{$bt->getBlockTypeHandle()}' blocks found on page {$pageID}. {$versionInfo['summary']}";
                 }
 
-                // Keep one placement per block, preferring approved version first, then newest cvID.
                 $byBlock = [];
                 foreach ($rows as $row) {
-                    $bID = (int) ($row['bID'] ?? 0);
-                    if ($bID <= 0) {
-                        continue;
-                    }
-
-                    if (!isset($byBlock[$bID])) {
-                        $byBlock[$bID] = $row;
-                        continue;
-                    }
-
-                    $current = $byBlock[$bID];
-                    $currentApproved = (int) ($current['cvIsApproved'] ?? 0) === 1;
-                    $candidateApproved = (int) ($row['cvIsApproved'] ?? 0) === 1;
-
-                    if ($candidateApproved && !$currentApproved) {
-                        $byBlock[$bID] = $row;
-                        continue;
-                    }
-
-                    if ($candidateApproved === $currentApproved && (int) ($row['cvID'] ?? 0) > (int) ($current['cvID'] ?? 0)) {
-                        $byBlock[$bID] = $row;
-                    }
+                    $byBlock[(int) $row['bID']] = $row;
                 }
-
-                ksort($byBlock);
 
                 $pagePath = $page->getCollectionPath();
                 $output = "📄 **Page {$pageID} ({$pagePath})**\n";
+                $output .= "**Version:** {$versionInfo['summary']}\n";
                 $output .= "🔍 Found **" . count($byBlock) . "** distinct `{$bt->getBlockTypeHandle()}` block(s).\n\n";
                 if (($resolution['resolvedFrom'] ?? null) && $resolution['resolvedFrom'] !== $bt->getBlockTypeHandle()) {
                     $output .= "ℹ️ Resolved requested handle `{$resolution['resolvedFrom']}` to installed handle `{$bt->getBlockTypeHandle()}`.\n\n";
@@ -231,19 +205,24 @@ class BlocksToolkit extends AbstractToolkit
         ));
 
         $tool->addProperty(new ToolProperty(
-            'includeInactive',
-            PropertyType::BOOLEAN,
-            'Include blocks from inactive/draft pages (default: false)',
+            'version',
+            PropertyType::STRING,
+            PageVersionRead::SITE_DESCRIPTION,
             false
         ));
 
         $tool->setHandler(function (
             ?string $blockTypeHandle = null,
             ?int $limit = 100,
-            ?bool $includeInactive = false
+            ?string $version = null
         ): string {
             if (!$blockTypeHandle) {
                 return "❌ Error: blockTypeHandle is required";
+            }
+            try {
+                $published = PageVersionRead::normalize($version) === PageVersionRead::PUBLISHED;
+            } catch (\RuntimeException $e) {
+                return '❌ Error: ' . $e->getMessage();
             }
 
             $app = Application::getFacadeApplication();
@@ -264,8 +243,6 @@ class BlocksToolkit extends AbstractToolkit
             }
 
             try {
-                $usedInactiveFallback = false;
-
                 // Use Doctrine QueryBuilder (Concrete CMS's preferred database abstraction)
                 $qb = $db->createQueryBuilder();
                 
@@ -290,10 +267,10 @@ class BlocksToolkit extends AbstractToolkit
                     ->setParameter('btID', $bt->getBlockTypeID())
                     ->orderBy('b.bDateModified', 'DESC');
 
-                // Filter by active/approved versions if requested
-                if (!$includeInactive) {
-                    $qb->andWhere('cv.cvIsApproved = 1');
-                }
+                // BF-10: one version per page, the newest by default (what editors see and the write tools change).
+                $qb->andWhere($published
+                    ? 'cv.cvIsApproved = 1'
+                    : 'cvb.cvID = (SELECT MAX(cvn.cvID) FROM CollectionVersions cvn WHERE cvn.cID = cvb.cID)');
                 
                 if ($limit) {
                     $qb->setMaxResults(min($limit, 500)); // Cap at 500 for safety
@@ -302,51 +279,12 @@ class BlocksToolkit extends AbstractToolkit
                 $results = $qb->execute()->fetchAll();
 
                 if (empty($results)) {
-                    if (!$includeInactive) {
-                        // Automatic fallback: sometimes only draft/pending versions contain the target blocks.
-                        $fallbackQb = $db->createQueryBuilder();
-                        $fallbackQb->select(
-                                'b.bID',
-                                'b.btID',
-                                'cvb.cID',
-                                'cvb.cvID',
-                                'cvb.arHandle',
-                                'cv.cvName as pageName',
-                                'cv.cvHandle as pageHandle',
-                                'pp.cPath as pagePath',
-                                'cv.cvIsApproved',
-                                'b.bDateModified'
-                            )
-                            ->from('Blocks', 'b')
-                            ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
-                            ->innerJoin('cvb', 'Pages', 'p', 'cvb.cID = p.cID')
-                            ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
-                            ->leftJoin('p', 'PagePaths', 'pp', 'p.cID = pp.cID AND pp.ppIsCanonical = 1')
-                            ->where('b.btID = :btID')
-                            ->setParameter('btID', $bt->getBlockTypeID())
-                            ->orderBy('b.bDateModified', 'DESC');
-
-                        if ($limit) {
-                            $fallbackQb->setMaxResults(min($limit, 500));
-                        }
-
-                        $fallbackResults = $fallbackQb->execute()->fetchAll();
-                        if (!empty($fallbackResults)) {
-                            $results = $fallbackResults;
-                            $usedInactiveFallback = true;
-                        }
-                    }
-
-                    if (empty($results)) {
-                        return "No instances of '{$bt->getBlockTypeHandle()}' found.";
-                    }
+                    return "No instances of '{$bt->getBlockTypeHandle()}' found in the " . ($published ? 'published' : 'newest') . ' version of any page.';
                 }
 
                 $count = count($results);
-                $output = "🔍 **Found {$count} instance(s) of '{$bt->getBlockTypeHandle()}' block:**\n\n";
-                if ($usedInactiveFallback) {
-                    $output .= "ℹ️ No approved-version matches were found. Showing draft/pending placement(s) from non-approved versions.\n\n";
-                }
+                $output = "🔍 **Found {$count} instance(s) of '{$bt->getBlockTypeHandle()}' block** in the "
+                    . ($published ? 'published version' : 'newest version') . " of each page:\n\n";
                 if (($resolution['resolvedFrom'] ?? null) && $resolution['resolvedFrom'] !== $bt->getBlockTypeHandle()) {
                     $output .= "ℹ️ Resolved requested handle `{$resolution['resolvedFrom']}` to installed handle `{$bt->getBlockTypeHandle()}`.\n\n";
                 }
@@ -380,8 +318,7 @@ class BlocksToolkit extends AbstractToolkit
 
                 $output .= "\n💡 **Next steps:**\n";
                 $output .= "- Use `get_block_data(blockID)` to inspect field values\n";
-                $output .= "- Blocks shown with ✅ are on active/published versions\n";
-                $output .= "- Blocks with 📝 are on draft/pending versions\n";
+                $output .= "- ✅ published version, 📝 newer unpublished version (what editors see and the write tools change)\n";
 
                 return $output;
             } catch (\Exception $e) {
@@ -416,7 +353,7 @@ class BlocksToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'versionID',
             PropertyType::INTEGER,
-            'Specific version ID (optional, defaults to active version)',
+            'Optional page version ID (cvID). By default the block is looked up in the page\'s newest version, and the result says whether it is in it.',
             false
         ));
 
@@ -433,13 +370,16 @@ class BlocksToolkit extends AbstractToolkit
                 // Get the block instance
                 $c = null;
                 if ($pageID) {
-                    $page = Page::getByID($pageID, $versionID ? (string)$versionID : 'ACTIVE');
+                    $page = Page::getByID($pageID, $versionID ? (string)$versionID : 'RECENT');
                     if ($page && !$page->isError()) {
                         $c = $page;
                     }
                 }
 
-                $block = Block::getByID($blockID, $c);
+                // Block::getByID() with a page and no area matches only an empty area handle, so a lookup with pageID
+                // always failed before BF-10: the area comes from the block's placement. An ID the newest version no
+                // longer holds is still read, from its newest placement, and the version note below says so.
+                $block = $c ? $this->blockOnPage((int) $blockID, $c, !$versionID) : Block::getByID($blockID);
                 
                 if (!$block) {
                     return "❌ Error: Block {$blockID} not found";
@@ -465,6 +405,12 @@ class BlocksToolkit extends AbstractToolkit
                 
                 if ($block->getAreaHandle()) {
                     $output .= "**Area:** {$block->getAreaHandle()}\n";
+                }
+
+                // BF-10: whether this ID is in the newest version, the one the write tools change.
+                $versionNote = BlockNotFound::readNote((int) ($pageID ?: $block->getBlockCollectionID()), (int) $blockID);
+                if ($versionNote !== null) {
+                    $output .= "**Version:** {$versionNote}\n";
                 }
 
                 $output .= "\n**Field Data:**\n\n";
@@ -692,7 +638,11 @@ class BlocksToolkit extends AbstractToolkit
                 $output .= "**Type:** {$bt->getBlockTypeName()} (`{$bt->getBlockTypeHandle()}`)\n";
                 $output .= "**Page:** [{$page->getCollectionPath()}]({$page->getCollectionPath()})\n";
                 $output .= "**Area:** " . ($resolvedAreaHandle !== '' ? $resolvedAreaHandle : '(unknown)') . "\n";
-                if ($resolvedVersionID > 0) {
+                // BF-10: whether this ID is in the newest version, the one the write tools change.
+                $versionNote = BlockNotFound::readNote((int) $page->getCollectionID(), (int) $blockID);
+                if ($versionNote !== null) {
+                    $output .= "**Version:** {$versionNote}\n";
+                } elseif ($resolvedVersionID > 0) {
                     $output .= "**Version:** v{$resolvedVersionID}\n";
                 }
 
@@ -776,6 +726,30 @@ class BlocksToolkit extends AbstractToolkit
     }
 
     /**
+     * The block in the area it has in $page's version; with $anyVersion, else from its newest placement on the page.
+     */
+    private function blockOnPage(int $blockID, Page $page, bool $anyVersion): ?Block
+    {
+        $db = Application::getFacadeApplication()->make('database')->connection();
+        $cID = (int) $page->getCollectionID();
+        $rows = $db->fetchAllAssociative(
+            'SELECT cvID, arHandle FROM CollectionVersionBlocks WHERE cID = ? AND bID = ? ORDER BY cvID DESC',
+            [$cID, $blockID]
+        );
+        foreach ($rows as $row) {
+            if ((int) $row['cvID'] === (int) $page->getVersionID()) {
+                return Block::getByID($blockID, $page, (string) $row['arHandle']) ?: null;
+            }
+        }
+        if (!$anyVersion || $rows === []) {
+            return null;
+        }
+        $older = Page::getByID($cID, (string) $rows[0]['cvID']);
+
+        return ($older && !$older->isError()) ? (Block::getByID($blockID, $older, (string) $rows[0]['arHandle']) ?: null) : null;
+    }
+
+    /**
      * Return known block placements from CollectionVersionBlocks, optionally scoped to a page.
      *
      * @return array<int, array<string, mixed>>
@@ -800,8 +774,8 @@ class BlocksToolkit extends AbstractToolkit
                 ->leftJoin('cvb', 'PagePaths', 'pp', 'cvb.cID = pp.cID AND pp.ppIsCanonical = 1')
                 ->where('cvb.bID = :bID')
                 ->setParameter('bID', $blockID)
-                ->orderBy('cv.cvIsApproved', 'DESC')
-                ->addOrderBy('cvb.cvID', 'DESC');
+                // BF-10: the newest version first.
+                ->orderBy('cvb.cvID', 'DESC');
 
             if ($pageID && $pageID > 0) {
                 $qb->andWhere('cvb.cID = :cID')
@@ -962,7 +936,7 @@ class BlocksToolkit extends AbstractToolkit
             $cvID = $candidate['cvID'] ?? null;
             $area = trim((string) ($candidate['areaHandle'] ?? ''));
 
-            $page = $cvID ? Page::getByID($pageID, (string) $cvID) : Page::getByID($pageID, 'ACTIVE');
+            $page = $cvID ? Page::getByID($pageID, (string) $cvID) : Page::getByID($pageID, 'RECENT');
             if (!$page || $page->isError()) {
                 continue;
             }
@@ -1710,15 +1684,20 @@ class BlocksToolkit extends AbstractToolkit
         ));
 
         $tool->addProperty(new ToolProperty(
-            'includeInactive',
-            PropertyType::BOOLEAN,
-            'Include blocks from inactive/draft versions (default: false)',
+            'version',
+            PropertyType::STRING,
+            PageVersionRead::DESCRIPTION,
             false
         ));
 
-        $tool->setHandler(function (?int $containerBlockID = null, ?bool $includeInactive = false): string {
+        $tool->setHandler(function (?int $containerBlockID = null, ?string $version = null): string {
             if (!$containerBlockID) {
                 return "❌ Error: containerBlockID is required";
+            }
+            try {
+                $published = PageVersionRead::normalize($version) === PageVersionRead::PUBLISHED;
+            } catch (\RuntimeException $e) {
+                return '❌ Error: ' . $e->getMessage();
             }
 
             $app = Application::getFacadeApplication();
@@ -1733,8 +1712,6 @@ class BlocksToolkit extends AbstractToolkit
                 if ($containerInstanceID <= 0) {
                     return "❌ Block {$containerBlockID} is not a container block (no btCoreContainer mapping found).";
                 }
-
-                $usedInactiveFallback = false;
 
                 // Use Doctrine QueryBuilder to find all blocks in sub-areas of this container
                 $qb = $db->createQueryBuilder();
@@ -1766,59 +1743,26 @@ class BlocksToolkit extends AbstractToolkit
                     ->orderBy('cvb.arHandle', 'ASC')
                     ->addOrderBy('b.bDateModified', 'DESC');
 
-                if (!$includeInactive) {
-                    $qb->andWhere('cv.cvIsApproved = 1');
-                }
+                // BF-10: the newest version of the page by default (what editors see and the write tools change). A container
+                // copied into a draft keeps its instance, so its sub-area handles are the same in every version.
+                $qb->andWhere($published
+                    ? 'cv.cvIsApproved = 1'
+                    : 'cvb.cvID = (SELECT MAX(cvn.cvID) FROM CollectionVersions cvn WHERE cvn.cID = cvb.cID)');
 
                 $results = $qb->execute()->fetchAllAssociative();
 
                 if (empty($results)) {
-                    if (!$includeInactive) {
-                        $fallbackQb = $db->createQueryBuilder();
-                        $fallbackQb->select(
-                                'b.bID',
-                                'bt.btHandle',
-                                'bt.btName',
-                                'cvb.arHandle',
-                                'cvb.cID',
-                                'cvb.cvID',
-                                'cv.cvName as pageName',
-                                'pp.cPath as pagePath',
-                                'cv.cvIsApproved',
-                                'b.bDateModified'
-                            )
-                            ->from('Blocks', 'b')
-                            ->innerJoin('b', 'BlockTypes', 'bt', 'b.btID = bt.btID')
-                            ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
-                            ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
-                            ->innerJoin('cvb', 'Pages', 'p', 'cvb.cID = p.cID')
-                            ->leftJoin('p', 'PagePaths', 'pp', 'p.cID = pp.cID AND pp.ppIsCanonical = 1')
-                            ->where($fallbackQb->expr()->like('cvb.arHandle', ':pattern'))
-                            ->setParameter('pattern', $likePattern)
-                            ->orderBy('cvb.arHandle', 'ASC')
-                            ->addOrderBy('b.bDateModified', 'DESC');
-
-                        $fallbackResults = $fallbackQb->execute()->fetchAllAssociative();
-                        if (!empty($fallbackResults)) {
-                            $results = $fallbackResults;
-                            $usedInactiveFallback = true;
-                        }
-                    }
-
-                    if (empty($results)) {
-                        return "📦 **Container Block #{$containerBlockID}:** No blocks found inside this container.\n\n" .
-                               "💡 This could mean:\n" .
-                               "- The container is empty\n" .
-                               "- The block ID is not a container\n" .
-                               "- The blocks are in draft versions (try searching non-container blocks)";
-                    }
+                    return "📦 **Container Block #{$containerBlockID}:** No blocks found inside this container in the "
+                        . ($published ? 'published' : 'newest') . " version of its page.\n\n" .
+                           "💡 This could mean:\n" .
+                           "- The container is empty\n" .
+                           "- The block ID is not a container" . ($published ? "\n- The blocks are only in a newer, unpublished version (read without version \"published\")" : '');
                 }
 
                 $count = count($results);
                 $output = "📦 **Container Block #{$containerBlockID} (instance #{$containerInstanceID}):** Found {$count} nested block(s)\n\n";
-                if ($usedInactiveFallback) {
-                    $output .= "ℹ️ No approved-version nested blocks were found. Showing draft/pending nested block placement(s).\n\n";
-                }
+                $output .= 'Version: the ' . ($published ? 'published version' : 'newest version (what editors see and the write tools change)')
+                    . " of the page.\n\n";
                 $output .= "| Block ID | Type | Sub-Area | Full Area Handle | Page | Version |\n";
                 $output .= "|----------|------|----------|------------------|------|----------|\n";
 

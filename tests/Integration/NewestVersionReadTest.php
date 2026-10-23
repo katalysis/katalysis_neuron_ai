@@ -12,7 +12,6 @@ use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Entity\Page\Container;
-use Concrete\Core\Http\Request;
 use Concrete\Core\Package\PackageService;
 use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
@@ -24,6 +23,7 @@ use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Security\InstructionDetector;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\PromptPreview;
 use Katalysis\NeuronAi\Tests\Support\TaskKeyFixture;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
@@ -54,6 +54,8 @@ final class NewestVersionReadTest extends ConcreteTestCase
     /** @var int[] */
     private array $chatIds = [];
 
+    private bool $startedSession = false;
+
     public static function setUpBeforeClass(): void
     {
         parent::setUpBeforeClass();
@@ -68,8 +70,10 @@ final class NewestVersionReadTest extends ConcreteTestCase
 
     protected function tearDown(): void
     {
-        $request = Request::getInstance();
-        $request->query->remove('pageID');
+        if ($this->startedSession) {
+            session_destroy();
+            $this->startedSession = false;
+        }
         $this->pages->restore();
         $this->fixture?->restore();
         $this->fixture = null;
@@ -169,11 +173,9 @@ final class NewestVersionReadTest extends ConcreteTestCase
 
         $this->assertTrue(ToolKind::succeeded($write), $write);
         $this->assertCount(2, $this->versions($cID), 'the assistant wrote into the hand edit\'s draft');
-        $this->assertSame(
-            array_values(array_filter($published, static fn (array $b): bool => (int) $b['cvID'] === $this->versions($cID)[0])),
-            array_values(array_filter($this->pages->state($cID)['blocks'], fn (array $b): bool => (int) $b['cvID'] === $this->versions($cID)[0])),
-            'the published version is unchanged'
-        );
+        $live = $this->versions($cID)[0];
+        $inLive = static fn (array $blocks): array => array_values(array_filter($blocks, static fn (array $b): bool => (int) $b['cvID'] === $live));
+        $this->assertSame($inLive($published), $inLive($this->pages->state($cID)['blocks']), 'the published version is unchanged');
     }
 
     public function testTheTwoTabTurnThroughTheAgentHasOneWriteAndItSucceeds(): void
@@ -256,7 +258,12 @@ final class NewestVersionReadTest extends ConcreteTestCase
         $this->assertContains($new, self::snapshotBlockIDs($blocks['areas']), 'get_page_blocks');
         $this->assertSame('newest', $blocks['version']['shows'] ?? null);
 
-        Request::getInstance()->query->set('pageID', $cID);
+        // The page the user is on, as the chat endpoint passes it (ScenarioRunner::setPageContext()).
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            @session_start(['use_cookies' => 0, 'use_only_cookies' => 0, 'cache_limiter' => '', 'save_path' => sys_get_temp_dir()]);
+            $this->startedSession = true;
+        }
+        $_SESSION['katalysis_neuron_ai_page_context'] = ['id' => $cID];
         $context = $this->json(ThrowawayPages::runTool(new PagesToolkit(), 'get_current_page_context', []));
         $this->assertContains($new, self::snapshotBlockIDs($context['areas']), 'get_current_page_context');
         $this->assertNotContains($old, self::snapshotBlockIDs($context['areas']));
@@ -362,14 +369,11 @@ final class NewestVersionReadTest extends ConcreteTestCase
     public function testThePromptSnapshotShowsTheNewestVersion(): void
     {
         [$cID] = $this->handEditedPage('Snapshot');
-        $provider = new FakeAIProvider(new AssistantMessage('OK.'));
-        $agent = (new ConcreteCmsAgent())->setAiProvider($provider);
-        $agent->setRuntimePageContext(['id' => $cID, 'path' => (string) Page::getByID($cID)->getCollectionPath(), 'title' => '', 'url' => '']);
-        $agent->handleUserMessage('Hello');
-
-        $prompt = (string) $provider->getRecorded()[0]->systemPrompt?->getContent();
-        $this->assertStringContainsString('Block one edited by hand.', $prompt);
-        $this->assertStringNotContainsString('Block one original text.', $prompt);
+        // The snapshot shows block counts and attributes: a third block, in the newest version only.
+        Page::getByID($cID, 'RECENT')->addBlock(BlockType::getByHandle('content'), 'Main', ['content' => '<p>Block three, in the draft.</p>']);
+        CacheLocal::flush();
+        $prompt = PromptPreview::turn(Page::getByID($cID, 'ACTIVE'), 'Hello')['system'];
+        $this->assertStringContainsString('Area "Main" has 3 block(s)', $prompt);
     }
 
     // ---- block reads ----------------------------------------------------------------------------------------

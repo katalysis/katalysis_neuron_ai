@@ -34,6 +34,7 @@ use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
+use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\Utilities\TextIntegrity;
@@ -92,7 +93,7 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'get_current_page_context',
-            'Get context for the page currently being viewed in the browser, including attributes and area/block summary.'
+            'Get context for the page currently being viewed in the browser, including attributes and area/block summary. Shows the page\'s newest version, as editors see it.'
         );
 
         $tool->setHandler($this->guarded(function (): array {
@@ -107,10 +108,14 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException('Permission denied: Cannot view the current page context.');
             }
 
+            // BF-10: the page is found by its published version; its content comes from the newest one, as editors see it.
+            [$page, $versionInfo] = PageVersionRead::load((int) $page->getCollectionID(), null);
+
             return [
                 'source' => $source,
                 'runtimeContext' => $runtimeContext,
                 'page' => $this->serializePage($page, includeDetails: true),
+                'version' => $versionInfo,
                 'attributes' => $this->getPageAttributeMap($page),
                 'areas' => $this->getPageAreaSnapshot($page),
             ];
@@ -272,7 +277,7 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'get_page',
-            'Retrieve detailed information about a specific page by ID. Supports active and recent versions.'
+            'Retrieve detailed information about a specific page by ID: attributes and an area/block summary. Reads the newest version by default (see version).'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -285,38 +290,23 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'version',
             PropertyType::STRING,
-            'Page version to load: "active" (default) or "recent"',
+            PageVersionRead::DESCRIPTION,
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $version = 'active'): array {
+        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $version = null): array {
             if (!$pageID) {
                 throw new \RuntimeException("pageID is required");
             }
 
-            $versionHandle = (is_string($version) && strtolower($version) === 'recent') ? 'RECENT' : 'ACTIVE';
-            $page = Page::getByID($pageID, $versionHandle);
-            
-            if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
-            }
+            // BF-10: the newest version by default, as editors see it; the result says which version it shows.
+            [$page, $versionInfo] = PageVersionRead::load($pageID, $version);
 
             if ($page->isInTrash()) {
                 throw new \RuntimeException('This page is pending deletion.');
             }
 
-            $permissions = new Checker($page);
-            $canViewPage = $versionHandle === 'RECENT'
-                ? $permissions->canViewPageVersions()
-                : $permissions->canViewPage();
-            if (!$canViewPage) {
-                if ($versionHandle === 'RECENT') {
-                    throw new \RuntimeException('Permission denied: Cannot read the most recent unapproved version of this page.');
-                }
-                throw new \RuntimeException('Permission denied: Cannot read this page.');
-            }
-            
-            return $this->serializePage($page, includeDetails: true);
+            return $this->serializePage($page, includeDetails: true) + ['version' => $versionInfo];
         }));
 
         return $tool;
@@ -326,7 +316,7 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'get_page_content',
-            'Get page content as a document with HTML and plain text. Prefer this over get_page when you need to review or summarize page copy.'
+            'Get page content as a document with HTML and plain text. Prefer this over get_page when you need to review or summarize page copy. Reads the newest version by default (see version).'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -339,35 +329,18 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'version',
             PropertyType::STRING,
-            'Page version to read: "active" (published) or "recent" (latest draft). Defaults to "active".',
+            PageVersionRead::DESCRIPTION,
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $version = 'active'): array {
+        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $version = null): array {
             if (!$pageID) {
                 throw new \RuntimeException("pageID is required");
             }
 
-            $versionHandle = ($version === 'recent') ? 'RECENT' : 'ACTIVE';
-            
-            try {
-                $page = Page::getByID($pageID, $versionHandle);
-            } catch (\Exception $e) {
-                throw new \RuntimeException("Failed to load page {$pageID}: " . $e->getMessage());
-            }
-            
-            if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found. The page may not exist or may have been deleted.");
-            }
-
-            $permissions = new Checker($page);
-            $canView = ($versionHandle === 'RECENT')
-                ? $permissions->canViewPageVersions()
-                : $permissions->canViewPage();
-
-            if (!$canView) {
-                throw new \RuntimeException("Permission denied: Cannot read page {$pageID}. You need view permissions for this page" . ($versionHandle === 'RECENT' ? ' version.' : '.'));
-            }
+            // BF-10: the newest version by default, as editors see it; the result says which version it shows.
+            [$page, $versionInfo] = PageVersionRead::load($pageID, $version);
+            $versionHandle = $versionInfo['shows'] === PageVersionRead::NEWEST ? 'RECENT' : 'ACTIVE';
 
             // Read the blocks directly. Rendering the page needs a current page and a web
             // request, so it fails under the CLI and in the chat panel's own context.
@@ -388,7 +361,7 @@ class PagesToolkit extends AbstractToolkit
                     'cvID' => $page->getVersionID(),
                     'isActive' => $page->isActive(),
                     'versionHandle' => $versionHandle,
-                ],
+                ] + $versionInfo,
                 'html' => $content,
                 'html_raw' => $rawContent,
                 'text' => $plainText,
@@ -424,7 +397,7 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'version',
             PropertyType::STRING,
-            'Page version: "active" (published) or "recent" (latest draft). Defaults to "recent".',
+            PageVersionRead::DESCRIPTION,
             false
         ));
 
@@ -435,26 +408,12 @@ class PagesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $version = 'recent', ?string $areaHandle = null): array {
+        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $version = null, ?string $areaHandle = null): array {
             if (!$pageID) {
                 throw new \RuntimeException("pageID is required");
             }
 
-            $versionHandle = ($version === 'active') ? 'ACTIVE' : 'RECENT';
-            $page = Page::getByID($pageID, $versionHandle);
-            
-            if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
-            }
-
-            $permissions = new Checker($page);
-            $canView = ($versionHandle === 'RECENT')
-                ? $permissions->canViewPageVersions()
-                : $permissions->canViewPage();
-
-            if (!$canView) {
-                throw new \RuntimeException("Permission denied: Cannot view this page version");
-            }
+            [$page, $versionInfo] = PageVersionRead::load($pageID, $version);
 
             $areas = [];
             $totalBlocks = 0;
@@ -530,6 +489,7 @@ class PagesToolkit extends AbstractToolkit
                     'versionID' => $page->getVersionID(),
                     'isActive' => $page->isActive(),
                 ],
+                'version' => $versionInfo,
                 'totalBlocks' => $totalBlocks,
                 'areaCount' => count($areas),
                 'areas' => $areas,
