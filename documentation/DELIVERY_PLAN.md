@@ -412,6 +412,7 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
   - protect `integration/*` like `development` in the guard, the deny rules and the pre-push hook: no direct pushes, no force pushes, no deletion
   - `/start-task` and `/finish-task` take the base branch from this plan (the integration branch a phase's **Branching** note names for the task, otherwise `development`): task branches branch from it and PR into it
   - keep `ALLOW_VENDOR=1 git commit` prompting: deliberate
+- [ ] WP-2 **One lock for the dev site's shared fixtures** (small; its own PR into `development`; **straight after BF-4**; Glyn's decision at BF-4's start). Found in BF-3 (PROGRESS, BF-3 entry, "Slip"): `FailedWriteCleanupTest` ran while the scenario runner was resetting `/neuron-test`, and the tests failed. The seed reset, the integration tests and the scenario runner take one shared lock, so whichever starts second refuses with a clear message.
 
 ### Bug-fix tasks (BF)
 Bugs found outside a phase task. Each is fixed on `development` in its own PR and, during Phase 2, synced into `integration/neuron4` (Phase 2 Branching note).
