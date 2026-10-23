@@ -98,7 +98,7 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 - Dev site: the probes left six workflow rows (207–212) and the first red run 50 throwaway pages and one workflow row (213); all removed with a one-off script, table counts back to before the probes. `EditModeWriteRefusalTest`'s `tearDown()` now deletes its pages first.
 - Who / tool / model: Glyn; Claude Code (VS Code); claude-opus-5-5
 - Time: about 29 minutes from `/start-task` (15:56Z) to the PR (16:25Z), including the plan-approval stop; own time not recorded
-- Scenario spend: about $1.30 (runner's estimate: $1.02, then $0.28 for 07 ×3; cap $1.50)
+- Scenario spend: about $3.72 (runner's estimate: $1.02, then $0.28 for 07 ×3, cap $1.50; then $2.42 for the re-run after the result-encoding change, cap $3.00)
 - Plan changes proposed:
   - Scenario 05's reply checks ("draft/unpublished", "undo") still don't fit the short publishing line; left as they are (Glyn: no change to 05 in BF-7).
   - P3.3: `batch_update_content_headings` changes only one matching heading per block (05 runs 1 and 3 here); worth raising its priority.
@@ -121,7 +121,23 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
     - **Why no scenario caught it:** the seed's HTML is on one line, and no check looked at the HTML's structure.
     - **Scenarios:** not re-run after this change. The result encoding changes every tool's output; whether to re-run is Glyn's call.
   - Proposed: a scenario fixture with content saved through edit mode (CR LF line breaks, `&nbsp;`), so the suite covers what real editors store.
-- Questions for review: re-run browser check 6, and check the "Again!" edit on a page with hand-edited content. Re-run scenarios after the result-encoding change?
+  - **After review (Glyn, 23 October):**
+    - Check 6 and the single-tab variant are fine.
+    - The two test changes were approved after the fact (next time, stop and ask first).
+    - The edit-mode fixture is BF-10, and P3.3 refines the escape refusal (`PLAN:` commit).
+  - **Scenarios after the result-encoding change** (code `e326587`):
+    - **All 22 ×1:** 12 pass, 4 partial, 6 fail.
+    - **×3 for the labels that changed against P2.9 or BF-5:**
+      - **05:** 1 partial, 2 fail → **fail**. Same as P2.9 and BF-7's first run; BF-5 was partial. The failures are the P3.3 headings bug, and the replies now say "Seed Heading Three B was not found".
+      - **10:** 1 pass, 2 partial → **partial**, unchanged. Replies such as "it will go live when the page is published" don't match the new "(goes|will go) live when (you )?publish". Not loosened further.
+      - **11:** partial 3, unchanged.
+      - **15:** 2 pass, 1 fail → **pass**, unchanged. The failed run's reply said "not permitted", which the primary regex doesn't list; the tool's error was the specific "Permission denied".
+      - **18:** pass 3 → **improved** (P2.9: partial).
+    - **The rest ×1, same label as P2.9:** 01, 02, 07, 08, 12, 13, 16, 20, 22 pass; 03, 19, 21 partial; 04, 06, 09, 14, 17 fail.
+    - **No regressions.**
+    - `saved_html_valid` passed in every check of the re-run (21) and failed nowhere in the full run.
+    - Spend: about $1.49 + $0.93 = **$2.42** (cap $3.00). BF-7 total about $3.72.
+- Questions for review: 10's reply regex ("goes live when you publish") misses "will go live when the page is published"; widen it? 15's primary regex misses "not permitted".
 
 ### 2026-10-22: BF-9 A chat never gets permanently stuck
 - Branch / PR: `task/BF-9-chat-never-stuck`, PR #50 into `development`. Significant task; plan [plans/BF-9.md](plans/BF-9.md), approved by Glyn with the decisions in §10.
