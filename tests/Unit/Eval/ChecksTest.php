@@ -275,6 +275,35 @@ final class ChecksTest extends TestCase
         $this->assertAnyFails(StateChecks::run(['blocks' => [['page' => $page, 'area' => 'Column 1', 'lacks_html' => ['<h3']]]], $this->ctx($before, $after)));
     }
 
+    /**
+     * BF-7, Glyn's browser check 6: no scenario looked at the saved HTML itself. saved_html_valid runs on every
+     * expect block: a block the run wrote must be well-formed and hold no JSON escape sequences.
+     */
+    public function testSavedHtmlValidRunsAlwaysAndCatchesTheBrowserCheck6Corruption(): void
+    {
+        $seed = S::block('content', '<h2>One</h2><p>Body.</p>');
+        $before = S::make([S::page(5, '/neuron-test/headings', ['latestBlocks' => [$seed]])]);
+        $good = S::make([S::page(5, '/neuron-test/headings', ['latestBlocks' => [S::block('content', '<h2>One again</h2><p>Body.</p>')]])]);
+        $escaped = S::make([S::page(5, '/neuron-test/headings', ['latestBlocks' => [S::block('content', '<h2>One again!<\/h2>\r\n\r\n<p>Body.<\/p>')]])]);
+        $broken = S::make([S::page(5, '/neuron-test/headings', ['latestBlocks' => [S::block('content', '<h2>One again<p>Body.</p>')]])]);
+
+        $names = array_map(static fn (CheckResult $r): string => $r->name, Expectations::evaluate([], $this->ctx($before, $good)));
+        $this->assertContains('saved_html_valid', $names, 'runs without being named in the scenario');
+
+        $this->assertAllPass([StateChecks::savedHtmlValid($this->ctx($before, $good))]);
+        $this->assertAllPass([StateChecks::savedHtmlValid($this->ctx($before, $before))]);
+        $escapedResult = StateChecks::savedHtmlValid($this->ctx($before, $escaped));
+        $this->assertFalse($escapedResult->passed);
+        $this->assertStringContainsString('/neuron-test/headings', $escapedResult->detail);
+        $this->assertStringContainsString('escape sequences', $escapedResult->detail);
+        $brokenResult = StateChecks::savedHtmlValid($this->ctx($before, $broken));
+        $this->assertFalse($brokenResult->passed);
+        $this->assertStringContainsString('not well-formed', $brokenResult->detail);
+
+        // Content that was already there is not the run's doing.
+        $this->assertAllPass([StateChecks::savedHtmlValid($this->ctx($escaped, $escaped))]);
+    }
+
     public function testHasBlockAndHasBlockUnchanged(): void
     {
         $orig = S::block('content', '<h2>Closing</h2><p>A short closing paragraph</p>');
