@@ -78,7 +78,8 @@ class TopicsToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'get_topic_tree_structure',
-            'Get the complete hierarchical structure of a topic tree with all topics and their children.'
+            'Get the hierarchical structure of a topic tree with its topics and their children, down to max_depth. '
+            . 'totalTopics counts the topics shown; when max_depth cut the tree, cutAtDepth is true and each cut topic has childrenNotShown.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -113,9 +114,11 @@ class TopicsToolkit extends AbstractToolkit
                 throw new \RuntimeException("Could not load root node for tree '{$tree_name}'");
             }
 
-            $structure = $this->buildNodeStructure($rootNode, 0, $max_depth);
+            $maxDepth = max(1, $max_depth ?? 10);
+            $cut = 0;
+            $structure = $this->buildNodeStructure($rootNode, 0, $maxDepth, $cut);
 
-            return [
+            $result = [
                 'success' => true,
                 'tree' => [
                     'treeID' => $tree->getTreeID(),
@@ -123,7 +126,14 @@ class TopicsToolkit extends AbstractToolkit
                 ],
                 'topics' => $structure,
                 'totalTopics' => $this->countNodes($structure),
+                'cutAtDepth' => $cut > 0,
             ];
+            if ($cut > 0) {
+                $result['note'] = "Cut at depth {$maxDepth}: {$cut} topic(s) have children not shown (childrenNotShown). "
+                    . 'Call again with a higher max_depth, or use get_topic_details for one topic.';
+            }
+
+            return $result;
         }));
 
         return $tool;
@@ -513,7 +523,7 @@ class TopicsToolkit extends AbstractToolkit
     /**
      * Recursively build topic tree structure
      */
-    private function buildNodeStructure($node, int $currentDepth, int $maxDepth): array
+    private function buildNodeStructure($node, int $currentDepth, int $maxDepth, int &$cut = 0): array
     {
         $topics = [];
 
@@ -526,18 +536,38 @@ class TopicsToolkit extends AbstractToolkit
 
         foreach ($children as $child) {
             if ($child instanceof TopicNode) {
-                $childStructure = $this->buildNodeStructure($child, $currentDepth + 1, $maxDepth);
-                
-                $topics[] = [
+                $childStructure = $this->buildNodeStructure($child, $currentDepth + 1, $maxDepth, $cut);
+                $topic = [
                     'treeNodeID' => $child->getTreeNodeID(),
                     'name' => $child->getTreeNodeDisplayName(),
                     'hasChildren' => !empty($childStructure),
                     'children' => $childStructure,
                 ];
+
+                // BF-6: at the depth limit a node's children aren't read, so say whether it has any.
+                if ($currentDepth + 1 >= $maxDepth && $this->hasTopicChildren($child)) {
+                    $topic['hasChildren'] = true;
+                    $topic['childrenNotShown'] = true;
+                    $cut++;
+                }
+
+                $topics[] = $topic;
             }
         }
 
         return $topics;
+    }
+
+    private function hasTopicChildren($node): bool
+    {
+        $node->populateChildren();
+        foreach ($node->getChildNodes() as $child) {
+            if ($child instanceof TopicNode) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
