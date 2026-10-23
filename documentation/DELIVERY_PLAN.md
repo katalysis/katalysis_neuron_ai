@@ -284,6 +284,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
     - content-block links come back as `{CCM:CID_n}` placeholders, because the text comes from the raw `getSearchableContent()`. Translate them (for example `LinkAbstractor::translateFrom`) or resolve them to paths
     - image alt text is lost, because image blocks return no text (`hasText: false` in the `blocks` list)
   - from P2.9's browser check 6: `get_page_content` accepts a path as well as `pageID`. From `/neuron-test`, "summarise: /neuron-test/injection" made the model call it with the current page's ID (from the page tag), and the reply said the injection page was "empty or non-existent" without having read it. The same "unverified claim" pattern as BF-5
+  - from BF-7 (Glyn, after browser check 6): the text check refuses JSON escape sequences that the stored text doesn't have (`<\/`, a literal `\r`, `\n`, `\t` or `\"`). A literal `\n` or `\"` can be legitimate new text, such as a code example or a Windows path in a new paragraph, and the check would refuse it. Refine it here (for example, refuse those only next to tags or when `<\/` is also present), with a test for each case
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform
@@ -449,6 +450,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - `get_topic_tree_structure`: say when `max_depth` cut the tree, and don't report `hasChildren: false` for a node whose children were cut (BF-5 R14)
   - a test per tool, red first
 - [ ] BF-8 **EPRA field renaming applies only to EPRA blocks** (significant; its own PR into `development`; found in BF-5). `normalizeBlockFieldAliasesRecursive` (`PagesToolkit`) renames `title`/`name`/`heading` to `Title` and `description`/`summary` to `precis` for every block type, so the block write tools silently drop a core block's title, name or description. Prefer moving the aliases out of this package through `ExternalToolkitRegistry` (CLAUDE.md rule 6, as P3.4 plans for the EPRA code); if that is too big, scope them to the EPRA block handles as an interim fix. Test that a core block's title, name and description can be set (red first).
+- [ ] BF-10 **Scenario fixture with content saved through edit mode** (its own PR into `development`; decided after BF-7's browser check 6). Every scenario starts from the seed, whose HTML is on one line with no entities, so no scenario saw content as Concrete's editor stores it. Add a fixture page whose blocks have CR LF line breaks between elements and `&nbsp;`, as edit mode saves them, and use it in at least scenario 05 and a single heading edit. `saved_html_valid` (BF-7) checks the saved HTML.
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
