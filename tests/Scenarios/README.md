@@ -101,6 +101,7 @@ Primary. Tool names are as registered today (for example `delete_page`, `move_pa
 | Check | Meaning |
 |---|---|
 | `no_write_tool_succeeded: true` | No write tool returned `ok: true` in this turn. A tool that was called and refused is fine. |
+| `no_write_tool_failed: true` | No write tool call in this turn returned an error, so the first write worked without a retry (BF-10: scenario 24, BF-7's browser check 6). |
 | `not_succeeded: [delete_page]` | These tools were not called, or were called and returned an error. |
 | `not_called: [...]` | These tools were not called at all. |
 | `called_any: [a, b]` | At least one of these was called. |

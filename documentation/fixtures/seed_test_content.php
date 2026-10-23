@@ -5,7 +5,9 @@
  * Creates a known set of test content so the behaviour scenarios can start from the same state each time:
  *
  *   - page tree /neuron-test (headings, a two-column container with nested blocks, a People list, a page whose
- *     text contains instructions aimed at the assistant, and move-me (with a child) and move-target pages)
+ *     text contains instructions aimed at the assistant, move-me (with a child) and move-target pages, and (BF-10)
+ *     edit-mode and edit-mode-draft: content as a browser save in edit mode stores it, the second with an unpublished
+ *     hand edit)
  *   - three fake people ("Test Person Alpha/Beta/Gamma")
  *   - one small text file in the file manager ("Neuron Test File", from fixtures/neuron-test-file.txt)
  *   - one Express object, "Test Room", with four entries
@@ -55,6 +57,8 @@ use Concrete\Core\Area\Area;
 use Concrete\Core\Area\ContainerArea;
 use Concrete\Core\Block\Block;
 use Concrete\Core\Block\BlockType\BlockType;
+use Concrete\Core\Block\Traits\GetBlockToEditTrait;
+use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Entity\Attribute\Key\Settings\SelectSettings;
 use Concrete\Core\Entity\Attribute\Value\Value\SelectValueOption;
 use Concrete\Core\Entity\Page\Container;
@@ -976,6 +980,40 @@ $seedStatus = (function () use ($args, $output) {
             $target = $addPage($root, 'Move Target', 'move-target');
             $target->addBlock($contentType, 'Main', ['content' => '<p>The destination for the move scenario.</p>']);
             $output->writeln('page ' . $pagePath . '/move-target: created');
+        }
+
+        // BF-10: content as edit mode stores it. edit-mode-content.html holds the bytes a browser save left (CR LF
+        // between elements, &nbsp;), which no server code makes; they are replayed through edit mode's own server path
+        // (the block edit dialog's GetBlockToEditTrait, then the content controller's save()).
+        $editModeHtml = (string) file_get_contents(__DIR__ . '/edit-mode-content.html');
+        $handEdit = function (Page $page, string $html) {
+            CacheLocal::flush();
+            $page = Page::getByID($page->getCollectionID(), 'RECENT');
+            $editor = new class () {
+                use GetBlockToEditTrait;
+            };
+            $block = $page->getBlocks('Main')[0];
+            $editor->getBlockToEdit($page, Area::get($page, 'Main'), 'Main', $block->getBlockID())->update(['content' => $html]);
+            CacheLocal::flush();
+
+            return Page::getByID($page->getCollectionID(), 'RECENT');
+        };
+        $oneLine = static fn (string $html): string => trim((string) preg_replace('/>\s+</', '><', str_replace('&nbsp;', ' ', $html)));
+        if ($missing($pagePath . '/edit-mode')) {
+            // Published: one block saved in edit mode, then Publish.
+            $editMode = $addPage($root, 'Edit Mode', 'edit-mode');
+            $editMode->addBlock($contentType, 'Main', ['content' => $oneLine($editModeHtml)]);
+            $handEdit($editMode, $editModeHtml)->getVersionObject()->approve();
+            $output->writeln('page ' . $pagePath . '/edit-mode: created');
+        }
+        if ($missing($pagePath . '/edit-mode-draft')) {
+            // BF-7's browser check 6: published as above, then a second hand edit, not published, renames a heading. The
+            // newest version holds the block under a new ID; the published version keeps the old one.
+            $editModeDraft = $addPage($root, 'Edit Mode Draft', 'edit-mode-draft');
+            $editModeDraft->addBlock($contentType, 'Main', ['content' => $oneLine($editModeHtml)]);
+            $handEdit($editModeDraft, $editModeHtml)->getVersionObject()->approve();
+            $handEdit($editModeDraft, str_replace('Edit Mode Heading Three B', 'Opening Times', $editModeHtml));
+            $output->writeln('page ' . $pagePath . '/edit-mode-draft (with an unpublished hand edit): created');
         }
     };
 

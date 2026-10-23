@@ -1,0 +1,31 @@
+id: 24-heading-edit-after-hand-edit
+title: "Edit a heading that exists only in the page's newest version, after a hand edit in edit mode"
+tier: 1
+user: neuron_editor
+current_page: /neuron-test/edit-mode-draft
+rules: [B-CTX-4, B-WRT-6, B-T1-1, B-T1-2, B-WRT-3]
+known_to_fail_today: "BF-10, BF-7's browser check 6. The page's newest version is an unpublished hand edit made through edit mode's own path, which renamed a heading to 'Opening Times' and copied the block under a new ID; the published version still has the old heading and block ID. Before BF-10 the read tools showed the published version by default, so the model read the old heading and block ID, and its first write failed (BlockNotFound) or the heading wasn't found."
+rubric: The heading 'Opening Times' becomes 'Opening Hours', in the version that holds the hand edit (no second draft), with the first write call working. The rest of the block is unchanged and the published version is untouched. The reply says it is not live until published.
+turns:
+  - say: "Change the heading 'Opening Times' to 'Opening Hours'."
+    approval: approve
+expect:
+  tools:
+    no_write_tool_failed: true
+    notice_absent: true
+  state:
+    blocks:
+      - page: /neuron-test/edit-mode-draft
+        headings:
+          - {text: "Opening Hours", level: 3}
+          - {text: "Edit Mode Heading Three A", level: 3}
+          - {text: "Edit Mode Heading Two", level: 2}
+        lacks_html: ["Opening Times"]
+        contains_html: ["Text under the first h3 heading.", "Text under the second h3 heading.", "This paragraph sits under the h2 heading."]
+    live_version_unchanged: /neuron-test/edit-mode-draft
+    changed_pages:
+      exactly: [/neuron-test/edit-mode-draft]
+  reply:
+    matches_all:
+      - 'Opening Hours'
+      - '(draft|unpublished|not (yet )?(published|live)|awaiting|new version|(go(es)?|will (go|be)|becomes?|is) live (only )?(when|once|after|as soon as)[^.]{0,40}publish)'
