@@ -292,6 +292,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
     - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so `StrictInputTool` refuses it, and `get_page_children` doesn't have it. Declare it on both, or drop the rule
     - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list
     - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`)
+    - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform
