@@ -138,3 +138,11 @@ Manual: none needed; no panel or edit-mode change. Optional for Glyn: a refused 
 - **Q4:** the full ×1 run, or the seven named scenarios only? Recommended: the seven.
 - **Risk:** the fingerprint tables are those of Concrete 9.5.5's `Cloner`; a test compares the fingerprint of a fresh clone with its source, so a Concrete upgrade that copies another table fails loudly rather than discarding a used version.
 - **Risk:** the batch split (§3) changes when blocks are copied; `DraftIsolationTest`, `StaleBlockIDTest` and `NewestVersionReadTest` cover the copy and the IDs returned.
+
+## 11. Decisions (Glyn, approving the plan, 2026-10-23)
+1. **Q1:** yes. With `continueOnError: false`, the batch applies nothing if any item fails its check.
+2. **Q2:** yes to both. `create_page` refuses an unknown attribute handle before making the page, and deletes a page it made if it fails afterwards, under the same rule. The test shows no orphan rows remain (`PageSummaryTemplates` included), and the leak check stays clean.
+3. **Q3:** `validate()` before `add_block_to_page_area` is left out; added to P3.3.
+4. **Q4:** the seven named scenarios ×3, cap $2.50.
+5. The `ToolBaseline::DELIBERATE_CHANGES` reason for `batch_update_page_content` may be updated, in its own commit, if the description changes.
+6. Red first; stop and ask if any other existing test needs changing. Open the PR into `development` and stop, with a short browser check if one is useful.
