@@ -463,6 +463,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - **The in-between messages:** the panel shows the model's notes from between tool calls ("I will change it… Let me update that"). Was that so on v3? Propose: the final reply only, or the notes as a subdued "working" line
   - the wording finding goes to P3.7 (the version-state item)
 
+## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
 2. The default model and provider for production, and who pays for API usage.
 3. Where EPRA's tools live: a separate package or the EPRA theme package.
