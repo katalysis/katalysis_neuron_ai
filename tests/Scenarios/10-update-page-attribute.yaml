@@ -22,6 +22,7 @@ expect:
     # BF-7 (Glyn): the reply is one short line, "Done. You can see it on the page now; it goes live when you publish."
     # The tool result holds the version and the undo route (Page Versions), given on request, so undo wording is no
     # longer required here. The check matches the meaning (not live until published), not one phrase: "it will go live
-    # when the page is published", "will be live once published" and the like all count.
+    # when the page is published", "will be live once published", "only be visible to visitors once you publish" (BF-10,
+    # scenario 24) and the like all count.
     matches_all:
-      - '(draft|unpublished|not (yet )?(published|live)|awaiting|new version|(go(es)?|will (go|be)|becomes?|is) live (only )?(when|once|after|as soon as)[^.]{0,40}publish)'
+      - '(draft|unpublished|not (yet )?(published|live)|awaiting|new version|(go(es)?|will (go|be)|becomes?|is) live (only )?(when|once|after|as soon as)[^.]{0,40}publish|(visible|shown|show) to (visitors|the public|everyone)[^.]{0,20}(when|once|after|as soon as|until)[^.]{0,40}publish|visitors (will )?(only )?see (it|this|the change|them)[^.]{0,20}(when|once|after|as soon as)[^.]{0,40}publish)'

@@ -6,9 +6,12 @@
  *     accesses only those rows used
  *   - permission entities of deleted users (UserInfo::delete() does not remove them)
  *   - sign-up notifications whose sign-up is gone, with their alerts
+ *   - (BF-10) orphan blocks that no page uses, added since --tests-since and referred to by nothing else, with their
+ *     block-type rows; btContentLocal rows with no block; PageSummaryTemplates rows of deleted test-era pages
  *
  * Rows are chosen by criteria (tests/Support/LeftoverCleanup.php), never by a list of IDs. It does NOT touch the orphan
- * blocks, Logs, the live fixture page, live notifications or any access that something else still uses.
+ * blocks from before the tests, Logs, the live fixture page, live notifications or any access that something else
+ * still uses.
  *
  * Run it from httpdocs/ with Concrete's own runner. Options after "--" are passed to this script. --tests-since is
  * required every time: the date the Neuron tests began (YYYY-MM-DD). A dead page is only cleaned up when its cID is higher
@@ -106,6 +109,30 @@ $cleanupStatus = (function () use ($args, $output) {
         $output->writeln('   Live sign-up notifications (not touched): ' . $e['liveSignupNotifications']);
         foreach ($e['otherNotificationTypes'] as $type => $count) {
             $output->writeln("   Other notifications (reported, not touched): {$type} x {$count}");
+        }
+        $blockRows = array_map(static fn (string $t, int $n): string => "{$t} {$n}", array_keys($s['blockTypeRows']), $s['blockTypeRows']);
+        $output->writeln(sprintf(
+            '4. Orphan blocks (no page uses them): %d%s%s',
+            count($s['orphanBlocks']),
+            $s['orphanBlocks'] === [] ? '' : ' (' . implode(', ', $s['orphanBlocks']) . ')',
+            $blockRows === [] ? '' : ', with block-type rows: ' . implode(', ', $blockRows)
+        ));
+        foreach ($e['orphanBlocksKept'] as $bID => $reason) {
+            $output->writeln("   KEPT block {$bID}: {$reason}");
+        }
+        $output->writeln(sprintf('5. btContentLocal rows with no block: %d', count($s['contentRowsWithoutBlock'])));
+        $output->writeln(sprintf(
+            '6. PageSummaryTemplates rows of deleted pages: %d rows for %d pages',
+            $s['summaryTemplateRows'],
+            count($s['summaryTemplatePages'])
+        ));
+        if ($e['summaryTemplatesKept']['pages'] > 0) {
+            $output->writeln(sprintf(
+                '   KEPT %d rows for %d deleted pages not higher than page %d (they may predate the tests)',
+                $e['summaryTemplatesKept']['rows'],
+                $e['summaryTemplatesKept']['pages'],
+                $e['liveMaxPageID']
+            ));
         }
     };
 

@@ -21,6 +21,7 @@ final class ToolChecks
         foreach ($tools as $check => $spec) {
             $results[] = match ($check) {
                 'no_write_tool_succeeded' => self::noWriteSucceeded($spec, $c),
+                'no_write_tool_failed' => self::noWriteFailed($spec, $c),
                 'not_succeeded' => self::notSucceeded((array) $spec, $c),
                 'not_called' => self::notCalled((array) $spec, $c),
                 'called_any' => self::calledAny((array) $spec, $c),
@@ -73,6 +74,31 @@ final class ToolChecks
             'no_write_tool_succeeded',
             $succeeded === [],
             $succeeded === [] ? '' : 'write tool(s) succeeded: ' . implode(', ', array_unique($succeeded))
+        );
+    }
+
+    /**
+     * BF-10: every write call worked, so the first write needed no retry (BF-7's browser check 6 failed once, on a
+     * block ID read from the published version).
+     */
+    private static function noWriteFailed(mixed $spec, CheckContext $c): CheckResult
+    {
+        if ($spec !== true) {
+            return new CheckResult(CheckResult::TOOLS, 'no_write_tool_failed', true);
+        }
+
+        $failed = [];
+        foreach ($c->toolCalls as $call) {
+            if (ToolCall::isWrite($call['name']) && !$call['ok']) {
+                $failed[] = $call['name'];
+            }
+        }
+
+        return new CheckResult(
+            CheckResult::TOOLS,
+            'no_write_tool_failed',
+            $failed === [],
+            $failed === [] ? '' : 'write tool call(s) failed: ' . implode(', ', $failed)
         );
     }
 

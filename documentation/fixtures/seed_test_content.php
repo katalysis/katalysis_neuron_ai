@@ -5,7 +5,8 @@
  * Creates a known set of test content so the behaviour scenarios can start from the same state each time:
  *
  *   - page tree /neuron-test (headings, a two-column container with nested blocks, a People list, a page whose
- *     text contains instructions aimed at the assistant, and move-me (with a child) and move-target pages)
+ *     text contains instructions aimed at the assistant, move-me (with a child) and move-target pages, and (BF-10)
+ *     edit-mode and edit-mode-draft: content as a browser save in edit mode stores it)
  *   - three fake people ("Test Person Alpha/Beta/Gamma")
  *   - one small text file in the file manager ("Neuron Test File", from fixtures/neuron-test-file.txt)
  *   - one Express object, "Test Room", with four entries
@@ -976,6 +977,18 @@ $seedStatus = (function () use ($args, $output) {
             $target = $addPage($root, 'Move Target', 'move-target');
             $target->addBlock($contentType, 'Main', ['content' => '<p>The destination for the move scenario.</p>']);
             $output->writeln('page ' . $pagePath . '/move-target: created');
+        }
+
+        // BF-10: content as edit mode stores it. edit-mode-content.html holds the bytes a browser save in edit mode left
+        // (CR LF between elements, &nbsp;), which no server code makes; the content block's own save() stores them, as
+        // the block edit dialog's does. One published version each: scenario 24's unpublished hand edit on top of
+        // edit-mode-draft is its setup step (hand_edit), so the reset discards it like any draft.
+        $editModeHtml = (string) file_get_contents(__DIR__ . '/edit-mode-content.html');
+        foreach (['edit-mode' => 'Edit Mode', 'edit-mode-draft' => 'Edit Mode Draft'] as $handle => $name) {
+            if ($missing($pagePath . '/' . $handle)) {
+                $addPage($root, $name, $handle)->addBlock($contentType, 'Main', ['content' => $editModeHtml]);
+                $output->writeln('page ' . $pagePath . '/' . $handle . ': created');
+            }
         }
     };
 

@@ -7,7 +7,6 @@ namespace Katalysis\NeuronAi\Tools\Utilities;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Support\Facade\Application;
-use Concrete\Core\User\UserInfoRepository;
 
 /**
  * Why a block write tool can't find the block it was given, in words the model can act on (BF-7, Glyn's browser
@@ -38,17 +37,13 @@ final class BlockNotFound
 
     public static function explain(Page $page, string $areaHandle, int $blockID): string
     {
-        $db = self::db();
         $cID = (int) $page->getCollectionID();
         $recent = self::recentVersionID($page);
-        $placements = $db->fetchAllAssociative(
-            'SELECT cvID, arHandle, cbDisplayOrder FROM CollectionVersionBlocks WHERE cID = ? AND bID = ? ORDER BY cvID DESC',
-            [$cID, $blockID]
-        );
+        $placements = self::placements($cID, $blockID);
 
         if ($placements === []) {
             return "Block {$blockID} not found: it is not on page {$cID}, in any version of it. Nothing was changed. Read the page's blocks "
-                . 'with get_page_blocks (version "recent") and use an ID from there.';
+                . 'with get_page_blocks (it reads the newest version) and use an ID from there.';
         }
 
         foreach ($placements as $placement) {
@@ -58,12 +53,54 @@ final class BlockNotFound
             }
         }
 
-        $old = $placements[0];
-        $active = (int) $db->fetchOne('SELECT cvID FROM CollectionVersions WHERE cID = ? AND cvIsApproved = 1', [$cID]);
+        return self::notInNewest($cID, $recent, $blockID, $placements[0])
+            . 'Read the newest version with get_page_blocks (it reads the newest version) to check. Nothing was changed.';
+    }
+
+    /**
+     * For the block read tools (BF-10): whether the block is in the page's newest version, the one the write tools
+     * change, and if not, where it is and which ID the newest version has in its place. Null when the block is not on
+     * the page.
+     */
+    public static function readNote(int $cID, int $blockID): ?string
+    {
+        $recent = PageVersionRead::newestVersionID($cID);
+        $placements = self::placements($cID, $blockID);
+        if ($recent === 0 || $placements === []) {
+            return null;
+        }
+
+        foreach ($placements as $placement) {
+            if ((int) $placement['cvID'] === $recent) {
+                $state = $recent === PageVersionRead::publishedVersionID($cID) ? 'published' : 'unpublished';
+
+                return "Block {$blockID} is in the newest version ({$recent}, {$state}), the version editors see and the write tools change.";
+            }
+        }
+
+        return trim(self::notInNewest($cID, $recent, $blockID, $placements[0]));
+    }
+
+    /**
+     * @return list<array<string, mixed>> the block's placements on the page, newest version first
+     */
+    private static function placements(int $cID, int $blockID): array
+    {
+        return self::db()->fetchAllAssociative(
+            'SELECT cvID, arHandle, cbDisplayOrder FROM CollectionVersionBlocks WHERE cID = ? AND bID = ? ORDER BY cvID DESC',
+            [$cID, $blockID]
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $old the block's newest placement, in a version older than $recent
+     */
+    private static function notInNewest(int $cID, int $recent, int $blockID, array $old): string
+    {
+        $db = self::db();
+        $active = PageVersionRead::publishedVersionID($cID);
         $where = (int) $old['cvID'] === $active ? 'the published version' : "version {$old['cvID']}";
-        $author = (int) $db->fetchOne('SELECT cvAuthorUID FROM CollectionVersions WHERE cID = ? AND cvID = ?', [$cID, $recent]);
-        $authorInfo = $author > 0 ? Application::getFacadeApplication()->make(UserInfoRepository::class)->getByID($author) : null;
-        $by = $authorInfo ? ', saved by ' . $authorInfo->getUserName() : '';
+        $by = PageVersionRead::savedBy($cID, $recent);
 
         $message = "Block {$blockID} is in {$where} of this page, not in its newest version (version {$recent}, unpublished{$by}), "
             . 'which is the version the write tools edit. A change there, in edit mode or by the assistant, copied the block '
@@ -81,12 +118,12 @@ final class BlockNotFound
             $message .= "The newest version has no block at the same position in area '{$old['arHandle']}'. ";
         }
 
-        return $message . 'Read the newest version with get_page_blocks (version "recent") to check. Nothing was changed.';
+        return $message;
     }
 
     private static function recentVersionID(Page $page): int
     {
-        return (int) self::db()->fetchOne('SELECT MAX(cvID) FROM CollectionVersions WHERE cID = ?', [(int) $page->getCollectionID()]);
+        return PageVersionRead::newestVersionID((int) $page->getCollectionID());
     }
 
     private static function db(): Connection

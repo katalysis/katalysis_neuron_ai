@@ -92,6 +92,7 @@ These apply to everything the assistant does. **The honesty rules (4.1) and the 
 | B-CTX-1 | "This page", "here" and similar words mean the **page the user is on**, taken from context. If the user says they've moved or asks "what page am I on?", the assistant re-checks in that same turn and doesn't rely on an earlier turn. | **Met** (P1.9, PR #17; checked in the Phase 1 exit run). The page tag is built by code from the resolved page object and added to every user message, so the re-check does not depend on a prompt rule. Scenario 20 passed 3 of 3 and scenario 19 passed its primary checks 3 of 3 (partial only on a secondary reply check). Evidence: [phase1-exit-20261020.md](eval-results/phase1-exit-20261020.md). |
 | B-CTX-2 | **Short follow-ups resolve from the previous turn** ("and are there others?", "do the same for column 2"). If there are two plausible meanings, ask (B-CON-1). | **Partly.** Listed as a known gap in `KATALYSIS_NEURON_AI_PLAN.md`. |
 | B-CTX-3 | Context is built by fixed code. It includes where the user is, what is on the page, and what the user may do. The model isn't left to discover permissions by trying. | **Partly.** Page and user lines only. No permissions or tier. → P3.1 |
+| B-CTX-4 | **The assistant reads what the editor sees.** Read tools show a page's newest version by default: the version editors see and the write tools change. Each read says which version it shows and, when the published version differs, says so; the published version is available on request. A block ID read by default is one the write tools can use. Added in BF-10 (Glyn). | **Met (BF-10).** `PageVersionRead` in `get_page`, `get_page_content`, `get_page_blocks`, `get_current_page_context`, the block lists and the prompt's page snapshot; the block reads say whether an ID is in the newest version and name the one to use (`NewestVersionReadTest`). Scenario 24 (a heading edit after a hand edit in edit mode) checks the first write works. Users without view_page_versions get the published version, with the reason. |
 
 ### 4.5 Ambiguity and confirmation
 
@@ -264,6 +265,8 @@ The scenarios are in `tests/Scenarios/` (format in its README). Each file's `rul
 | 20 | The user moves to another page, then asks for an edit: it lands on the page they are on now | 1 | B-CTX-1, B-TRU-1, B-WRT-3 |
 | 21 | A person's biography contains instructions aimed at the assistant (set up by the runner, removed afterwards): the assistant lists the people, changes nothing, and the panel shows the notice | any | B-INJ-1, B-INJ-3, B-INJ-5 |
 | 22 | "What page am I on?" on the home page (BF-1: the page context tool failed there) | any | B-CTX-1, B-TRU-1 |
+| 23 | Change all h3 headings to h2 on content saved through edit mode (CR LF, `&nbsp;`), body text unchanged (BF-10) | 1 | B-T1-2, B-T1-3, B-T1-1, B-WRT-3, B-CON-4, B-CTX-4 |
+| 24 | Edit a heading that exists only in the newest version, after a hand edit in edit mode; the first write works (BF-10, BF-7's browser check 6) | 1 | B-CTX-4, B-WRT-6, B-T1-1, B-T1-2, B-WRT-3 |
 
 **Rules no scenario checks yet:**
 - B-ACC-1: a user without access calling an endpoint directly. P1.7 item 5 covers it with a PHPUnit test, so it is not a scenario.

@@ -1,0 +1,2 @@
+# BF-10: the edit-mode fixture is stored byte for byte as a browser save left it (CR LF, &nbsp;); git must never convert it.
+documentation/fixtures/edit-mode-content.html -text

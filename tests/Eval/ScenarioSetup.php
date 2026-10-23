@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Eval;
 
+use Concrete\Core\Area\Area;
+use Concrete\Core\Block\Traits\GetBlockToEditTrait;
+use Concrete\Core\Cache\CacheLocal;
+use Concrete\Core\Database\Connection\Connection;
+use Concrete\Core\Page\Page;
+use Concrete\Core\Support\Facade\Application;
+
 /**
  * A scenario's `setup:` list: content a scenario needs that the seed doesn't have (tests/Scenarios/README.md).
  *
@@ -11,7 +18,12 @@ namespace Katalysis\NeuronAi\Tests\Eval;
  * and undoes it when the scenario ends, by deleting exactly the records it created, by ID. The next reset also removes
  * them (same name and email rules as the seed), so a crashed run can't leak into the next scenario.
  *
- * The only step type is create_person: {name, email, biography?, short_biography?, active?}.
+ * Step types:
+ *  - create_person: {name, email, biography?, short_biography?, active?}
+ *  - hand_edit: {page, find, replace} (BF-10): a hand edit in edit mode, as the scenario's user, through the block
+ *    edit dialog's own server path (GetBlockToEditTrait, then the content block's save()), in the Content block of the
+ *    page's newest version that contains `find`. It leaves an unpublished version, as BF-7's browser check 6 did. The
+ *    page must be under /neuron-test, so the next reset discards that version like any draft; undo() has nothing to do.
  */
 final class ScenarioSetup
 {
@@ -19,8 +31,11 @@ final class ScenarioSetup
     public const EMAIL_SUFFIX = '@neuron-test.invalid';
     public const PERSON_CLASS = 'Concrete\\Package\\KatalysisPro\\Src\\KatalysisPro\\People\\Person';
 
-    private const STEP_TYPES = ['create_person'];
+    public const PAGE_PREFIX = '/neuron-test/';
+
+    private const STEP_TYPES = ['create_person', 'hand_edit'];
     private const PERSON_KEYS = ['name', 'email', 'biography', 'short_biography', 'active'];
+    private const HAND_EDIT_KEYS = ['page', 'find', 'replace'];
 
     /**
      * @param mixed $setup the value of a scenario's `setup` key
@@ -47,11 +62,16 @@ final class ScenarioSetup
                 continue;
             }
 
-            $person = $step[$type];
-            if (!is_array($person)) {
+            if (!is_array($step[$type])) {
                 $errors[] = "{$label}: {$type} must be a mapping.";
                 continue;
             }
+            if ($type === 'hand_edit') {
+                $errors = array_merge($errors, self::validateHandEdit($label, $step[$type]));
+                continue;
+            }
+
+            $person = $step[$type];
             foreach (array_diff(array_keys($person), self::PERSON_KEYS) as $key) {
                 $errors[] = "{$label}: unknown key \"{$key}\".";
             }
@@ -77,6 +97,31 @@ final class ScenarioSetup
     }
 
     /**
+     * @param array<mixed> $edit
+     *
+     * @return list<string>
+     */
+    private static function validateHandEdit(string $label, array $edit): array
+    {
+        $errors = [];
+        foreach (array_diff(array_keys($edit), self::HAND_EDIT_KEYS) as $key) {
+            $errors[] = "{$label}: unknown key \"{$key}\".";
+        }
+        $page = $edit['page'] ?? null;
+        if (!is_string($page) || !str_starts_with($page, self::PAGE_PREFIX) || strlen($page) <= strlen(self::PAGE_PREFIX)) {
+            $errors[] = "{$label}: page must be a path under " . self::PAGE_PREFIX . ' so the reset discards the edit.';
+        }
+        if (!is_string($edit['find'] ?? null) || $edit['find'] === '') {
+            $errors[] = "{$label}: find must be a non-empty string.";
+        }
+        if (!is_string($edit['replace'] ?? null)) {
+            $errors[] = "{$label}: replace must be a string.";
+        }
+
+        return $errors;
+    }
+
+    /**
      * Creates what the steps describe.
      *
      * @param list<array<string, mixed>> $steps validated steps
@@ -89,13 +134,16 @@ final class ScenarioSetup
     public function apply(array $steps): array
     {
         $class = self::PERSON_CLASS;
-        if (!class_exists($class)) {
-            throw new \RuntimeException('This scenario needs the katalysis_pro People classes, which are not installed.');
-        }
-
         $created = [];
         try {
             foreach ($steps as $step) {
+                if (isset($step['hand_edit'])) {
+                    $this->handEdit($step['hand_edit']);
+                    continue;
+                }
+                if (!class_exists($class)) {
+                    throw new \RuntimeException('This scenario needs the katalysis_pro People classes, which are not installed.');
+                }
                 $p = $step['create_person'];
                 $person = new $class();
                 $person->setPropertiesFromArray([
@@ -116,6 +164,41 @@ final class ScenarioSetup
         }
 
         return $created;
+    }
+
+    /**
+     * @param array{page: string, find: string, replace: string} $edit
+     */
+    private function handEdit(array $edit): void
+    {
+        CacheLocal::flush();
+        $found = Page::getByPath($edit['page']);
+        if (!$found || $found->isError()) {
+            throw new \RuntimeException("hand_edit: there is no page {$edit['page']}.");
+        }
+        $page = Page::getByID((int) $found->getCollectionID(), 'RECENT');
+        $db = Application::getFacadeApplication()->make(Connection::class);
+        $rows = $db->fetchAllAssociative(
+            'SELECT cvb.bID, cvb.arHandle, c.content FROM CollectionVersionBlocks cvb JOIN btContentLocal c ON c.bID = cvb.bID '
+            . 'WHERE cvb.cID = ? AND cvb.cvID = ? ORDER BY cvb.arHandle, cvb.cbDisplayOrder',
+            [(int) $page->getCollectionID(), (int) $page->getVersionID()]
+        );
+        foreach ($rows as $row) {
+            if (!str_contains((string) $row['content'], $edit['find'])) {
+                continue;
+            }
+            $editor = new class () {
+                use GetBlockToEditTrait;
+            };
+            $area = (string) $row['arHandle'];
+            $block = $editor->getBlockToEdit($page, Area::get($page, $area), $area, (int) $row['bID']);
+            $block->update(['content' => str_replace($edit['find'], $edit['replace'], (string) $row['content'])]);
+            CacheLocal::flush();
+
+            return;
+        }
+
+        throw new \RuntimeException("hand_edit: no Content block on {$edit['page']} contains \"{$edit['find']}\".");
     }
 
     /**

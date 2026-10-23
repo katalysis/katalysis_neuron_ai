@@ -38,6 +38,7 @@ use Katalysis\NeuronAi\Tools\DisabledTools;
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\ToolNameResolver;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
+use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use NeuronAI\Agent\Observability\ToolCalled;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\Page\Page;
@@ -364,7 +365,8 @@ INST);
             try {
                 $contextPage = $this->resolveContextPage();
                 if ($contextPage && !$contextPage->isError()) {
-                    $context = array_merge($context, $this->buildPageContextLines($contextPage));
+                    // BF-10: the snapshot shows the newest version, as editors see it and as the read tools show it.
+                    $context = array_merge($context, $this->buildPageContextLines(PageVersionRead::newestIfAllowed($contextPage)));
                 } elseif ($this->runtimePageContext) {
                     $context = array_merge($context, $this->buildRuntimeFallbackLines());
                 }

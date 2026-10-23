@@ -246,4 +246,83 @@ final class LeftoverCleanupTest extends ConcreteTestCase
         $some['selected']['userEntities'] = [5];
         $this->assertFalse(LeftoverCleanup::isEmpty($some));
     }
+
+    /** A Blocks row of the content type that no page version uses, with its btContentLocal row. */
+    private function unusedBlock(string $added): int
+    {
+        $this->db->insert('Blocks', [
+            'bName' => '', 'bDateAdded' => $added, 'bDateModified' => $added, 'bFilename' => null, 'bIsActive' => 1,
+            'btID' => (int) $this->db->fetchOne("SELECT btID FROM BlockTypes WHERE btHandle = 'content'"), 'uID' => 1,
+        ]);
+        $bID = (int) $this->db->lastInsertId();
+        $this->db->insert('btContentLocal', ['bID' => $bID, 'content' => '<p>Left behind.</p>']);
+
+        return $bID;
+    }
+
+    public function testAnUnusedBlockFromTheTestsIsSelectedWithItsContentRow(): void
+    {
+        $orphan = $this->unusedBlock(date('Y-m-d H:i:s'));
+        $old = $this->unusedBlock('2026-01-01 10:00:00');
+        $original = $this->unusedBlock(date('Y-m-d H:i:s'));
+        // A scrapbook block that shows $original keeps it.
+        $this->db->insert('btCoreScrapbookDisplay', ['bID' => 2147480050, 'bOriginalID' => $original]);
+
+        $cleanup = $this->cleanup();
+        $selection = $cleanup->select();
+
+        $this->assertContains($orphan, $selection['selected']['orphanBlocks']);
+        $this->assertNotContains($old, $selection['selected']['orphanBlocks']);
+        $this->assertStringContainsString('before ' . self::TESTS_SINCE, $selection['evidence']['orphanBlocksKept'][$old]);
+        $this->assertNotContains($original, $selection['selected']['orphanBlocks']);
+        $this->assertStringContainsString('btCoreScrapbookDisplay.bOriginalID', $selection['evidence']['orphanBlocksKept'][$original]);
+        $this->assertGreaterThanOrEqual(1, $selection['selected']['blockTypeRows']['btContentLocal'] ?? 0);
+
+        $cleanup->apply($selection);
+
+        $this->assertFalse($this->db->fetchOne('SELECT bID FROM Blocks WHERE bID = ?', [$orphan]));
+        $this->assertFalse($this->db->fetchOne('SELECT bID FROM btContentLocal WHERE bID = ?', [$orphan]));
+        $this->assertNotFalse($this->db->fetchOne('SELECT bID FROM Blocks WHERE bID = ?', [$old]), 'a block from before the tests is kept');
+        $this->assertNotFalse($this->db->fetchOne('SELECT bID FROM Blocks WHERE bID = ?', [$original]), 'a referenced block is kept');
+        $this->assertNotContains($orphan, $cleanup->select()['selected']['orphanBlocks']);
+    }
+
+    public function testABlockAPageUsesIsNeverSelected(): void
+    {
+        $used = (int) $this->db->fetchOne('SELECT bID FROM CollectionVersionBlocks ORDER BY bID DESC LIMIT 1');
+
+        $this->assertNotContains($used, $this->cleanup()->select()['selected']['orphanBlocks']);
+    }
+
+    public function testAContentRowWithNoBlockIsSelected(): void
+    {
+        $this->db->insert('btContentLocal', ['bID' => 2147480060, 'content' => '<p>No block.</p>']);
+
+        $cleanup = $this->cleanup();
+        $selection = $cleanup->select();
+        $this->assertContains(2147480060, $selection['selected']['contentRowsWithoutBlock']);
+
+        $cleanup->apply($selection);
+        $this->assertFalse($this->db->fetchOne('SELECT bID FROM btContentLocal WHERE bID = ?', [2147480060]));
+    }
+
+    public function testPageSummaryRowsOfADeletedTestPageAreSelected(): void
+    {
+        $template = $this->db->fetchOne('SELECT id FROM SummaryTemplates ORDER BY id LIMIT 1');
+        if ($template === false) {
+            $this->markTestSkipped('No summary template in this database.');
+        }
+        $this->db->insert('PageSummaryTemplates', ['template_id' => (int) $template, 'cID' => $this->deadPageA, 'data' => '{}']);
+        $live = (int) $this->db->fetchOne('SELECT cID FROM Collections ORDER BY cID LIMIT 1');
+        $this->db->insert('PageSummaryTemplates', ['template_id' => (int) $template, 'cID' => $live, 'data' => '{}']);
+
+        $cleanup = $this->cleanup();
+        $selection = $cleanup->select();
+        $this->assertContains($this->deadPageA, $selection['selected']['summaryTemplatePages']);
+        $this->assertNotContains($live, $selection['selected']['summaryTemplatePages'], 'a page that exists');
+
+        $cleanup->apply($selection);
+        $this->assertSame(0, (int) $this->db->fetchOne('SELECT COUNT(*) FROM PageSummaryTemplates WHERE cID = ?', [$this->deadPageA]));
+        $this->assertSame(1, (int) $this->db->fetchOne('SELECT COUNT(*) FROM PageSummaryTemplates WHERE cID = ? AND data = ?', [$live, '{}']));
+    }
 }

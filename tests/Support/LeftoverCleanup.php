@@ -21,8 +21,15 @@ use Doctrine\DBAL\Connection;
  *  2. User entities with no user: type user, no PermissionAccessEntityUsers row, and no row in any table with a
  *     peID column once the accesses of step 1 are gone.
  *  3. Sign-up notifications whose UserSignupNotifications row is gone, and their alerts.
+ *  4. (BF-10) Orphan blocks: a Blocks row that no page version uses (no CollectionVersionBlocks row), added on or after
+ *     $testsSince, and referred to by no other table with a bID column (block-type tables, named bt*, hold the
+ *     block's own data and go with it), nor as a scrapbook block's original. Blocks from before the tests (41, 43, 54
+ *     and 256 on the dev site, P1.12) are never selected.
+ *  5. (BF-10) btContentLocal rows whose block is gone.
+ *  6. (BF-10) PageSummaryTemplates rows whose page is gone (Page::delete() leaves them), for a cID higher than every
+ *     page from before the tests, as in step 1.
  *
- * Never selected: orphan blocks, Logs, the live fixture page, live notifications, any shared access.
+ * Never selected: Logs, the live fixture page, live notifications, any shared access.
  */
 final class LeftoverCleanup
 {
@@ -189,6 +196,75 @@ final class LeftoverCleanup
         $alertRows = $notifications === [] ? 0
             : (int) $db->fetchOne('SELECT COUNT(*) FROM NotificationAlerts WHERE nID IN (' . $this->ids($notifications) . ')');
 
+        // ---- 4. Orphan blocks ----------------------------------------------------------------------------------
+        $blocks = [];
+        $blocksKept = [];
+        $blockTypeRows = [];
+        $unused = $db->fetchAllAssociative(
+            'SELECT b.bID, b.bDateAdded FROM Blocks b
+             WHERE NOT EXISTS (SELECT 1 FROM CollectionVersionBlocks c WHERE c.bID = b.bID) ORDER BY b.bID'
+        );
+        if ($unused !== []) {
+            $in = $this->ids(array_column($unused, 'bID'));
+            $referenced = [];
+            $blockTables = [];
+            foreach ($this->tablesWithColumn('bID') as $table) {
+                if (str_starts_with($table, 'bt')) {
+                    $blockTables[] = $table;
+                    continue;
+                }
+                if ($table === 'Blocks' || $table === 'CollectionVersionBlocks') {
+                    continue;
+                }
+                foreach ($db->fetchAllAssociative('SELECT bID, COUNT(*) n FROM `' . $table . '` WHERE bID IN (' . $in . ') GROUP BY bID') as $row) {
+                    $referenced[(int) $row['bID']][] = $table . ' (' . $row['n'] . ')';
+                }
+            }
+            foreach ($db->fetchFirstColumn('SELECT DISTINCT bOriginalID FROM btCoreScrapbookDisplay WHERE bOriginalID IN (' . $in . ')') as $bID) {
+                $referenced[(int) $bID][] = 'btCoreScrapbookDisplay.bOriginalID';
+            }
+            foreach ($unused as $row) {
+                $bID = (int) $row['bID'];
+                if ((string) $row['bDateAdded'] < $this->testsSince) {
+                    $blocksKept[$bID] = 'added ' . $row['bDateAdded'] . ', before ' . $this->testsSince;
+                } elseif (isset($referenced[$bID])) {
+                    $blocksKept[$bID] = 'used by ' . implode(', ', $referenced[$bID]);
+                } else {
+                    $blocks[] = $bID;
+                }
+            }
+            if ($blocks !== []) {
+                foreach ($blockTables as $table) {
+                    $n = (int) $db->fetchOne('SELECT COUNT(*) FROM `' . $table . '` WHERE bID IN (' . $this->ids($blocks) . ')');
+                    if ($n > 0) {
+                        $blockTypeRows[$table] = $n;
+                    }
+                }
+            }
+        }
+
+        // ---- 5. Content rows with no block ---------------------------------------------------------------------
+        $contentRows = array_map('intval', $db->fetchFirstColumn(
+            'SELECT c.bID FROM btContentLocal c WHERE NOT EXISTS (SELECT 1 FROM Blocks b WHERE b.bID = c.bID) ORDER BY c.bID'
+        ));
+
+        // ---- 6. Page summary rows of deleted pages -------------------------------------------------------------
+        $summaryPages = [];
+        $summaryRows = 0;
+        $summaryKept = ['pages' => 0, 'rows' => 0];
+        foreach ($db->fetchAllAssociative(
+            'SELECT t.cID, COUNT(*) n FROM PageSummaryTemplates t
+             WHERE NOT EXISTS (SELECT 1 FROM Collections c WHERE c.cID = t.cID) GROUP BY t.cID ORDER BY t.cID'
+        ) as $row) {
+            if ((int) $row['cID'] > $liveMax) {
+                $summaryPages[] = (int) $row['cID'];
+                $summaryRows += (int) $row['n'];
+            } else {
+                $summaryKept['pages']++;
+                $summaryKept['rows'] += (int) $row['n'];
+            }
+        }
+
         return [
             'selected' => [
                 'pages' => $pages,
@@ -199,6 +275,11 @@ final class LeftoverCleanup
                 'userEntities' => $entities,
                 'notifications' => $notifications,
                 'alertRows' => $alertRows,
+                'orphanBlocks' => $blocks,
+                'blockTypeRows' => $blockTypeRows,
+                'contentRowsWithoutBlock' => $contentRows,
+                'summaryTemplatePages' => $summaryPages,
+                'summaryTemplateRows' => $summaryRows,
             ],
             'evidence' => [
                 'testsSince' => $this->testsSince,
@@ -208,6 +289,8 @@ final class LeftoverCleanup
                 'accessesKept' => $accessesKept,
                 'userEntitiesKept' => $entitiesKept,
                 'notificationsKept' => $notificationsKept,
+                'orphanBlocksKept' => $blocksKept,
+                'summaryTemplatesKept' => $summaryKept,
                 'otherNotificationTypes' => $db->fetchAllKeyValue("SELECT type, COUNT(*) FROM Notifications WHERE type <> 'usersignupnotification' GROUP BY type"),
                 'liveSignupNotifications' => (int) $db->fetchOne(
                     "SELECT COUNT(*) FROM Notifications n WHERE n.type = 'usersignupnotification'
@@ -262,6 +345,19 @@ final class LeftoverCleanup
             $run('NotificationAlerts', 'DELETE FROM NotificationAlerts WHERE nID IN (' . $in . ')');
             $run('Notifications', 'DELETE FROM Notifications WHERE nID IN (' . $in . ')');
         }
+        if ($s['orphanBlocks'] !== []) {
+            $in = $this->ids($s['orphanBlocks']);
+            foreach (array_keys($s['blockTypeRows']) as $table) {
+                $run($table, 'DELETE FROM `' . $table . '` WHERE bID IN (' . $in . ')');
+            }
+            $run('Blocks', 'DELETE FROM Blocks WHERE bID IN (' . $in . ')');
+        }
+        if ($s['contentRowsWithoutBlock'] !== []) {
+            $run('btContentLocal (no block)', 'DELETE FROM btContentLocal WHERE bID IN (' . $this->ids($s['contentRowsWithoutBlock']) . ')');
+        }
+        if ($s['summaryTemplatePages'] !== []) {
+            $run('PageSummaryTemplates', 'DELETE FROM PageSummaryTemplates WHERE cID IN (' . $this->ids($s['summaryTemplatePages']) . ')');
+        }
 
         return $deleted;
     }
@@ -282,6 +378,9 @@ final class LeftoverCleanup
                 'accesses' => count($s['accesses']),
                 'userEntities' => count($s['userEntities']),
                 'notifications' => count($s['notifications']),
+                'orphanBlocks' => count($s['orphanBlocks']),
+                'contentRowsWithoutBlock' => count($s['contentRowsWithoutBlock']),
+                'summaryTemplatePages' => count($s['summaryTemplatePages']),
             ],
         ];
     }

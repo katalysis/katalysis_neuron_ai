@@ -55,6 +55,22 @@ final class ScenarioSetupValidationTest extends TestCase
         $this->assertNotSame([], ScenarioSetup::validate([['create_person' => $this->person(), 'extra' => 1]]));
     }
 
+    public function testAHandEditStepIsValidatedAndKeptUnderTheFixture(): void
+    {
+        // BF-10: scenario 24's unpublished hand edit. The page must be under /neuron-test so the reset discards the edit.
+        $edit = ['page' => '/neuron-test/edit-mode-draft', 'find' => 'Edit Mode Heading Three B', 'replace' => 'Opening Times'];
+        $this->assertSame([], ScenarioSetup::validate([['hand_edit' => $edit]]));
+        $this->assertSame([], ScenarioSetup::validate([['hand_edit' => ['replace' => ''] + $edit]]), 'replacing with nothing is allowed');
+
+        $errors = static fn (array $over): string => implode("\n", ScenarioSetup::validate([['hand_edit' => $over + $edit]]));
+        $this->assertStringContainsString('page must be a path under /neuron-test/', $errors(['page' => '/about']));
+        $this->assertStringContainsString('page must be a path under /neuron-test/', $errors(['page' => '/neuron-test/']));
+        $this->assertStringContainsString('find must be a non-empty string', $errors(['find' => '']));
+        $this->assertStringContainsString('replace must be a string', $errors(['replace' => 3]));
+        $this->assertStringContainsString('unknown key "area"', $errors(['area' => 'Main']));
+        $this->assertNotSame([], ScenarioSetup::validate([['hand_edit' => 'x']]));
+    }
+
     public function testTheLoaderValidatesSetupAndKnowsTheNoticeChecks(): void
     {
         $base = ['id' => '01-x', 'title' => 'T', 'user' => 'neuron_editor', 'current_page' => '/neuron-test', 'turns' => [['say' => 'hello']]];
