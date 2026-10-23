@@ -61,16 +61,30 @@ final class BlockFieldNamesTest extends ConcreteTestCase
         $this->assertStringContainsString('A short welcome.', (string) $row['body']);
     }
 
-    /** The test BF-5 couldn't write (BlockTextIntegrityTest uses buttonText instead). */
+    /**
+     * The test BF-5 couldn't write (BlockTextIntegrityTest uses buttonText instead). Replacing the title's stored text
+     * needs scoped_text, as for any text field: the text check now sees the title too.
+     */
     public function testUpdateSetsASearchTitleAndKeepsTheButtonText(): void
     {
         $page = $this->newPage();
         $block = $page->addBlock(BlockType::getByHandle('search'), 'Main', ['title' => 'Search the site', 'buttonText' => 'Find it']);
         $cID = $this->startAsEditor($page);
+        $bID = (int) $block->getBlockID();
+
+        $refused = $this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+            'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
+            'value' => ['title' => 'Search this site'],
+        ]);
+        $this->assertStringContainsString('Search the site', $refused);
+        $this->assertStringContainsString('Nothing was changed', $refused);
 
         $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
-            'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => (int) $block->getBlockID(),
+            'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['title' => 'Search this site'],
+            'changeMode' => 'scoped_text',
+            'textFields' => ['title'],
+            'replacedText' => ['Search the site'],
         ]));
 
         $row = $this->newestRow($cID, 'btSearch');
