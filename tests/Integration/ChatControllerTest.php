@@ -55,6 +55,9 @@ final class ChatControllerTest extends ConcreteTestCase
     /** Throwaway pages for the BF-7 cases, deleted in tearDown(). */
     private ?ThrowawayPages $pages = null;
 
+    /** @var list<int> chats no longer in a test session (BF-4), deleted in tearDown() */
+    private array $chatsToDelete = [];
+
     public static function setUpBeforeClass(): void
     {
         parent::setUpBeforeClass();
@@ -86,6 +89,10 @@ final class ChatControllerTest extends ConcreteTestCase
         }
         $this->app()->make(EntityManagerInterface::class)->clear();
         $this->db()->executeStatement('DELETE FROM KatalysisNeuronAiChats WHERE sessionId LIKE ?', [self::SESSION_PREFIX . '%']);
+        foreach ($this->chatsToDelete as $id) {
+            $this->db()->executeStatement('DELETE FROM KatalysisNeuronAiChats WHERE id = ?', [$id]);
+        }
+        $this->chatsToDelete = [];
         Request::getInstance()->setCustomRequestUser(-1);
     }
 
@@ -622,6 +629,107 @@ final class ChatControllerTest extends ConcreteTestCase
         [$status] = $this->call($this->controller(), 'delete_chat', ['id' => $adminChat]);
         $this->assertSame(404, $status);
         $this->assertSame(1, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM KatalysisNeuronAiChats WHERE id = ?', [$adminChat]), "the admin's chat is still there");
+    }
+
+    // ---- BF-4: a loaded chat becomes the session's chat ---------------------------------------------------------
+
+    /**
+     * Chat X from an earlier session, then chat Y in this one, then X loaded from the saved list.
+     *
+     * @return array{int, int} X and Y
+     */
+    private function loadAnEarlierChat(): array
+    {
+        $this->actAs('superuser');
+        $this->send($this->controller(new FakeAIProvider(new AssistantMessage('X reply.'))), 'X question.');
+        $x = $this->currentChatId();
+
+        $this->startSession();
+        $this->send($this->controller(new FakeAIProvider(new AssistantMessage('Y reply.'))), 'Y question.');
+        $y = $this->currentChatId();
+        // Y leaves the session when X is loaded, so tearDown() no longer finds it by the session prefix.
+        $this->chatsToDelete[] = $y;
+        $this->assertNotSame($x, $y);
+
+        [$status, $loaded, $raw] = $this->call($this->controller(), 'load', null, ['id' => (string) $x]);
+        $this->assertSame(200, $status, $raw);
+        $this->assertSame($x, $loaded['chat']['id']);
+
+        return [$x, $y];
+    }
+
+    public function testAfterLoadingAChatTheNextMessageGoesToIt(): void
+    {
+        [$x, $y] = $this->loadAnEarlierChat();
+        $yRows = $this->storedRows($y);
+
+        $this->send($this->controller(new FakeAIProvider(new AssistantMessage('X second reply.'))), 'X second question.');
+
+        $this->assertSame($x, $this->currentChatId());
+        $this->assertSame(['X question.', 'X reply.', 'X second question.', 'X second reply.'], array_map([self::class, 'text'], $this->reload()));
+        $this->assertSame($yRows, $this->storedRows($y), 'Y is unchanged');
+    }
+
+    public function testAfterLoadingAChatDeleteCurrentDeletesIt(): void
+    {
+        [$x, $y] = $this->loadAnEarlierChat();
+
+        [$status, $body] = $this->call($this->controller(), 'delete_current_chat');
+
+        $this->assertSame(200, $status);
+        $this->assertTrue($body['deleted']);
+        $this->assertSame(0, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM KatalysisNeuronAiChats WHERE id = ?', [$x]), 'X is deleted');
+        $this->assertSame(1, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM KatalysisNeuronAiChats WHERE id = ?', [$y]), 'Y is kept');
+    }
+
+    public function testAfterLoadingAChatAReloadShowsIt(): void
+    {
+        [$x] = $this->loadAnEarlierChat();
+
+        [, $current] = $this->call($this->controller(), 'current');
+
+        $this->assertSame($x, $current['chat']['id']);
+        $this->assertSame(['X question.', 'X reply.'], array_map([self::class, 'text'], $this->reload()));
+    }
+
+    public function testLoadingSomeoneElsesChatIsRefusedAndChangesNothing(): void
+    {
+        $this->actAs('superuser');
+        $this->send($this->controller(new FakeAIProvider(new AssistantMessage('Admin reply.'))), 'Admin question.');
+        $adminChat = $this->currentChatId();
+        $adminSession = session_id();
+
+        $this->startSession();
+        $this->actAs('neuron_chat_editor');
+        $this->send($this->controller(new FakeAIProvider(new AssistantMessage('Editor reply.'))), 'Editor question.');
+        $editorChat = $this->currentChatId();
+
+        [$status] = $this->call($this->controller(), 'load', null, ['id' => (string) $adminChat]);
+
+        $this->assertSame(404, $status);
+        $this->assertSame($editorChat, $this->currentChatId(), "the editor's session keeps its own chat");
+        $this->assertSame($adminSession, $this->db()->fetchOne('SELECT sessionId FROM KatalysisNeuronAiChats WHERE id = ?', [$adminChat]), "the admin's chat stays in the admin's session");
+    }
+
+    /**
+     * Loading changes which chat the session uses, so it needs the panel's token like the POST actions.
+     */
+    public function testLoadingWithoutAValidTokenIsRefusedAndChangesNothing(): void
+    {
+        $this->actAs('superuser');
+        $this->send($this->controller(new FakeAIProvider(new AssistantMessage('X reply.'))), 'X question.');
+        $x = $this->currentChatId();
+        $this->startSession();
+        $this->send($this->controller(new FakeAIProvider(new AssistantMessage('Y reply.'))), 'Y question.');
+        $y = $this->currentChatId();
+
+        foreach ([null, 'not-a-token'] as $token) {
+            [$status, $body] = $this->call($this->controller(), 'load', null, ['id' => (string) $x], $token);
+
+            $this->assertSame(403, $status);
+            $this->assertSame(ChatAccess::TOKEN_ERROR_CODE, $body['code'] ?? null);
+        }
+        $this->assertSame($y, $this->currentChatId());
     }
 
     // ---- BF-7: the pages a turn changed, and blocks open in the user's editor --------------------------------------
