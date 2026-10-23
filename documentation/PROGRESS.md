@@ -89,7 +89,7 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
   - The browser re-check of check 6 (plan §7.3).
 - Checks:
   - **PHPUnit:** full suite OK (1165 tests, 7249 assertions). Red first: `NewestVersionReadTest` (11 tests; the two-tab case through the agent failed with `BlockNotFound` before the change), `ChecksTest::testNoWriteToolFailed`. New: `HandEditSetupTest`, the new `LeftoverCleanupTest` cases. A full run leaves no new leftovers (dry run unchanged after it).
-  - **Scenarios** (code `427da4d`, then `b57f4fa`-equivalent working tree for 24's setup step):
+  - **Scenarios** (code `427da4d`; the last 24 ×3 ran on `24858c1` plus the uncommitted setup-step change, committed as `b57f4fa`):
     - **Before, 23 and 24 ×3:** 23 had 1 pass, 2 fail; 24 had 2 pass, 1 fail (one run read all three versions' blocks through `includeInactive`; one chose the headings tool).
     - **After, all 24 ×1:** 11 pass, 6 partial, 7 fail. **No regressions** against BF-7's run. 05 fail → partial. 15 failed once (a `list_pages` path error, not BF-10) and then passed 3/3 when re-run ×3.
     - **23 ×3:** fail 3/3 (P3.3); `saved_html_valid` and `all_text_unchanged` passed every time.
