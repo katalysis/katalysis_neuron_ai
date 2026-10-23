@@ -34,6 +34,7 @@ use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
+use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
@@ -129,13 +130,21 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'list_pages',
-            'List pages with optional filtering and sorting. Returns most recently modified pages by default. Use includeDescendants=true to get all pages under a path (not just direct children).'
+            'List pages with optional filtering and sorting. Returns most recently modified pages by default. Use includeDescendants=true to get all pages under a path (not just direct children). '
+            . 'The result gives the total and whether there are more; use offset for the next pages.'
         );
 
         $tool->addProperty(new ToolProperty(
             'limit',
             PropertyType::INTEGER,
-            'Maximum number of pages to return (1-100)',
+            'Maximum number of pages to return (1-100, default 20)',
+            false
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'offset',
+            PropertyType::INTEGER,
+            ListWindow::OFFSET_DESCRIPTION,
             false
         ));
 
@@ -173,8 +182,10 @@ class PagesToolkit extends AbstractToolkit
             ?string $parentPath = null,
             ?bool $includeDescendants = false,
             ?string $pageType = null,
-            ?bool $onlyVisible = false
+            ?bool $onlyVisible = false,
+            ?int $offset = null
         ): array {
+            $window = ListWindow::of($limit, $offset, 20, 100);
             $list = new PageList();
             // Match API behavior: exclude external links from page collections.
             $list->getQueryObject()->andWhere('cPointerExternalLink is null');
@@ -183,6 +194,8 @@ class PagesToolkit extends AbstractToolkit
                 return $permissions->canViewPage();
             });
             $list->sortByDateModifiedDescending();
+            // BF-6: a second key, so offset 20 continues where offset 0 stopped.
+            $list->getQueryObject()->addOrderBy('p.cID', 'desc');
             
             // Handle parent filtering
             $resolvedParentID = $parentID;
@@ -225,10 +238,12 @@ class PagesToolkit extends AbstractToolkit
                 $list->filterByAttribute('exclude_nav', false);
             }
             
-            $list->setItemsPerPage(min(max($limit, 1), 100));
+            // BF-6: getResults() ignores setItemsPerPage() and returns every match, and with a permission checker
+            // Concrete has no count query, so the permitted matches are counted here and the window is sliced from them.
             $results = $list->getResults();
-            
-            return array_map(fn($page) => $this->serializePage($page), $results);
+            $pages = array_map(fn($page) => $this->serializePage($page), $window->slice($results));
+
+            return ['pages' => $pages] + $window->summary(count($results), count($pages), 'list_pages', 'parentPath, pageType or includeDescendants=false');
         }));
 
         return $tool;
@@ -2243,7 +2258,8 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'get_page_children',
-            'Get all child pages of a specific page. Provide either pageID or parentPath.'
+            'Get the child pages of a specific page. Provide either pageID or parentPath. '
+            . 'The result gives the total and whether there are more; use offset for the next children.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -2263,11 +2279,19 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'limit',
             PropertyType::INTEGER,
-            'Maximum number of children to return',
+            'Maximum number of children to return (1-100, default 100)',
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $parentPath = null, ?int $limit = 100): array {
+        $tool->addProperty(new ToolProperty(
+            'offset',
+            PropertyType::INTEGER,
+            ListWindow::OFFSET_DESCRIPTION,
+            false
+        ));
+
+        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $parentPath = null, ?int $limit = 100, ?int $offset = null): array {
+            $window = ListWindow::of($limit, $offset, 100, 100);
             if (!$pageID && !$parentPath) {
                 throw new \RuntimeException("Either pageID or parentPath is required");
             }
@@ -2293,19 +2317,20 @@ class PagesToolkit extends AbstractToolkit
             $list = new PageList();
             $list->filterByParentID($page->getCollectionID());
             $list->sortByDisplayOrder();
+            $list->getQueryObject()->addOrderBy('p.cID', 'asc');
             $list->setPermissionsChecker(function ($childPage) {
                 $permissions = new Checker($childPage);
                 return $permissions->canViewPage();
             });
-            $list->setItemsPerPage(min($limit, 100));
-            
+
+            // BF-6: every permitted child is loaded to count them (as in list_pages); the window is sliced from them.
             $children = $list->getResults();
-            
+            $shown = array_map(fn($child) => $this->serializePage($child), $window->slice($children));
+
             return [
                 'parent' => $this->serializePage($page),
-                'children' => array_map(fn($child) => $this->serializePage($child), $children),
-                'total' => count($children)
-            ];
+                'children' => $shown,
+            ] + $window->summary(count($children), count($shown), 'get_page_children');
         }));
 
         return $tool;

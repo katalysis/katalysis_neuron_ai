@@ -13,6 +13,7 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -43,13 +44,20 @@ class UsersToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'list_users',
-            'List users in the system with pagination'
+            'List users in the system, newest first. The result gives the total and whether there are more; use offset for the next users.'
         );
 
         $tool->addProperty(new ToolProperty(
             'limit',
             PropertyType::INTEGER,
-            'Maximum number of users to return (1-100)',
+            'Maximum number of users to return (1-100, default 20)',
+            false
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'offset',
+            PropertyType::INTEGER,
+            ListWindow::OFFSET_DESCRIPTION,
             false
         ));
 
@@ -62,8 +70,10 @@ class UsersToolkit extends AbstractToolkit
 
         $tool->setHandler($this->guarded(function (
             ?int $limit = 20,
-            ?bool $activeOnly = false
+            ?bool $activeOnly = false,
+            ?int $offset = null
         ): array {
+            $window = ListWindow::of($limit, $offset, 20, 100);
             $list = new UserList();
             $list->setPermissionsChecker(function ($userInfo) {
                 $permissions = new Checker($userInfo);
@@ -73,15 +83,18 @@ class UsersToolkit extends AbstractToolkit
             $dateAddedColumn = new DateAddedColumn();
             $dateAddedColumn->setColumnSortDirection('desc');
             $list->sortBySearchColumn($dateAddedColumn);
-            
+            $list->getQueryObject()->addOrderBy('u.uID', 'desc');
+
             if ($activeOnly) {
                 $list->filterByIsActive(true);
             }
-            
-            $list->setItemsPerPage(min(max($limit, 1), 100));
+
+            // BF-6: getResults() ignores setItemsPerPage() and returns every match, and with a permission checker
+            // Concrete has no count query, so the permitted matches are counted here and the window is sliced from them.
             $results = $list->getResults();
-            
-            return array_map(fn($userInfo) => $this->serializeUser($userInfo), $results);
+            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo), $window->slice($results));
+
+            return ['users' => $users] + $window->summary(count($results), count($users), 'list_users', 'activeOnly, or search_users');
         }));
 
         return $tool;
@@ -183,7 +196,7 @@ class UsersToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'search_users',
-            'Search for users by username or email'
+            'Search for users by username or email. The result gives the total and whether there are more; use offset for the next users.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -196,25 +209,34 @@ class UsersToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'limit',
             PropertyType::INTEGER,
-            'Maximum number of results',
+            'Maximum number of results (1-100, default 20)',
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?string $query = null, ?int $limit = 20): array {
+        $tool->addProperty(new ToolProperty(
+            'offset',
+            PropertyType::INTEGER,
+            ListWindow::OFFSET_DESCRIPTION,
+            false
+        ));
+
+        $tool->setHandler($this->guarded(function (?string $query = null, ?int $limit = 20, ?int $offset = null): array {
             if (!$query) {
                 throw new \RuntimeException("query is required");
             }
+            $window = ListWindow::of($limit, $offset, 20, 100);
             $list = new UserList();
             $list->filterByKeywords($query);
-            $list->setItemsPerPage(min(max($limit, 1), 100));
-            
+            $list->getQueryObject()->addOrderBy('u.uID', 'asc');
+
+            // BF-6: every match the user may view (UserList checks canViewUser), counted here; the window is sliced.
             $results = $list->getResults();
-            
+            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo), $window->slice($results));
+
             return [
                 'query' => $query,
-                'total' => count($results),
-                'users' => array_map(fn($userInfo) => $this->serializeUser($userInfo), $results)
-            ];
+                'users' => $users,
+            ] + $window->summary(count($results), count($users), 'search_users', 'a more specific query');
         }));
 
         return $tool;

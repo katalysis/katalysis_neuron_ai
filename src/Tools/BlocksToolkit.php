@@ -13,6 +13,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use NeuronAI\Tools\ToolProperty;
@@ -187,7 +188,8 @@ class BlocksToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'search_blocks_by_type',
-            'Search for all instances of a specific block type across the site (including blocks nested inside container blocks)'
+            'Search for all instances of a specific block type across the site (including blocks nested inside container blocks), '
+            . 'on the pages you can view. The result gives the total and whether there are more; use offset for the next blocks.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -200,7 +202,14 @@ class BlocksToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'limit',
             PropertyType::INTEGER,
-            'Maximum number of results to return (default: 100)',
+            'Maximum number of results to return (1-500, default 100)',
+            false
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'offset',
+            PropertyType::INTEGER,
+            ListWindow::OFFSET_DESCRIPTION,
             false
         ));
 
@@ -214,7 +223,8 @@ class BlocksToolkit extends AbstractToolkit
         $tool->setHandler(function (
             ?string $blockTypeHandle = null,
             ?int $limit = 100,
-            ?string $version = null
+            ?string $version = null,
+            ?int $offset = null
         ): string {
             if (!$blockTypeHandle) {
                 return "❌ Error: blockTypeHandle is required";
@@ -265,26 +275,43 @@ class BlocksToolkit extends AbstractToolkit
                     ->leftJoin('p', 'PagePaths', 'pp', 'p.cID = pp.cID AND pp.ppIsCanonical = 1')
                     ->where('b.btID = :btID')
                     ->setParameter('btID', $bt->getBlockTypeID())
-                    ->orderBy('b.bDateModified', 'DESC');
+                    ->orderBy('b.bDateModified', 'DESC')
+                    ->addOrderBy('b.bID', 'DESC');
 
                 // BF-10: one version per page, the newest by default (what editors see and the write tools change).
                 $qb->andWhere($published
                     ? 'cv.cvIsApproved = 1'
                     : 'cvb.cvID = (SELECT MAX(cvn.cvID) FROM CollectionVersions cvn WHERE cvn.cID = cvb.cID)');
-                
-                if ($limit) {
-                    $qb->setMaxResults(min($limit, 500)); // Cap at 500 for safety
-                }
 
-                $results = $qb->execute()->fetchAll();
+                // BF-6: only blocks on pages the user can view are listed or counted, so every match is read and
+                // checked page by page (no SQL limit); the window is sliced from what's left.
+                $viewable = [];
+                $results = array_values(array_filter($qb->execute()->fetchAll(), static function (array $row) use (&$viewable): bool {
+                    $cID = (int) $row['cID'];
+                    if (!isset($viewable[$cID])) {
+                        $page = Page::getByID($cID);
+                        $viewable[$cID] = $page && !$page->isError() && (bool) (new Checker($page))->canViewPage();
+                    }
+
+                    return $viewable[$cID];
+                }));
 
                 if (empty($results)) {
-                    return "No instances of '{$bt->getBlockTypeHandle()}' found in the " . ($published ? 'published' : 'newest') . ' version of any page.';
+                    return "No instances of '{$bt->getBlockTypeHandle()}' found in the " . ($published ? 'published' : 'newest') . ' version of any page you can view.';
                 }
 
-                $count = count($results);
-                $output = "🔍 **Found {$count} instance(s) of '{$bt->getBlockTypeHandle()}' block** in the "
-                    . ($published ? 'published version' : 'newest version') . " of each page:\n\n";
+                $window = ListWindow::of($limit, $offset, 100, 500);
+                $total = count($results);
+                $results = $window->slice($results);
+                $note = $window->note($total, count($results), 'search_blocks_by_type');
+                $output = "🔍 **Found {$total} instance(s) of '{$bt->getBlockTypeHandle()}' block** in the "
+                    . ($published ? 'published version' : 'newest version') . " of each page you can view.\n\n";
+                if ($note !== null) {
+                    $output .= "ℹ️ {$note}\n\n";
+                }
+                if (empty($results)) {
+                    return $output;
+                }
                 if (($resolution['resolvedFrom'] ?? null) && $resolution['resolvedFrom'] !== $bt->getBlockTypeHandle()) {
                     $output .= "ℹ️ Resolved requested handle `{$resolution['resolvedFrom']}` to installed handle `{$bt->getBlockTypeHandle()}`.\n\n";
                 }

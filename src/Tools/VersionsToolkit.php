@@ -18,6 +18,7 @@ use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -81,7 +82,8 @@ GUIDELINES;
     {
         $tool = new CallableTool(
             'list_page_versions',
-            'List all versions of a page, showing which are approved/draft and who created them.'
+            'List the versions of a page, newest first, showing which are approved/draft and who created them. '
+            . 'The result gives the total and whether there are more; use offset for older versions.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -98,7 +100,14 @@ GUIDELINES;
             false
         ));
 
-        $tool->setHandler(function (int $pageID, ?int $limit = 10) {
+        $tool->addProperty(new ToolProperty(
+            'offset',
+            PropertyType::INTEGER,
+            ListWindow::OFFSET_DESCRIPTION,
+            false
+        ));
+
+        $tool->setHandler(function (int $pageID, ?int $limit = 10, ?int $offset = null) {
             try {
                 $page = Page::getByID($pageID);
                 
@@ -115,15 +124,26 @@ GUIDELINES;
                 // Get version list - use the page's approved version as the base
                 $approvedPage = Page::getByID($pageID, 'ACTIVE');
                 $versionList = new VersionList($approvedPage);
-                $versions = $versionList->get($limit);
+                // BF-6: no maximum, as before; the total and the note say when older versions weren't shown.
+                $window = ListWindow::of($limit, $offset, 10, PHP_INT_MAX);
+                $total = (int) $versionList->getTotal();
+                $versions = $versionList->get($window->limit, $window->offset);
 
-                if (empty($versions)) {
+                if ($total === 0) {
                     return "ℹ️ **No versions found** for page: " . $page->getCollectionName();
                 }
 
                 $output = "## 📚 Version History: " . $page->getCollectionName() . "\n";
                 $output .= "**Path:** " . $page->getCollectionPath() . "\n";
-                $output .= "**Page ID:** {$pageID}\n\n";
+                $output .= "**Page ID:** {$pageID}\n";
+                $output .= "**Versions:** {$total}\n\n";
+                $note = $window->note($total, count($versions), 'list_page_versions');
+                if ($note !== null) {
+                    $output .= "ℹ️ {$note}\n\n";
+                }
+                if (empty($versions)) {
+                    return $output;
+                }
 
                 $output .= "| Version | Status | Created | Author | Comments |\n";
                 $output .= "|---------|--------|---------|--------|----------|\n";

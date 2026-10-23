@@ -11,6 +11,7 @@ use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -43,7 +44,8 @@ class PeopleToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'list_people',
-            'List all people in the system with filtering options. Returns basic info including specialisms and topics.'
+            'List the people in the system with filtering options. Returns basic info including specialisms and topics. '
+            . 'The result gives the total and whether there are more; use offset for the next people.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -63,27 +65,38 @@ class PeopleToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'limit',
             PropertyType::INTEGER,
-            'Maximum number of results to return (default: 100)',
+            'Maximum number of results to return (1-100, default: 100)',
+            false
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'offset',
+            PropertyType::INTEGER,
+            ListWindow::OFFSET_DESCRIPTION,
             false
         ));
 
         $tool->setHandler($this->guarded(function (
             ?bool $active_only = true,
             ?bool $featured_only = false,
-            ?int $limit = 100
+            ?int $limit = 100,
+            ?int $offset = null
         ): array {
+            $window = ListWindow::of($limit, $offset, 100, 100);
             $list = new PeopleList();
 
             // Apply filters
             $list->filterByActive($active_only ? 1 : null);
-            
+
             if ($featured_only) {
                 $list->featuredOnly();
             }
 
-            if ($limit && $limit > 0) {
-                $list->limitResults($limit);
-            }
+            // BF-6: the total of every match, counted before the window is applied (no ORDER BY in a COUNT).
+            $count = clone $list->getQueryObject();
+            $total = (int) $count->resetQueryPart('orderBy')->select('COUNT(DISTINCT p.sID)')->execute()->fetchOne();
+            $list->limitResults($window->limit);
+            $list->getQueryObject()->setFirstResult($window->offset);
 
             $results = $list->getResults();
             $people = [];
@@ -112,9 +125,9 @@ class PeopleToolkit extends AbstractToolkit
 
             return [
                 'success' => true,
-                'totalPeople' => count($people),
+                'totalPeople' => $total,
                 'people' => $people,
-            ];
+            ] + $window->summary($total, count($people), 'list_people', 'active_only or featured_only');
         }));
 
         return $tool;

@@ -13,6 +13,7 @@ use Concrete\Core\Tree\Node\Type\FileFolder;
 use Concrete\Core\Support\Facade\Database;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -390,13 +391,21 @@ class FilesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'list_files',
-            'List files in the file manager with optional filtering'
+            'List files in the file manager with optional filtering, newest first. '
+            . 'The result gives the total and whether there are more; use offset for the next files.'
         );
 
         $tool->addProperty(new ToolProperty(
             'limit',
             PropertyType::INTEGER,
-            'Maximum number of files to return (1-100)',
+            'Maximum number of files to return (1-100, default 20)',
+            false
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'offset',
+            PropertyType::INTEGER,
+            ListWindow::OFFSET_DESCRIPTION,
             false
         ));
 
@@ -417,14 +426,17 @@ class FilesToolkit extends AbstractToolkit
         $tool->setHandler($this->guarded(function (
             ?int $limit = 20,
             ?int $folderID = null,
-            ?string $extension = null
+            ?string $extension = null,
+            ?int $offset = null
         ): array {
+            $window = ListWindow::of($limit, $offset, 20, 100);
             $list = new FileList();
             $list->setPermissionsChecker(function ($file) {
                 $permissions = new Checker($file);
                 return $permissions->canViewFileInFileManager();
             });
             $list->sortByDateAddedDescending();
+            $list->getQueryObject()->addOrderBy('f.fID', 'desc');
             
             if ($folderID) {
                 $folder = FileFolder::getByID($folderID);
@@ -437,11 +449,14 @@ class FilesToolkit extends AbstractToolkit
                 $list->filterByExtension($extension);
             }
             
-            $list->setItemsPerPage(min(max($limit, 1), 100));
+            // BF-6: getResults() ignores setItemsPerPage() and returns every match, and with a permission checker
+            // Concrete has no count query, so the permitted matches are counted here and the window is sliced from them.
             $results = $list->getResults();
-            
+
             // FileList returns FileEntity objects
-            return array_map(fn($file) => $this->serializeFile($file), $results);
+            $files = array_map(fn($file) => $this->serializeFile($file), $window->slice($results));
+
+            return ['files' => $files] + $window->summary(count($results), count($files), 'list_files', 'folderID or extension');
         }));
 
         return $tool;

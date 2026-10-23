@@ -50,8 +50,16 @@ final class ToolBaseline
         'PagesToolkit::get_current_page_context' => 'BF-10: the description says it shows the newest version',
         'BlocksToolkit::get_block_data' => 'BF-10: versionID defaults to the newest version',
         'BlocksToolkit::list_page_blocks_by_type' => 'BF-10: version (newest by default) replaces includeInactive',
-        'BlocksToolkit::search_blocks_by_type' => 'BF-10: version (newest by default) replaces includeInactive',
+        'BlocksToolkit::search_blocks_by_type' => 'BF-10: version (newest by default) replaces includeInactive; BF-6: offset input, only pages the user can view, the description says the result gives the total',
         'BlocksToolkit::list_container_blocks' => 'BF-10: version (newest by default) replaces includeInactive',
+        'PagesToolkit::list_pages' => 'BF-6: offset input; limit names its default; the description says the result gives the total and whether there are more',
+        'PagesToolkit::get_page_children' => 'BF-6: offset input; limit names its range; the description no longer says "all" and says the result gives the total',
+        'FilesToolkit::list_files' => 'BF-6: offset input; limit names its default; the description says newest first and that the result gives the total',
+        'UsersToolkit::list_users' => 'BF-6: offset input; limit names its default; the description says newest first and that the result gives the total',
+        'UsersToolkit::search_users' => 'BF-6: offset input; limit names its range; the description says the result gives the total',
+        'VersionsToolkit::list_page_versions' => 'BF-6: offset input; the description says newest first and that the result gives the total',
+        'PeopleToolkit::list_people' => 'BF-6: offset input; limit capped at 100; the description says the result gives the total',
+        'TopicsToolkit::get_topic_tree_structure' => 'BF-6: the description says what totalTopics counts and how a cut at max_depth is shown',
     ];
 
     /**
