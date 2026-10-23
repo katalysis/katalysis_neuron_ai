@@ -108,7 +108,20 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
     - **Fix:** `BlockNotFound` gives the update, delete, move and batch tools the exact reason and the ID the newest version has at that position. `StaleBlockIDTest`, red first, reproduces the two-tab case.
     - **Full suite after the fix:** OK (1128 tests).
     - **Proposed for Glyn, not done:** `get_page_content` could read the newest version by default.
-- Questions for review: re-run browser check 6.
+  - **Check 6 re-run: the two-tab edit worked, but a serious bug surfaced (plan §15).**
+    - **What happened:** a write saved escaped HTML in the draft: literal `<\/h2>\r\n`, with the headings never closed.
+    - **Source:** the JSON encoding of tool results (Neuron escapes slashes, and CR LF shows as `\r\n`), on HTML that edit mode had stored with line breaks. The model copied the encoded text into `update_block_in_page_area`, and the text check let it through. Neither BF-5's read nor BF-7's error message caused it.
+    - **Fixes:**
+      - `ToolResultEncoding`: no escaped slashes, and no line breaks in HTML, in any tool result
+      - the text check refuses escape sequences, HTML that is no longer well-formed, and (keep_text) fewer elements; `add_block_to_page_area` is checked too
+      - the scenarios' `saved_html_valid` check runs for every expect block; P3.11 notes it
+    - **Tests:** red first (`EscapedContentTest` replays chat 3995's exact values; `TextIntegrityTest`, `CallableToolTest`, `ChecksTest`).
+    - **Existing tests changed, each in its own commit with the reason:** `ChecksTest::testEvaluateRunsAllThreeGroups`, and `SeedResetTest`'s escaped path.
+    - **Full suite:** OK (1146 tests).
+    - **Why no scenario caught it:** the seed's HTML is on one line, and no check looked at the HTML's structure.
+    - **Scenarios:** not re-run after this change. The result encoding changes every tool's output; whether to re-run is Glyn's call.
+  - Proposed: a scenario fixture with content saved through edit mode (CR LF line breaks, `&nbsp;`), so the suite covers what real editors store.
+- Questions for review: re-run browser check 6, and check the "Again!" edit on a page with hand-edited content. Re-run scenarios after the result-encoding change?
 
 ### 2026-10-22: BF-9 A chat never gets permanently stuck
 - Branch / PR: `task/BF-9-chat-never-stuck`, PR #50 into `development`. Significant task; plan [plans/BF-9.md](plans/BF-9.md), approved by Glyn with the decisions in §10.
