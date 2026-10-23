@@ -342,7 +342,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
 
         $this->assertSame([], $made, 'create_page made the page before refusing the unknown handle.');
         $this->assertStringContainsString("'no_such_handle_bf3' is not a page attribute handle", $output);
-        $this->assertStringContainsString('Nothing was changed', $output);
+        $this->assertStringContainsStringIgnoringCase('nothing was changed', $output);
     }
 
     /**
