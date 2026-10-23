@@ -29,6 +29,7 @@ use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
+use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
@@ -665,6 +666,10 @@ class PagesToolkit extends AbstractToolkit
             // Blocks in container or area layout columns can't be remapped between versions (the remap
             // only sees top-level areas). Refuse them now, before any draft exists, so nothing is left behind.
             $this->refuseBlocksInSubAreas($page, $updates);
+            // A block the newest version doesn't hold gets the reason and the ID to use, before any draft (BF-7).
+            foreach ($updates as $update) {
+                BlockNotFound::refuseUnlessInNewestVersion($page, (string) $update['areaHandle'], (int) $update['blockID']);
+            }
 
             // Capture block layout BEFORE creating new version
             try {
@@ -2380,10 +2385,8 @@ class PagesToolkit extends AbstractToolkit
                 }
                 $fallbackBlock = Block::getByID($blockID, $page, $fallbackArea);
                 if (!$fallbackBlock) {
-                    if ($e instanceof AreaNotFoundException) {
-                        throw new \RuntimeException("Area '{$areaHandle}' not found on page {$pageID}");
-                    }
-                    throw new \RuntimeException("Block {$blockID} not found in area '{$areaHandle}' on page {$pageID}");
+                    // Where the block is instead, and the ID to use (BF-7, browser check 6).
+                    throw new \RuntimeException(BlockNotFound::explain($page, $areaHandle, $blockID));
                 }
                 $area = $fallbackArea;
                 $block = $fallbackBlock;
@@ -2755,7 +2758,7 @@ class PagesToolkit extends AbstractToolkit
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
             } catch (AreaNotFoundException|BlockNotFoundException $e) {
-                throw new \RuntimeException("Block {$blockID} not found in area '{$areaHandle}' on page {$pageID}");
+                throw new \RuntimeException(BlockNotFound::explain($page, $areaHandle, $blockID));
             }
 
             $checker = new Checker($block);
@@ -2854,7 +2857,7 @@ class PagesToolkit extends AbstractToolkit
             try {
                 [, $block] = $this->getBlockToWorkWith($page, $fromAreaHandle, $blockID);
             } catch (AreaNotFoundException|BlockNotFoundException $e) {
-                throw new \RuntimeException("Block {$blockID} not found in area '{$fromAreaHandle}' on page {$pageID}");
+                throw new \RuntimeException(BlockNotFound::explain($page, $fromAreaHandle, $blockID));
             }
 
             $sourceChecker = new Checker($block);

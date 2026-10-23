@@ -164,7 +164,7 @@ final class StaleBlockIDTest extends ConcreteTestCase
         $output = ThrowawayPages::runTool(new PagesToolkit(), 'delete_block_from_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $elsewhere]);
 
         $this->assertFalse(ToolKind::succeeded($output), $output);
-        $this->assertStringContainsString("Block {$elsewhere} is not on page {$cID}", $output);
+        $this->assertStringContainsString("Block {$elsewhere} not found: it is not on page {$cID}", $output);
         $this->assertStringContainsString('get_page_blocks', $output);
         $this->assertStringContainsString('Nothing was changed', $output);
     }
