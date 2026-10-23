@@ -19,6 +19,10 @@ use PHPUnit\Framework\TestCase;
  * tearDownAfterClass() compares. A class that leaves rows behind fails, naming
  * the tables (see DatabaseSnapshot for the allowance). A subclass that
  * overrides tearDownAfterClass() must call parent::tearDownAfterClass().
+ *
+ * WP-2 drift check: setUpBeforeClass() fails the class with "fixture drift: run the seed reset" when a fixture page
+ * under /neuron-test is not as the seed left it (FixtureDrift), naming the pages. The leak check keeps the state the
+ * same from one class to the next, so in a clean run this only fails when something outside the run changed a page.
  */
 abstract class ConcreteTestCase extends TestCase
 {
@@ -27,7 +31,13 @@ abstract class ConcreteTestCase extends TestCase
     public static function setUpBeforeClass(): void
     {
         $app = ConcreteBoot::boot();
-        self::$snapshotBeforeClass = DatabaseSnapshot::take($app->make(Connection::class));
+        $db = $app->make(Connection::class);
+        self::$snapshotBeforeClass = DatabaseSnapshot::take($db);
+
+        $drift = FixtureDrift::problem($db);
+        if ($drift !== null) {
+            self::fail($drift);
+        }
     }
 
     public static function tearDownAfterClass(): void

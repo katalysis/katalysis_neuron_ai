@@ -21,6 +21,9 @@ final class ConcreteBoot
 {
     private static ?Application $app = null;
 
+    /** Held until the PHPUnit process ends (WP-2). */
+    private static ?FixtureLock $fixtureLock = null;
+
     /**
      * Same rule as documentation/fixtures/seed_test_content.php.
      */
@@ -50,6 +53,14 @@ final class ConcreteBoot
         $dbProblem = DatabaseGuard::findProblem($siteDir . '/application/config');
         if ($dbProblem !== null) {
             fwrite(STDERR, "Refusing to run tests: {$dbProblem}\n");
+            exit(1);
+        }
+
+        // WP-2: the shared fixture lock, so the seed and the scenario runner can't reset /neuron-test under the tests.
+        try {
+            self::$fixtureLock = FixtureLock::acquire('the PHPUnit integration tests');
+        } catch (\RuntimeException $e) {
+            fwrite(STDERR, $e->getMessage() . "\n");
             exit(1);
         }
 

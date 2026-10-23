@@ -111,6 +111,36 @@ The seed clears Concrete's cache at the end of every successful run (also `--res
 
 The editor's rights are set per page through Concrete's API, and the site's simple permission model is enough: advanced permissions don't need to be switched on.
 
+### One at a time: the fixture lock and the drift check (WP-2)
+
+The seed, the PHPUnit integration tests and the scenario runner share one lock on the fixture (`tests/Support/FixtureLock.php`), so one of them can't reset `/neuron-test` while another is using it. Whichever starts second refuses and changes nothing, with a message such as:
+
+```
+Refusing to start the seed (seed_test_content.php --reset): the dev site's test fixture is in use by the scenario runner (run_scenarios.php --scenario=05 --repeat=3) (process 41234, since 2026-10-23 16:40:12 UTC). ...
+```
+
+Wait for it to finish and start again. The integration tests take the lock when the first test class boots Concrete and keep it until PHPUnit ends; a unit-only run doesn't take it. A seed that the tests or the runner start themselves shares their lock (it finds their token in `NEURON_FIXTURE_LOCK`).
+
+**Stale locks:** the lock is an `flock()` on `.fixture-lock` in the package folder (gitignored). The operating system releases it when the holding process ends, however it ends (a crash, a fatal error, Ctrl-C, `kill -9`), so a crashed run never blocks the next one; the file's leftover details are ignored and overwritten. Only a run that is still alive keeps the lock. If it is stuck, stop the process the message names (`kill <pid>`). Don't delete the file to get past a refusal: it doesn't release a lock that is held.
+
+**Drift:** after every successful run the seed records a fingerprint of each page at `/neuron-test` and below (every row of its versions, their blocks, content-block text and attribute values) in one `Config` row (`katalysis_neuron_ai` / `fixture` / `pages`; `--reset-only` removes it). Before every integration test class, `ConcreteTestCase` compares, and if a page changed (a browser check, a page-properties save, a test that didn't clean up) the class fails with:
+
+```
+fixture drift: run the seed reset. /neuron-test is not as the seed left it:
+  /neuron-test/headings (page ID 31541) has 2 version(s), newest 2 (not approved); the seed left 1, newest 1
+```
+
+Run the seed with `--reset` (back up first if the change matters) and run the tests again.
+
+**Once per dev site, after WP-2 is merged:** run the seed with `--reset` (after a backup) to record the first fingerprint. A site seeded before WP-2 has none, and until it does, every integration test class fails (the unit suite still passes) with:
+
+```
+fixture drift: run the seed reset. /neuron-test is not as the seed left it:
+  the seed has recorded no fingerprint of the fixture pages (it records one since WP-2)
+```
+
+That is expected and not a broken test: one `--reset` records the fingerprint, and from then on every seed run keeps it up to date.
+
 ### Clearing the dev chats (`clear_dev_chats.php`)
 
 Dev chats are disposable (P2.5): chat history has no compatibility across the Neuron 3 → 4 upgrade or its rollback. `documentation/fixtures/clear_dev_chats.php` deletes every stored chat; the messages in `KatalysisNeuronAiChatMessages` go with them (the foreign key cascades). It refuses to run unless the site's canonical URL is a `.test`, `.localhost` or `localhost` host. Run it from the package folder:
@@ -165,8 +195,8 @@ export PATH="$HOME/Library/Application Support/Herd/bin:$PATH"
 COMPOSER=composer.dev.json composer install
 
 # run the tests
-php tools/phpunit/vendor/bin/phpunit --exclude-group slow   # fast tier, after every change (about 9 s)
-php tools/phpunit/vendor/bin/phpunit                        # everything, before every PR (about 35 s)
+php tools/phpunit/vendor/bin/phpunit --exclude-group slow   # fast tier, after every change (about 18 s, 1,210 tests)
+php tools/phpunit/vendor/bin/phpunit                        # everything, before every PR (about 43 s, 1,223 tests)
 php tools/phpunit/vendor/bin/phpunit --testsuite unit
 php tools/phpunit/vendor/bin/phpunit --testsuite integration
 ```
@@ -175,7 +205,7 @@ php tools/phpunit/vendor/bin/phpunit --testsuite integration
 - The dev-host guard is inside that boot function. It ends the run unless the canonical URL is a `.test`, `.localhost` or `localhost` host, so no test can use Concrete without passing it. Booting itself reads the dev database before the guard can see the site's URL, so don't point the package at a non-dev site.
 - Tests must not call the AI provider or use an API key. Only the scenario runner does that.
 - Tests are read-only unless they say otherwise. A test that writes must clean up after itself.
-- Test content comes from the seed script above (`neuron_editor`, `/neuron-test`).
+- Test content comes from the seed script above (`neuron_editor`, `/neuron-test`). An integration run holds the fixture lock and fails a class on fixture drift ("One at a time: the fixture lock and the drift check" above).
 - Before Concrete boots, `ConcreteBoot` also refuses to run if the site's `database.php` points at a host that is not local (127.0.0.1, localhost, ::1 or a unix socket).
 - **`katalysis_pro` must match this package** (P2.8). `katalysis_pro` is a separate git clone in `httpdocs/packages/katalysis_pro`. On Neuron 4 (`development` since P2.9, PR #47), it needs its `ToolDefinition` version, which is on `themeintegrationtemplates` since katalysis/katalysis_pro#42. On Neuron 3 (`main` of this package, until a release takes `development` there), it needs `katalysis_pro`'s older toolkit, from before #42. A mismatched pair fails safe on the site: there's no error page, the `katalysis_pro` tools just aren't offered, and on Neuron 4 the settings page shows the skip. In the tests, it fails: `KatalysisProToolsTest`, `PromptBaselineTest` and the `katalysis_pro` cases of `ToolRegistryTest` and `ToolResultScanningTest` name the reason.
 
@@ -219,6 +249,7 @@ php concrete/bin/concrete c5:exec packages/katalysis_neuron_ai/tests/Eval/run_sc
 - Tokens are shown per scenario and in total. If the provider reports none, the table says "not reported".
 - Results go to `documentation/eval-results/<YYYYMMDD-HHMMSS>.md` and `.json` (same timestamp), and the markdown is printed. These are gitignored. A file named `baseline-*` in that folder is not ignored, so a recorded baseline can be committed.
 - The runner's chat rows use the session id prefix `neuron-eval-`. They are deleted at the end of the run, and any left by an interrupted run are deleted at the start of the next.
+- It holds the fixture lock for the whole run, so it refuses to start while the seed or the integration tests are running, and they refuse while it runs (WP-2, above).
 - Guards: the script checks the database host and the dev-host URL first and refuses to run otherwise. Because `c5:exec` has already booted Concrete by then, these are the first thing the script does, not a check before Concrete reads the database.
 
 ## Troubleshooting
