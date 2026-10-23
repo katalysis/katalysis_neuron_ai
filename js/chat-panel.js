@@ -14,6 +14,9 @@
         deleteCurrentBtn: null,
         dashboardToggleBtn: null,
         isListView: false,
+        // ID of the saved chat the chat view shows, or null when unknown or none (a new chat
+        // has no ID until its first message). See resolveShownChatId().
+        shownChatId: null,
 
         // Shows a failed response in the chat. A 403 with code 'invalid_token' means the
         // panel's CSRF token is missing or expired (tokens last 24 hours), so say what
@@ -148,6 +151,7 @@
                 }
 
                 this.messages.innerHTML = '';
+                this.shownChatId = data.chat ? data.chat.id : null;
 
                 const history = this.extractHistoryArray(data.chat ? data.chat.chatHistory : null);
                 if (history.length === 0) {
@@ -202,12 +206,14 @@
             return [];
         },
         
+        // Replaces the messages area with the saved history, if there is any. Returns whether it did.
         restoreMessages() {
+            let restored = false;
             try {
                 const savedMessages = localStorage.getItem('neuron-chat-history');
-                if (savedMessages) {
-                    const messages = JSON.parse(savedMessages);
-                    
+                const messages = savedMessages ? JSON.parse(savedMessages) : null;
+                if (Array.isArray(messages) && messages.length > 0) {
+
                     // Clear current messages except welcome message
                     const welcomeMsg = this.messages.querySelector('.neuron-chat-message:first-child');
                     this.messages.innerHTML = '';
@@ -219,12 +225,14 @@
                     messages.forEach(msg => {
                         this.addMessage(msg.content, msg.type, false); // false = don't save to localStorage again
                     });
+                    restored = true;
                 }
             } catch (error) {
                 console.error('Error restoring chat history:', error);
             }
 
             this.updateDeleteCurrentVisibility();
+            return restored;
         },
         
         saveMessageToStorage(content, type) {
@@ -499,7 +507,8 @@
 
                     // Ensure only the new conversation is restored on page reload.
                     localStorage.removeItem('neuron-chat-history');
-                    
+                    this.shownChatId = null;
+
                     // Show welcome message
                     this.showWelcomeMessage();
                     this.updateDeleteCurrentVisibility();
@@ -533,6 +542,7 @@
 
                 this.messages.innerHTML = '';
                 localStorage.removeItem('neuron-chat-history');
+                this.shownChatId = null;
                 this.showWelcomeMessage();
                 this.updateDeleteCurrentVisibility();
             } catch (error) {
@@ -571,8 +581,12 @@
             // Show chat interface
             this.panel.classList.remove('neuron-chat-list-mode');
             
-            // Restore messages from localStorage
-            this.restoreMessages();
+            // Restore messages from localStorage. With none saved (a new or deleted chat), the
+            // list must still go: show the welcome message instead (BF-4).
+            if (!this.restoreMessages()) {
+                this.messages.innerHTML = '';
+                this.showWelcomeMessage();
+            }
             this.updateDeleteCurrentVisibility();
         },
         
@@ -684,6 +698,9 @@
             }
 
             try {
+                // Before the delete: afterwards the server can no longer say which chat the session had.
+                const shownChatId = await this.resolveShownChatId();
+
                 const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete', {
                     method: 'POST',
                     headers: this.postHeaders(),
@@ -696,10 +713,51 @@
                     return;
                 }
 
+                // The chat view showed the deleted chat: clear it, as "Delete current chat" does.
+                // "Back to chat" then shows the welcome message (BF-4).
+                if (shownChatId !== null && String(shownChatId) === String(chatId)) {
+                    localStorage.removeItem('neuron-chat-history');
+                    this.shownChatId = null;
+                }
+
                 await this.showChatListView();
             } catch (error) {
                 this.addMessage('Error deleting chat: ' + error.message, 'assistant');
             }
+        },
+
+        // The ID of the chat the chat view shows. A chat started in the panel gets its ID on the
+        // server with its first message, so when the view has messages but no ID, it is the
+        // session's chat: ask the server. Null when the view shows no saved chat.
+        async resolveShownChatId() {
+            if (this.shownChatId !== null) {
+                return this.shownChatId;
+            }
+
+            let saved = null;
+            try {
+                saved = JSON.parse(localStorage.getItem('neuron-chat-history') || 'null');
+            } catch (error) {
+                saved = null;
+            }
+            if (!Array.isArray(saved) || saved.length === 0) {
+                return null;
+            }
+
+            try {
+                const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/current', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                const data = await response.json();
+                this.shownChatId = data.success && data.chat ? data.chat.id : null;
+            } catch (error) {
+                return null;
+            }
+
+            return this.shownChatId;
         },
         
         async loadChatById(chatId) {
@@ -742,6 +800,7 @@
                                     timestamp: Date.now()
                                 })).filter((msg) => msg.content)
                             ));
+                            this.shownChatId = data.chat.id;
                             this.updateDeleteCurrentVisibility();
                         } else {
                             this.addMessage('Unable to parse saved chat format for this conversation.', 'assistant', false);
