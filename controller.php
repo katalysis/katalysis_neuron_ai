@@ -94,7 +94,10 @@ class Controller extends Package
                 '<link rel="stylesheet" href="' . $assetUrl('css/chat-panel.css') . '">'
             );
 
-            // Add JS
+            // Add JS: the reply formatter first, chat-panel.js uses it (BF-11)
+            $view->addFooterItem(
+                '<script src="' . $assetUrl('js/chat-format.js') . '"></script>'
+            );
             $view->addFooterItem(
                 '<script src="' . $assetUrl('js/chat-panel.js') . '"></script>'
             );

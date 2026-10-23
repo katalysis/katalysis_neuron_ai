@@ -292,11 +292,12 @@ class Chat extends AbstractController
 
     /**
      * The chat's stored messages as the JSON list the panel reads (P2.5: the message rows, archived ones included),
-     * without the page tags and with the injection notices added.
+     * without the page tags and with the injection notices added. Only the person's messages and the final replies
+     * (BF-11).
      */
     private function historyForPanel(int $chatId): string
     {
-        $json = $this->messageStore()->transcriptJson(ChatMessageStore::threadFor($chatId));
+        $json = $this->messageStore()->conversationJson(ChatMessageStore::threadFor($chatId));
 
         return InjectionNotice::annotateHistoryJson(PageContextTag::stripFromHistoryJson($json));
     }
