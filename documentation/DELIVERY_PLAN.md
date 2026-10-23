@@ -285,6 +285,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
     - image alt text is lost, because image blocks return no text (`hasText: false` in the `blocks` list)
   - from P2.9's browser check 6: `get_page_content` accepts a path as well as `pageID`. From `/neuron-test`, "summarise: /neuron-test/injection" made the model call it with the current page's ID (from the page tag), and the reply said the injection page was "empty or non-existent" without having read it. The same "unverified claim" pattern as BF-5
   - from BF-7 (Glyn, after browser check 6): the text check refuses JSON escape sequences that the stored text doesn't have (`<\/`, a literal `\r`, `\n`, `\t` or `\"`). A literal `\n` or `\"` can be legitimate new text, such as a code example or a Windows path in a new paragraph, and the check would refuse it. Refine it here (for example, refuse those only next to tags or when `<\/` is also present), with a test for each case
+  - from BF-7 (Glyn, after the browser checks): audit every write tool's refusal and failure messages, so that each states its specific reason and the next step, as BF-7's stale-block error does (`BlockNotFound`: where the block is, why, and the ID to use). A vague failure ("Block 31610 not found") made the model guess at locks and permissions
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform
@@ -450,7 +451,11 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - `get_topic_tree_structure`: say when `max_depth` cut the tree, and don't report `hasChildren: false` for a node whose children were cut (BF-5 R14)
   - a test per tool, red first
 - [ ] BF-8 **EPRA field renaming applies only to EPRA blocks** (significant; its own PR into `development`; found in BF-5). `normalizeBlockFieldAliasesRecursive` (`PagesToolkit`) renames `title`/`name`/`heading` to `Title` and `description`/`summary` to `precis` for every block type, so the block write tools silently drop a core block's title, name or description. Prefer moving the aliases out of this package through `ExternalToolkitRegistry` (CLAUDE.md rule 6, as P3.4 plans for the EPRA code); if that is too big, scope them to the EPRA block handles as an interim fix. Test that a core block's title, name and description can be set (red first).
-- [ ] BF-10 **Scenario fixture with content saved through edit mode** (its own PR into `development`; decided after BF-7's browser check 6). Every scenario starts from the seed, whose HTML is on one line with no entities, so no scenario saw content as Concrete's editor stores it. Add a fixture page whose blocks have CR LF line breaks between elements and `&nbsp;`, as edit mode saves them, and use it in at least scenario 05 and a single heading edit. `saved_html_valid` (BF-7) checks the saved HTML.
+- [ ] BF-10 **The assistant sees what the editor sees** (its own PR into `development`; **straight after BF-7**, before BF-3; decided after BF-7's browser check 6). The write tools change the newest version, and Concrete shows editors the newest version. But `get_page_content` reads the published version by default, and in check 6 the model read the published version, then wrote with a block ID the newest version no longer had. Scope:
+  - read tools (`get_page_content`, `get_page_blocks` and the others that take a version) default to the newest version, the one editors see and the write tools change; the published version stays available on request
+  - fix any tool description that steers the model towards the published version
+  - a fixture with content as edit mode saves it (CR LF line breaks between elements, `&nbsp;`), used in scenario 05 and a single heading edit. Every scenario starts from the seed, whose HTML is on one line with no entities, so no scenario saw content as Concrete's editor stores it; `saved_html_valid` (BF-7) checks the saved HTML
+  - tests and scenario checks
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
