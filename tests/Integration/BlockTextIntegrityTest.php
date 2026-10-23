@@ -195,8 +195,8 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         $this->assertSame('Search the site', (string) $row['title'], 'A field the update left out must be kept');
         $this->assertSame('Find it now', (string) $row['buttonText']);
 
-        // buttonText, not title: the tool renames a `title` input to `Title` for every block type (an EPRA alias,
-        // found in BF-5 and left for Glyn), so a core block's title can't be set through it at all.
+        // buttonText, not title: before BF-8 the tool renamed a `title` input to `Title` for every block type (an EPRA
+        // alias, found in BF-5). BF-8 limits that to EPRA blocks; BlockFieldNamesTest sets a core block's title.
         $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => (int) $row['bID'],
             'value' => ['buttonText' => ''],
