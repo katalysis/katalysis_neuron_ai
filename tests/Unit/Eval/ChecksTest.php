@@ -63,6 +63,19 @@ final class ChecksTest extends TestCase
         $this->assertAnyFails(ToolChecks::run($spec, $this->ctx(calls: [['name' => 'update_page', 'ok' => true]])));
     }
 
+    public function testNoWriteToolFailed(): void
+    {
+        // BF-10: the first write works, with no failed attempt before it (scenario 24, BF-7's browser check 6).
+        $spec = ['no_write_tool_failed' => true];
+
+        $this->assertAllPass(ToolChecks::run($spec, $this->ctx(calls: [['name' => 'get_page_content', 'ok' => false], ['name' => 'update_block_in_page_area', 'ok' => true]])));
+        $this->assertAllPass(ToolChecks::run($spec, $this->ctx()), 'no write calls');
+        $this->assertAnyFails(ToolChecks::run($spec, $this->ctx(calls: [
+            ['name' => 'update_block_in_page_area', 'ok' => false],
+            ['name' => 'update_block_in_page_area', 'ok' => true],
+        ])), 'a failed write, even with a successful retry');
+    }
+
     public function testNotSucceededNotCalledAndCalledAny(): void
     {
         $calls = [['name' => 'move_page', 'ok' => false], ['name' => 'list_pages', 'ok' => true]];
