@@ -8,8 +8,8 @@ use Concrete\Core\Page\Page;
 
 /**
  * What a write to a page draft tells the model about the version it wrote (BF-7; B-WRT-3, B-REP-1 (c)). By rule 5
- * this is in the tool result, not the prompt: the facts in `summary`, and the one short line the reply should be in
- * `reply` (Glyn's decision, plans/BF-7.md §11).
+ * this is in the tool result, not the prompt: the facts in `summary`, and in `reply` how to word the reply: what was
+ * actually done, then one short line about publishing (Glyn's decisions, plans/BF-7.md §11 and §13).
  *
  * The labels are Concrete 9's own: "Publish Changes" in edit mode's check-in panel (Composer::getPublishButtonTitle()),
  * "Approve Version" in the notice an unpublished version shows outside edit mode (page_controls_footer.php).
@@ -18,11 +18,12 @@ use Concrete\Core\Page\Page;
  */
 final class DraftState
 {
-    public const REPLY = 'Reply in one short, natural line, for example: "Done. You can see it on the page now; it goes live when you publish." '
+    public const REPLY = 'Describe what was actually done, in plain words (for example, that the original block was kept), then add one '
+        . 'short line about publishing, for example: "You can see it on the page now; it goes live when you publish." '
         . 'Give the details below only if the user asks.';
 
-    public const NEW_PAGE_REPLY = 'Reply in one short, natural line, for example: "Done. The page is created but not published yet." '
-        . 'Give the details below only if the user asks.';
+    public const NEW_PAGE_REPLY = 'Describe what was actually done, in plain words, then add one short line, for example: '
+        . '"The page is created but not published yet." Give the details below only if the user asks.';
 
     /**
      * @return array{versionState: array{status: string, pageID: int, versionID: int, summary: string, reply: string}}
