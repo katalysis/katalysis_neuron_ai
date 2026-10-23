@@ -293,6 +293,10 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
     - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list
     - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`)
     - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
+  - from BF-12's audit ([plans/BF-12.md](plans/BF-12.md) §6; Glyn, approving the plan):
+    - image and file page attributes are missing from `get_page` and `get_current_page_context`: `normalizeAttributeValue` (`PagesToolkit.php`) leaves out a `File` value, so the model can't see a page's thumbnail. Return the file ID and its absolute URL, with a test
+    - content reads give links and images the model can't use: `get_page_content`'s `html` keeps the stored `{CCM:…}` placeholders and `<concrete-picture fid>` tags (with the P1.10 item above), and `get_block_controller_data`'s translated HTML has `<img>` tags with a relative `src` (Concrete's `Html\Image`) beside an absolute `srcset`. Give absolute URLs, with a test
+    - `search_blocks_by_type` and `list_container_blocks` guess a page path (`"/{pageHandle}"`, `"/{pageName}"`) when `PagePaths` has no row, and show it as a link. Return the real path or none: the same "unverified claim" pattern as BF-5
 - P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
   - descriptors for `epra_resources_list` and `doc_download`
   - a `multi_link → epra_resources_list` transform
