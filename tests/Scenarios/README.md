@@ -81,6 +81,8 @@ Primary. Pages are named by path. Versions: `latest` is the newest version (what
 | `person_field_empty: {email, field}` | A field was left empty (spec B-PII-4). |
 | `changed_pages: {exactly: [...]}` | **Only** these pages changed since the start of the scenario. Entries are paths, or `children_of: /path` for the recorded direct children of that page. An empty list means no page changed. |
 
+**Always run, not named in a scenario (BF-7):** `saved_html_valid`. Every block value the run wrote, on any page in the snapshot, has no JSON escape sequences (`<\/`, a literal `\r`, `\n`, `\t` or `\"`) and, if it is HTML, is well-formed (every element closed). A value that was already there at the start is skipped. It is a state check, so a failure fails the run. Added after Glyn's browser check 6, where a write saved the escaped text of a JSON tool result (plans/BF-7.md §15).
+
 `blocks` entries. Each names a `page` and may name an `area` (a container's sub-area, such as "Column 1"); the other keys are checks on the blocks there:
 
 | Key | Meaning |

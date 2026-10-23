@@ -213,3 +213,34 @@ These are server-side replays, not browser runs: the browser checks in §7.3 con
 
   A block in another area is named with its area, and a block that isn't on the page says so. This applies to update, delete and move, and to `batch_update_page_content` before any draft. `StaleBlockIDTest` (red first) reproduces the two-tab case per tool and through the agent: the stale ID first, then the retry with the ID the error gave.
 - **Not changed, proposed:** `get_page_content` reads the published version by default ("active"). The write tools edit the newest version, and editors see the newest version on the page. Reading the newest version by default would avoid the mismatch, but it changes a read tool's behaviour, and in this run the model asked for "active" explicitly anyway. For Glyn.
+
+## 15. Browser check 6, second finding: escaped HTML written into a block (2026-10-23)
+- **What happened (chat 3995):**
+  - The block had been hand-edited in edit mode, and the editor had stored it with CR LF line breaks between the elements.
+  - The model read it with `get_page_content` (`version: "recent"`). Neuron's `json_encode()` escapes every slash and writes CR LF as `\r\n`, so the HTML reached the model as `<h2>Seed Heading Two Changed<\/h2>\r\n\r\n<p>…<\/p>`.
+  - The model copied that text, escapes included, into `update_block_in_page_area` (`<h2>Seed Heading Two Changed Again!<\/h2>\r\n\r\n<p>…`, `scoped_text`).
+  - The text check passed it: it treats anything in `<…>` as a tag, so `<\/h2>` counted as one, and the literal `\r\n` counted as added text, which `scoped_text` allows.
+  - The draft (version 3) shows literal `<\/h2>\r\n`, and its headings and paragraphs are never closed.
+- **Source:** something else, neither BF-5's full-text read nor BF-7's new error message. It is the JSON encoding of tool results (escaped slashes) together with HTML that has line breaks, which content stored through edit mode has and the seed content doesn't. `get_page_content` (P1.10) was the read. BF-5's `get_block_controller_data` returns Markdown, where HTML isn't escaped.
+- **Fixes:**
+  - **The source.** Every array result is encoded by `ToolResultEncoding` (in `CallableTool::setResult()`, and in the scanner's re-encoding):
+    - slashes and Unicode are not escaped
+    - HTML has no line breaks: between elements they are removed, inside text they become one space; `<pre>` and `<textarea>` keep their lines
+    - other text has LF only
+
+    So no read hands the model `<\/` or `\r\n` inside HTML.
+  - **The safety net** (`TextIntegrity`, `HtmlIntegrity`), in every mode:
+    - JSON escape sequences (`<\/`, `\r`, `\n`, `\t`, `\"`) that the stored value doesn't already have are refused, with the reason
+    - HTML that was well-formed and no longer is gets refused
+    - under `keep_text`, fewer elements than before is refused: a removed link, list item or paragraph break. Renaming an element (a heading level) and adding elements are still allowed.
+
+    `add_block_to_page_area` runs the same checks on its new value.
+  - **Scenario suite:** `saved_html_valid` runs for every expect block (README).
+- **Why no scenario caught it:**
+  - The seed's HTML is on one line, so no read ever held `\r\n`. Every scenario starts from the seed, and none starts from content saved through edit mode.
+  - With single-line content the model never copied the escaped slashes.
+  - The state checks read text with the tags removed (`all_text_unchanged`, `headings`), which treats `<\/h2>` as a tag, and nothing looked at the HTML's structure or at escape sequences.
+- **Existing tests changed, each in its own commit with the reason:**
+  - `ChecksTest::testEvaluateRunsAllThreeGroups` (the always-on check adds a state result)
+  - `SeedResetTest`'s runner case (paths in results are no longer escaped)
+- **Dev site:** the corrupted draft (`/neuron-test/headings`, version 3) is still there. Discard it in Page Versions, or let the runner's fixture reset remove it.
