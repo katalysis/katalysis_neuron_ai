@@ -130,7 +130,16 @@ fixture drift: run the seed reset. /neuron-test is not as the seed left it:
   /neuron-test/headings (page ID 31541) has 2 version(s), newest 2 (not approved); the seed left 1, newest 1
 ```
 
-Run the seed with `--reset` (back up first if the change matters) and run the tests again. A site seeded before WP-2 has no fingerprint yet, so its first test run says so; one `--reset` records it.
+Run the seed with `--reset` (back up first if the change matters) and run the tests again.
+
+**Once per dev site, after WP-2 is merged:** run the seed with `--reset` (after a backup) to record the first fingerprint. A site seeded before WP-2 has none, and until it does, every integration test class fails (the unit suite still passes) with:
+
+```
+fixture drift: run the seed reset. /neuron-test is not as the seed left it:
+  the seed has recorded no fingerprint of the fixture pages (it records one since WP-2)
+```
+
+That is expected and not a broken test: one `--reset` records the fingerprint, and from then on every seed run keeps it up to date.
 
 ### Clearing the dev chats (`clear_dev_chats.php`)
 
@@ -186,7 +195,7 @@ export PATH="$HOME/Library/Application Support/Herd/bin:$PATH"
 COMPOSER=composer.dev.json composer install
 
 # run the tests
-php tools/phpunit/vendor/bin/phpunit --exclude-group slow   # fast tier, after every change (about 9 s)
+php tools/phpunit/vendor/bin/phpunit --exclude-group slow   # fast tier, after every change (about 18 s, 1,210 tests)
 php tools/phpunit/vendor/bin/phpunit                        # everything, before every PR (about 35 s)
 php tools/phpunit/vendor/bin/phpunit --testsuite unit
 php tools/phpunit/vendor/bin/phpunit --testsuite integration
