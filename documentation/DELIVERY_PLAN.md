@@ -413,6 +413,7 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
   - `/start-task` and `/finish-task` take the base branch from this plan (the integration branch a phase's **Branching** note names for the task, otherwise `development`): task branches branch from it and PR into it
   - keep `ALLOW_VENDOR=1 git commit` prompting: deliberate
 - [ ] WP-2 **One lock for the dev site's shared fixtures** (small; its own PR into `development`; **straight after BF-4**; Glyn's decision at BF-4's start). Found in BF-3 (PROGRESS, BF-3 entry, "Slip"): `FailedWriteCleanupTest` ran while the scenario runner was resetting `/neuron-test`, and the tests failed. The seed reset, the integration tests and the scenario runner take one shared lock, so whichever starts second refuses with a clear message.
+  - also (Glyn, during BF-4): tests that depend on fixture pages detect when those pages were changed (for example by a browser check) and fail with "fixture drift: run the seed reset", not a confusing assertion. Found in BF-4: a page-properties save on `/neuron-test/headings` after BF-3 made `PromptBaselineTest` fail on an `exclude_nav` line.
 
 ### Bug-fix tasks (BF)
 Bugs found outside a phase task. Each is fixed on `development` in its own PR and, during Phase 2, synced into `integration/neuron4` (Phase 2 Branching note).
@@ -441,6 +442,8 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - **The fix:** with no saved history, clear the list and show the welcome message.
   - **The check:** a check of the panel script, or a browser check if no JS test setup is wanted (decide in the task). Reproduced in P2.6 with a Node harness (PROGRESS, P2.6 entry).
   - **Also (Glyn, after P2.9's browser check 2):** deleting the current chat from the saved-chats list leaves it showing in the main chat view. Deleting it must clear the chat view (as "Delete current chat" does). It does not block P2.9.
+  - **Also (Glyn, during BF-4):** loading a saved chat makes it the session's current chat, so the next message, "Delete current chat" and a reload all apply to the chat on screen (a change to `controllers/chat.php`). Red-first tests in `ChatControllerTest`: load chat X, then send, delete and reload all act on X; the owner check still applies (only your own chats load).
+  - **Also (Glyn, during BF-4):** the panel script's URL carries the package version or the file's modified time, so browsers fetch the new script after an update.
 - [x] BF-5 **No unverified claim after a truncated read: block text is not lost in a draft** (its own PR into `development`; decided after P2.9). Done (PR #49). Found in P2.9's scenario run ([phase2-exit-20261022.md](eval-results/phase2-exit-20261022.md) §1, finding 1): in scenario 05 (3 of 5 runs) the model read a block through `get_block_controller_data`, which cuts every content field at 97 characters plus "..." (`src/Tools/BlocksToolkit.php`), then rewrote the whole block with `update_block_in_page_area`. Body text was lost or replaced by invented text in the draft, and each reply said the body text was unchanged. Live was unchanged. Scope:
   - read tools that shorten content say so in the result, or return the full content
   - a shortened read names the tool that returns the full text (Glyn, after P2.9's merge)
