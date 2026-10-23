@@ -7,6 +7,7 @@ namespace Katalysis\NeuronAi\Security;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Support\ToolResultEncoding;
 use Katalysis\NeuronAi\Tools\ToolKind;
 use NeuronAI\Agent\AgentResources;
 use NeuronAI\Agent\AgentState;
@@ -237,7 +238,7 @@ final class ToolResultScanner
     {
         $scanned = $this->inspect($toolName, $result);
 
-        return $scanned instanceof ToolOutput ? $scanned : (is_array($scanned) ? (string) json_encode($scanned) : (string) $scanned);
+        return $scanned instanceof ToolOutput ? $scanned : (is_array($scanned) ? ToolResultEncoding::encode($scanned) : (string) $scanned);
     }
 
     /**
@@ -253,7 +254,7 @@ final class ToolResultScanner
 
         $scanned = $this->inspect($toolName, $result);
 
-        return $scanned instanceof ToolOutput ? $scanned : (is_array($scanned) ? (string) json_encode($scanned) : (string) $scanned);
+        return $scanned instanceof ToolOutput ? $scanned : (is_array($scanned) ? ToolResultEncoding::encode($scanned) : (string) $scanned);
     }
 
     /**
@@ -308,7 +309,7 @@ final class ToolResultScanner
         // A write that succeeded after flagged content was read, in the same turn (not by the same call).
         if ($flaggedBefore && ToolKind::isWrite($toolName)) {
             // A ToolOutput goes as it is, so its error flag is kept (P2.3).
-            $asResult = is_string($returned) || $returned instanceof ToolOutput ? $returned : (string) json_encode($returned);
+            $asResult = is_string($returned) || $returned instanceof ToolOutput ? $returned : ToolResultEncoding::encode((array) $returned);
             if (ToolKind::succeeded($asResult)) {
                 $this->writeAfterFlag = true;
             }

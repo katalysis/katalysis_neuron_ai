@@ -15,6 +15,8 @@ namespace Katalysis\NeuronAi\Tools\Utilities;
  *   replacedText strings, which must be in the stored text. Other fields stay identical.
  *
  * In every mode, a value that looks built from a shortened read (stored text cut off and followed by "..."), is refused.
+ * In every mode too (BF-7, browser check 6), a value with JSON escape sequences the stored text doesn't have ("<\/",
+ * a literal "\r\n"), or whose HTML is no longer well-formed, is refused; under keep_text no element may be removed.
  */
 final class TextIntegrity
 {
@@ -128,6 +130,11 @@ final class TextIntegrity
                 continue;
             }
 
+            $escapes = self::escapeProblem($field, $before[$field] ?? null, $proposed[$field]);
+            if ($escapes !== null) {
+                return $fail($escapes);
+            }
+
             $beforeText = self::normalize($before[$field] ?? null);
             $afterText = self::normalize($proposed[$field]);
 
@@ -186,6 +193,12 @@ final class TextIntegrity
                 }
             }
 
+            // Last, so a lost piece of text is reported as such first.
+            $structure = self::structureProblem($field, $before[$field] ?? null, $proposed[$field], $mode);
+            if ($structure !== null) {
+                return $fail($structure);
+            }
+
             $fields[$field] = [
                 'unchanged' => $beforeText === $afterText,
                 'orderChanged' => $orderChanged,
@@ -194,6 +207,101 @@ final class TextIntegrity
         }
 
         return ['ok' => true, 'message' => 'text check passed', 'watchedFields' => $watched, 'fields' => $fields];
+    }
+
+    /**
+     * The check for a value with nothing stored before it (add_block_to_page_area): no JSON escape sequences, and
+     * well-formed HTML. The reason, or null.
+     *
+     * @param array<string, mixed> $proposed
+     */
+    public static function checkNewValue(array $proposed): ?string
+    {
+        foreach ($proposed as $field => $value) {
+            $problem = self::escapeProblem((string) $field, null, $value) ?? self::structureProblem((string) $field, null, $value, 'new');
+            if ($problem !== null) {
+                return $problem;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * JSON escape sequences the stored value doesn't have, for one field. The reason, or null.
+     */
+    private static function escapeProblem(string $field, $stored, $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        $stored = is_string($stored) ? $stored : '';
+
+        $escapes = HtmlIntegrity::introducedEscapes($value, $stored);
+        if ($escapes !== []) {
+            if (in_array('\\r', $escapes, true) && in_array('\\n', $escapes, true)) {
+                $escapes = array_values(array_diff($escapes, ['\\r', '\\n']));
+                $escapes[] = '\\r\\n';
+            }
+
+            return sprintf(
+                "Field '%s' contains JSON escape sequences as literal text (%s): it looks copied from an encoded tool result, "
+                . 'and they would show on the page. Send the HTML itself: "</p>", not "<\\/p>", and no "\\r\\n" or "\\n" between '
+                . 'tags. Nothing was changed.',
+                $field,
+                implode(', ', $escapes)
+            );
+        }
+
+        return null;
+    }
+
+    /**
+     * Well-formedness and, under keep_text, removed elements, for one field. The reason, or null.
+     */
+    private static function structureProblem(string $field, $stored, $value, string $mode): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        $stored = is_string($stored) ? $stored : '';
+
+        if (!HtmlIntegrity::hasTags($value)) {
+            return null;
+        }
+        $problem = HtmlIntegrity::wellFormedProblem($value);
+        if ($problem !== null && ($stored === '' || HtmlIntegrity::wellFormedProblem($stored) === null)) {
+            return "Field '{$field}': the new HTML is not well-formed ({$problem}). Nothing was changed. Send complete HTML, "
+                . 'with every element closed.';
+        }
+
+        if ($mode === 'keep_text' && $stored !== '') {
+            // Elements may be renamed (a heading level, a paragraph made a heading) or added, but not removed: a lost
+            // link, list item or paragraph break is lost content even when every word is kept.
+            $before = HtmlIntegrity::elementCounts($stored);
+            $after = HtmlIntegrity::elementCounts($value);
+            if (array_sum($after) < array_sum($before)) {
+                $lost = [];
+                foreach ($before as $name => $count) {
+                    if (($after[$name] ?? 0) < $count) {
+                        $lost[] = "<{$name}>";
+                    }
+                }
+
+                return sprintf(
+                    "Field '%s': the tag structure changed: the new HTML has %d elements where the stored HTML has %d (fewer %s). "
+                    . 'keep_text (the default) keeps every existing element, so links, paragraphs and list items are not lost. '
+                    . 'Nothing was changed. If the user asked to change the markup, send changeMode "formatting_only" (text '
+                    . 'unchanged) or "scoped_text".',
+                    $field,
+                    array_sum($after),
+                    array_sum($before),
+                    implode(', ', $lost)
+                );
+            }
+        }
+
+        return null;
     }
 
     /**

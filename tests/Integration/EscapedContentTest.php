@@ -95,8 +95,8 @@ final class EscapedContentTest extends ConcreteTestCase
         [$b1] = $this->pages->blockIDs($cID);
 
         $output = ThrowawayPages::runTool(new PagesToolkit(), 'batch_update_page_content', [
-            'pageID' => $cID, 'changeMode' => 'scoped_text', 'textFields' => ['content'], 'replacedText' => ['Seed Heading Two Changed'],
-            'blocks' => [['areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => self::CORRUPT]]],
+            'pageID' => $cID, 'changeMode' => 'scoped_text',
+            'blocks' => [['areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => self::CORRUPT], 'textFields' => ['content'], 'replacedText' => ['Seed Heading Two Changed']]],
         ]);
 
         $result = json_decode($output, true);

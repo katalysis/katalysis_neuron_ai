@@ -2269,6 +2269,11 @@ class PagesToolkit extends AbstractToolkit
             }
 
             $normalizedValue = $this->normalizeCustomBlockPayload((string) $blockType, $value ?? []);
+            // No escaped or broken HTML in a new block either (BF-7, browser check 6).
+            $valueProblem = TextIntegrity::checkNewValue($normalizedValue);
+            if ($valueProblem !== null) {
+                throw new \RuntimeException($valueProblem);
+            }
 
             /** @var mixed $pageForArea */
             $pageForArea = $page;

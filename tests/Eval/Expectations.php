@@ -25,6 +25,8 @@ final class Expectations
         foreach (StateChecks::run($expect['state'] ?? [], $c) as $r) {
             $results[] = $r;
         }
+        // Always, named or not (BF-7): the run must never save escaped or broken HTML.
+        $results[] = StateChecks::savedHtmlValid($c);
         foreach (ToolChecks::run($expect['tools'] ?? [], $c) as $r) {
             $results[] = $r;
         }

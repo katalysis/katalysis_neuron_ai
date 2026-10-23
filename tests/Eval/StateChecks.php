@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Eval;
 
+use Katalysis\NeuronAi\Tools\Utilities\HtmlIntegrity;
+
 /**
  * The `state` checks: what is in the CMS afterwards. All are primary.
  * Semantics are in tests/Scenarios/README.md. Pages are named by path and looked
@@ -86,6 +88,47 @@ final class StateChecks
         }
 
         return $results;
+    }
+
+    /**
+     * saved_html_valid (BF-7, Glyn's browser check 6): every block string the run wrote, on any page under
+     * /neuron-test, has no JSON escape sequences ("<\/", a literal "\r\n") and, if it is HTML, is well-formed.
+     * Expectations runs it for every expect block, named or not. A string already in the page's blocks before is not
+     * the run's doing and is skipped.
+     */
+    public static function savedHtmlValid(CheckContext $c): CheckResult
+    {
+        $problems = [];
+        foreach ($c->after->pages() as $page) {
+            $before = $c->before->pageByID((int) $page['id']);
+            $old = [];
+            foreach ($before['latestBlocks'] ?? [] as $block) {
+                foreach ($block['data'] as $value) {
+                    if (is_string($value)) {
+                        $old[$value] = true;
+                    }
+                }
+            }
+            $oldText = implode("\n", array_keys($old));
+            foreach ($page['latestBlocks'] ?? [] as $block) {
+                foreach ($block['data'] as $field => $value) {
+                    if (!is_string($value) || isset($old[$value])) {
+                        continue;
+                    }
+                    $where = "{$page['path']} ({$block['area']}, {$block['type']}.{$field})";
+                    $escapes = HtmlIntegrity::introducedEscapes($value, $oldText);
+                    if ($escapes !== []) {
+                        $problems[] = "{$where}: JSON escape sequences " . implode(' ', $escapes);
+                    }
+                    $malformed = HtmlIntegrity::hasTags($value) ? HtmlIntegrity::wellFormedProblem($value) : null;
+                    if ($malformed !== null) {
+                        $problems[] = "{$where}: HTML not well-formed ({$malformed})";
+                    }
+                }
+            }
+        }
+
+        return self::result('saved_html_valid', $problems === [], 'saved HTML has escape sequences or is not well-formed: ' . implode('; ', $problems));
     }
 
     private static function result(string $name, bool $passed, string $detail = ''): CheckResult
