@@ -18,6 +18,7 @@ use Concrete\Core\Tree\Type\Topic as TopicTree;
 use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Tests\Support\AreaGrantFixture;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\PermissionCleanup;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 
 /**
@@ -198,20 +199,26 @@ final class ObjectPermissionsTest extends ConcreteTestCase
 
     public function testTopicNodeChecksAreAccessToTheTopicsDashboardPage(): void
     {
-        $trees = TopicTree::getList();
-        if ($trees === []) {
-            $this->markTestSkipped('No topic tree on this site.');
-        }
         ThrowawayPages::actAs('superuser');
-        $root = $trees[0]->getRootTreeNodeObject();
-        $this->assertNull(ObjectPermissions::addTopicTreeNode($root));
-        $this->assertNull(ObjectPermissions::editTopicTreeNode($root));
-        $this->assertNull(ObjectPermissions::deleteTopicTreeNode($root));
+        // A new tree copies its root's permissions into a new access, which deleting the tree leaves behind.
+        $lastAccess = (int) $this->db()->fetchOne('SELECT COALESCE(MAX(paID), 0) FROM PermissionAccess');
+        $tree = TopicTree::add('Neuron Test Topics ' . bin2hex(random_bytes(3)));
+        try {
+            $root = $tree->getRootTreeNodeObject();
+            $this->assertNull(ObjectPermissions::addTopicTreeNode($root));
+            $this->assertNull(ObjectPermissions::editTopicTreeNode($root));
+            $this->assertNull(ObjectPermissions::deleteTopicTreeNode($root));
 
-        ThrowawayPages::actAs('neuron_editor');
-        $root = TopicTree::getList()[0]->getRootTreeNodeObject();
-        $this->assertRefused(ObjectPermissions::addTopicTreeNode($root), 'Dashboard > Topics');
-        $this->assertRefused(ObjectPermissions::editTopicTreeNode($root), 'Dashboard > Topics');
-        $this->assertRefused(ObjectPermissions::deleteTopicTreeNode($root), 'Dashboard > Topics');
+            ThrowawayPages::actAs('neuron_editor');
+            $this->assertRefused(ObjectPermissions::addTopicTreeNode($root), 'Dashboard > Topics');
+            $this->assertRefused(ObjectPermissions::editTopicTreeNode($root), 'Dashboard > Topics');
+            $this->assertRefused(ObjectPermissions::deleteTopicTreeNode($root), 'Dashboard > Topics');
+        } finally {
+            ThrowawayPages::actAs('superuser');
+            $tree->delete();
+            foreach ($this->db()->fetchFirstColumn('SELECT paID FROM PermissionAccess WHERE paID > ?', [$lastAccess]) as $paID) {
+                PermissionCleanup::deleteAccessIfUnused($this->db(), (int) $paID);
+            }
+        }
     }
 }
