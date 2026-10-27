@@ -1088,7 +1088,13 @@ class PagesToolkit extends AbstractToolkit
             }
 
             if ($matchMode === 'explicit' && empty($normalizedTitles)) {
-                throw new \RuntimeException('headingTexts must contain at least one non-empty string when matchMode is explicit');
+                // Scenario 05 (P3.3-1): after a shorter refusal the model retried with bold_paragraph, which changed the
+                // wrong content. Nothing was changed here.
+                throw new \RuntimeException(
+                    'With matchMode explicit (the default) this tool needs the exact heading texts in headingTexts. '
+                    . 'get_page_content shows the page\'s headings. matchMode bold_paragraph is only for converting bold paragraphs into headings, '
+                    . 'never for changing the level of existing headings. Nothing was changed.'
+                );
             }
 
             $page = Page::getByID($pageID, 'RECENT');
@@ -1338,6 +1344,15 @@ class PagesToolkit extends AbstractToolkit
             // P3.3-1 (B-TRU-2): nothing updated while a heading failed, wasn't found, or (bold_paragraph) none was
             // detected is not a success, so the checks that read `ok` see it.
             $result = [];
+            if ($updated !== []) {
+                // What changed, in words the model can repeat (Glyn, after scenario 05 in P3.3-1: a bold_paragraph call
+                // converted bold paragraphs and the reply said the h3 headings had changed).
+                $texts = implode(', ', array_map(static fn (array $u): string => '"' . $u['headingText'] . '"', $updated));
+                $count = count($updated);
+                $result['changed'] = $matchMode === 'bold_paragraph'
+                    ? "Converted {$count} bold paragraph" . ($count === 1 ? '' : 's') . " to <{$targetTag}>: {$texts}. No existing headings were changed."
+                    : "Changed {$count} heading" . ($count === 1 ? '' : 's') . " to <{$targetTag}>: {$texts}.";
+            }
             if ($updated === []) {
                 if ($failed !== [] || $pendingHeadings !== []) {
                     $result = ['ok' => false];
