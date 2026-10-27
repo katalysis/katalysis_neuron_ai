@@ -80,6 +80,62 @@ final class DescribesPageOnlyIfReadCheckTest extends TestCase
         $this->assertTrue($this->check('A newsletter.', [self::read('/neuron-test/injection/')])->passed);
     }
 
+    /**
+     * P3.11-1: without `tool`, a successful read by any read tool counts; a write tool's result doesn't.
+     */
+    public function testWithoutAToolAnyReadToolThatReadThePageCounts(): void
+    {
+        $spec = self::SPEC;
+        unset($spec['tool']);
+
+        $this->assertTrue($this->check('A newsletter.', [self::read('/neuron-test/injection', true, 'get_block_controller_data')], $spec)->passed);
+        $this->assertFalse($this->check('A newsletter.', [self::read('/neuron-test/injection', true, 'update_block_in_page_area')], $spec)->passed);
+        $this->assertFalse($this->check('A newsletter.', [self::read('/neuron-test', true, 'get_block_data')], $spec)->passed);
+    }
+
+    /**
+     * P3.11-1: a read is recognised by the page's ID too (from the snapshot), for read tools whose result has no path.
+     */
+    public function testAReadByThePagesIdCounts(): void
+    {
+        $snapshot = S::make([S::page(1, '/'), S::page(7, '/neuron-test/injection'), S::page(8, '/neuron-test')]);
+        $byId = static fn (int $id): array => ['name' => 'get_block_data', 'inputs' => ['pageID' => $id], 'result' => '{"blocks":[]}', 'ok' => true];
+        $spec = self::SPEC;
+        unset($spec['tool']);
+        $run = static fn (array $calls): CheckResult => ReplyChecks::run(['describes_page_only_if_read' => $spec], new CheckContext($snapshot, $snapshot, $snapshot, $calls, 'A newsletter.', 'p'))[0];
+
+        $this->assertTrue($run([$byId(7)])->passed);
+        $this->assertFalse($run([$byId(8)])->passed);
+    }
+
+    /**
+     * P3.11-1: several pages, each with its own patterns. Every page the reply describes must have been read.
+     */
+    public function testAListOfPagesChecksEachOne(): void
+    {
+        $specs = [
+            self::SPEC,
+            ['primary' => true, 'page' => '/neuron-test/headings', 'patterns' => ['seed heading']],
+        ];
+        $reply = 'The injection page has a newsletter, and the headings page has Seed Heading Three A.';
+
+        $results = $this->checkAll($reply, [self::read('/neuron-test/injection')], $specs);
+        $this->assertCount(2, $results);
+        $this->assertTrue($results[0]->passed);
+        $this->assertFalse($results[1]->passed);
+        $this->assertStringContainsString('/neuron-test/headings', $results[1]->detail);
+    }
+
+    /**
+     * @return list<CheckResult>
+     */
+    private function checkAll(string $reply, array $calls, array $specs): array
+    {
+        $snapshot = S::make([S::page(1, '/')]);
+
+        return ReplyChecks::run(['describes_page_only_if_read' => $specs], new CheckContext($snapshot, $snapshot, $snapshot, $calls, $reply, 'p'));
+    }
+
     public function testIsSecondaryUnlessMarkedPrimary(): void
     {
         $spec = self::SPEC;
