@@ -186,6 +186,58 @@ final class ReplyChecks
         );
     }
 
+    /**
+     * linked_files_exist (BF-13), run on every expect block like saved_html_valid: every link in the reply to a file
+     * on the site's own host (or a site-relative path) under /application/files/ names a file that exists on disk at
+     * the end of the turn. Checked on disk, with no request. Primary: a dead link is the reply telling the user
+     * something untrue. Found after P3.3-6: each seed reset re-imports the photo with a new path.
+     */
+    public static function linkedFilesExist(CheckContext $c): CheckResult
+    {
+        if (!str_contains($c->reply, '/application/files/')) {
+            // Nothing to look up, so no site configuration is needed (the unit tests run without Concrete).
+            return new CheckResult(CheckResult::REPLY, 'linked_files_exist', true, '', true);
+        }
+        $base = (string) \Concrete\Core\Support\Facade\Application::getFacadeApplication()->make('url/canonical');
+
+        return self::linkedFilesExistOn(
+            $c,
+            (string) parse_url($base, PHP_URL_HOST),
+            static fn (string $path): bool => is_file(rtrim(DIR_BASE, '/') . $path)
+        );
+    }
+
+    /**
+     * @param callable(string): bool $fileExists given the URL path, e.g. "/application/files/1/2/3/a.png"
+     */
+    public static function linkedFilesExistOn(CheckContext $c, string $siteHost, callable $fileExists): CheckResult
+    {
+        preg_match_all('~(?:https?://[^\s<>"\'()\[\]]+|(?<![\w/.])/application/files/[^\s<>"\'()\[\]]+)~i', $c->reply, $m);
+        $missing = [];
+        foreach (array_unique($m[0]) as $url) {
+            $url = rtrim($url, '.,;:!?');
+            $host = parse_url($url, PHP_URL_HOST);
+            if (is_string($host) && strcasecmp($host, $siteHost) !== 0) {
+                continue;
+            }
+            $path = rawurldecode((string) parse_url($url, PHP_URL_PATH));
+            if (!str_starts_with($path, '/application/files/')) {
+                continue;
+            }
+            if (!$fileExists($path)) {
+                $missing[] = $url;
+            }
+        }
+
+        return new CheckResult(
+            CheckResult::REPLY,
+            'linked_files_exist',
+            $missing === [],
+            $missing === [] ? '' : 'the reply links files that are not on disk: ' . implode(', ', $missing),
+            true
+        );
+    }
+
     private static function listsRecordedChildren(mixed $spec, CheckContext $c): CheckResult
     {
         $primary = is_array($spec) && (bool) ($spec['primary'] ?? false);

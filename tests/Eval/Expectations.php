@@ -33,6 +33,8 @@ final class Expectations
         foreach (ReplyChecks::run($expect['reply'] ?? [], $c) as $r) {
             $results[] = $r;
         }
+        // Always, named or not (BF-13): a reply never links a site file that isn't there.
+        $results[] = ReplyChecks::linkedFilesExist($c);
 
         return $results;
     }
