@@ -385,12 +385,25 @@ final class TextIntegrity
     {
         $fields = [];
         foreach ($proposed as $field => $value) {
-            if (is_string($field) && is_string($value) && is_string($before[$field] ?? null)) {
+            if (is_string($field) && is_string($value) && is_string($before[$field] ?? null) && !self::isSetting($before[$field])) {
                 $fields[] = $field;
             }
         }
 
         return array_values(array_unique(array_merge($fields, $listed)));
+    }
+
+    /**
+     * A stored value that is a setting, not text (P3.3-6): a number, or a lowercase identifier such as "h4", "closed",
+     * "display_asc" or "none". Core blocks keep settings in string columns, and treating them as text refused an
+     * ordinary settings change under keep_text ("leaves out existing text: h4"). Words with capitals, spaces or markup
+     * stay text, and are still checked.
+     */
+    private static function isSetting(string $stored): bool
+    {
+        $stored = trim($stored);
+
+        return $stored === '' || is_numeric($stored) || preg_match('~^[a-z0-9_\-.:#/]{1,32}$~', $stored) === 1;
     }
 
     /**

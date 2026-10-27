@@ -16,6 +16,7 @@ use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
+use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
 use Katalysis\NeuronAi\Tools\Utilities\PagePathLabel;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use NeuronAI\Tools\ToolProperty;
@@ -507,6 +508,19 @@ class BlocksToolkit extends AbstractToolkit
                     }
                 } else {
                     $output .= "_This block type doesn't store additional field data_\n";
+                }
+
+                // P3.3-6: rows the block keeps in other tables (an accordion's entries), and how to send them back.
+                if ($db) {
+                    foreach (BlockSaveInputs::childRows((string) $db, (int) $blockID) as $childTable => $rows) {
+                        $output .= "\n**{$childTable}** (" . count($rows) . " row(s)):\n";
+                        $output .= json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+                    }
+                }
+                if ($bt->getBlockTypeHandle() === 'accordion') {
+                    $output .= "\nTo change the entries, send value.accordionBlockData: a JSON array of {title, description}, every entry in order "
+                        . "(entries left out are removed). Settings changes may leave it out. Current value:\n"
+                        . BlockSaveInputs::accordionJson((int) $blockID) . "\n";
                 }
 
                 $output .= "\n💡 **Tips:**\n";
