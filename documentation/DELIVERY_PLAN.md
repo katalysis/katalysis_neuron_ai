@@ -316,7 +316,7 @@ Why first:
   - new block IDs after a copy: BF-7's `BlockNotFound` and `TurnChanges` cover the error and the response. Check whether a successful result still needs them, and BF-7's note on stale IDs inside the model's own turn (seen in a scenario 05 run)
   - a refused call leaves no `Areas` row (`Area::getOrCreate()` runs before the check in `add_block_to_page_area` and `move_block_between_areas`; BF-3 plan §9)
   - scenarios: `--fake` of 05, 06, 07, 10, 15, 23, 24; ×1 of its own new or changed ones: 24, if its publishing regex changes. It could also accept "visible to visitors once you publish" (BF-10): Glyn decides, in its own commit; cap $0.20. Compared ×3 in P3.S1
-- [ ] P3.3-6 **Core block coverage** (M; WP-4, Glyn). Depends on: P3.3-2.
+- [x] P3.3-6 **Core block coverage** (M; WP-4, Glyn). Done (PR #65). Depends on: P3.3-2.
   - the core blocks Katalysis uses most: Content, Image, Page List, Feature, Accordion and Form (the Express form block)
   - for each, one scenario that reads a block of that type, edits one field in a draft, and adds a new one to a page area, with checks that the stored fields are what was asked and the live version is unchanged
   - Form: read it, place it, and change its block settings only. Creating or changing the form's fields is Express work and stays in Phase 6
