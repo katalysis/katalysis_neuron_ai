@@ -8,6 +8,7 @@ use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Page\Page;
+use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
 
 /**
  * Takes a Snapshot of the dev site. Read-only.
@@ -220,8 +221,15 @@ final class SnapshotBuilder
         }
 
         unset($row['bID']);
+        $data = array_map(static fn ($v): ?string => $v === null ? null : (string) $v, $row);
 
-        return array_map(static fn ($v): ?string => $v === null ? null : (string) $v, $row);
+        // P3.3-6: rows in tables named after the block's own (an accordion's entries), as JSON under the table name,
+        // without their row and block IDs, so a copy into a draft compares equal.
+        foreach (BlockSaveInputs::childRows($table, $blockID) as $child => $rows) {
+            $data[$child] = (string) json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+
+        return $data;
     }
 
     /**

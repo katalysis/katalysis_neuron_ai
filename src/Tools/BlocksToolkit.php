@@ -16,6 +16,7 @@ use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
+use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
 use Katalysis\NeuronAi\Tools\Utilities\PagePathLabel;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use NeuronAI\Tools\ToolProperty;
@@ -142,7 +143,17 @@ class BlocksToolkit extends AbstractToolkit
 
                 $rows = $qb->execute()->fetchAllAssociative();
                 if (empty($rows)) {
-                    return "No '{$bt->getBlockTypeHandle()}' blocks found on page {$pageID}. {$versionInfo['summary']}";
+                    // P3.3-6 (scenario 32): asked for "form" on a page with an Express form block, the model concluded
+                    // there was no form. Say which block types the page does have.
+                    $present = $db->fetchAllAssociative(
+                        'SELECT bt.btHandle, bt.btName, COUNT(*) AS n FROM CollectionVersionBlocks cvb JOIN Blocks b ON b.bID = cvb.bID'
+                        . ' JOIN BlockTypes bt ON bt.btID = b.btID WHERE cvb.cID = ? AND cvb.cvID = ? GROUP BY bt.btHandle, bt.btName ORDER BY bt.btHandle',
+                        [(int) $pageID, (int) $page->getVersionID()]
+                    );
+                    $types = array_map(static fn (array $r): string => "`{$r['btHandle']}` ({$r['btName']}, {$r['n']})", $present);
+
+                    return "No '{$bt->getBlockTypeHandle()}' blocks found on page {$pageID}. {$versionInfo['summary']}"
+                        . ($types === [] ? '' : "\nBlock types on this page: " . implode(', ', $types) . '. Use one of these handles if it is the block the user means.');
                 }
 
                 $byBlock = [];
@@ -507,6 +518,19 @@ class BlocksToolkit extends AbstractToolkit
                     }
                 } else {
                     $output .= "_This block type doesn't store additional field data_\n";
+                }
+
+                // P3.3-6: rows the block keeps in other tables (an accordion's entries), and how to send them back.
+                if ($db) {
+                    foreach (BlockSaveInputs::childRows((string) $db, (int) $blockID) as $childTable => $rows) {
+                        $output .= "\n**{$childTable}** (" . count($rows) . " row(s)):\n";
+                        $output .= json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+                    }
+                }
+                if ($bt->getBlockTypeHandle() === 'accordion') {
+                    $output .= "\nTo change the entries, send value.accordionBlockData: a JSON array of {title, description}, every entry in order "
+                        . "(entries left out are removed). Settings changes may leave it out. Current value:\n"
+                        . BlockSaveInputs::accordionJson((int) $blockID) . "\n";
                 }
 
                 $output .= "\n💡 **Tips:**\n";

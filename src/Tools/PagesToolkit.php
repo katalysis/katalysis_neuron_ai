@@ -32,6 +32,7 @@ use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
+use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
@@ -859,10 +860,17 @@ class PagesToolkit extends AbstractToolkit
             // Preserve existing repeatable rows for layout-only updates in batch mode.
             $value['slide'] = $this->loadEpraResourceEntries($blockID);
         }
-        // Fields the update leaves out keep their stored values (BF-5).
+        $handle = (string) $block->getBlockTypeHandle();
+        $refusal = BlockSaveInputs::refusal($handle, $beforeRecord, $value);
+        if ($refusal !== null) {
+            throw new \RuntimeException($refusal);
+        }
+        // Fields the update leaves out keep their stored values (BF-5), and so do save inputs that are not columns (P3.3-6).
         $kept = TextIntegrity::keepOmittedFields($beforeRecord, $value);
+        $kept['value'] = BlockSaveInputs::fillOmitted($handle, $blockID, $kept['value']);
 
-        $textPolicy = TextIntegrity::evaluate($beforeRecord, $kept['value'], $update['changeMode'], $update['textFields'], $update['replacedText']);
+        [$checkBefore, $checkAfter] = $this->textCheckViews($handle, $blockID, $beforeRecord, $kept['value']);
+        $textPolicy = TextIntegrity::evaluate($checkBefore, $checkAfter, $update['changeMode'], $update['textFields'], $update['replacedText']);
         if (!$textPolicy['ok']) {
             throw new \RuntimeException($textPolicy['message']);
         }
@@ -2488,8 +2496,14 @@ class PagesToolkit extends AbstractToolkit
             }
 
             $normalizedValue = $this->normalizeCustomBlockPayload((string) $blockType, $value ?? []);
+            $refusal = BlockSaveInputs::refusalForNew((string) $blockType, $bt->getController()->getBlockTypeDatabaseTable() ?: null, $normalizedValue);
+            if ($refusal !== null) {
+                throw new \RuntimeException($refusal);
+            }
+            // Save inputs that are not columns: no link unless the value names one (P3.3-6).
+            $normalizedValue = BlockSaveInputs::fillNew((string) $blockType, $normalizedValue);
             // No escaped or broken HTML, and no code, in a new block either (BF-7, browser check 6; P3.3-2, B-T1-10).
-            $valueProblem = TextIntegrity::checkNewValue($normalizedValue);
+            $valueProblem = TextIntegrity::checkNewValue($this->textCheckViews((string) $blockType, 0, [], $normalizedValue)[1]);
             if ($valueProblem !== null) {
                 throw new \RuntimeException($valueProblem);
             }
@@ -2639,9 +2653,16 @@ class PagesToolkit extends AbstractToolkit
             $controller = $block->getController();
             $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
             $beforeRecord = $this->getBlockTableRecord($dbTable, (int) $block->getBlockID());
+            $handle = (string) $block->getBlockTypeHandle();
+            $refusal = BlockSaveInputs::refusal($handle, $beforeRecord, $body);
+            if ($refusal !== null) {
+                throw new \RuntimeException($refusal);
+            }
             $kept = TextIntegrity::keepOmittedFields($beforeRecord, $body);
-            $body = $kept['value'];
-            $textPolicy = TextIntegrity::evaluate($beforeRecord, $body, $mode, $textFields, $replacedText);
+            // Save inputs that are not columns (a link, accordion entries), so the block keeps them (P3.3-6).
+            $body = BlockSaveInputs::fillOmitted($handle, (int) $block->getBlockID(), $kept['value']);
+            [$checkBefore, $checkAfter] = $this->textCheckViews($handle, (int) $block->getBlockID(), $beforeRecord, $body);
+            $textPolicy = TextIntegrity::evaluate($checkBefore, $checkAfter, $mode, $textFields, $replacedText);
             if (!$textPolicy['ok']) {
                 throw new \RuntimeException($textPolicy['message']);
             }
@@ -3131,6 +3152,27 @@ class PagesToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * The stored record and the update as the text check sees them (P3.3-6). An accordion's entries are a save()
+     * input, not a column: the check compares them as text (titles and descriptions), not as JSON.
+     *
+     * @param array<string, mixed> $record
+     * @param array<string, mixed> $value
+     *
+     * @return array{0: array<string, mixed>, 1: array<string, mixed>}
+     */
+    private function textCheckViews(string $handle, int $bID, array $record, array $value): array
+    {
+        if ($handle === 'accordion' && is_string($value['accordionBlockData'] ?? null)) {
+            if ($bID > 0) {
+                $record['accordionBlockData'] = BlockSaveInputs::accordionText(BlockSaveInputs::accordionJson($bID));
+            }
+            $value['accordionBlockData'] = BlockSaveInputs::accordionText($value['accordionBlockData']);
+        }
+
+        return [$record, $value];
     }
 
     /**

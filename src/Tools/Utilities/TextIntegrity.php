@@ -103,7 +103,12 @@ final class TextIntegrity
         $fail = static fn (string $message): array => ['ok' => false, 'message' => $message, 'watchedFields' => $watched, 'fields' => []];
 
         if ($mode === 'scoped_text' && $listed === []) {
-            return $fail('scoped_text mode requires textFields: the fields whose text may change. Nothing was changed.');
+            if ($replaced !== []) {
+                return $fail('scoped_text mode requires textFields: the fields whose text may change. Nothing was changed.');
+            }
+            // P3.3-6 (scenario 29): scoped_text naming no field changes no text, which is keep_text, the stricter mode.
+            // Refusing it made a model give up on a plain settings change and report it as done.
+            return self::evaluate($before, $proposed, self::DEFAULT_MODE);
         }
         if ($mode !== 'scoped_text' && $replaced !== []) {
             return $fail('replacedText is used only with changeMode "scoped_text". Nothing was changed.');
@@ -385,12 +390,25 @@ final class TextIntegrity
     {
         $fields = [];
         foreach ($proposed as $field => $value) {
-            if (is_string($field) && is_string($value) && is_string($before[$field] ?? null)) {
+            if (is_string($field) && is_string($value) && is_string($before[$field] ?? null) && !self::isSetting($before[$field])) {
                 $fields[] = $field;
             }
         }
 
         return array_values(array_unique(array_merge($fields, $listed)));
+    }
+
+    /**
+     * A stored value that is a setting, not text (P3.3-6): a number, or a lowercase identifier such as "h4", "closed",
+     * "display_asc" or "none". Core blocks keep settings in string columns, and treating them as text refused an
+     * ordinary settings change under keep_text ("leaves out existing text: h4"). Words with capitals, spaces or markup
+     * stay text, and are still checked.
+     */
+    private static function isSetting(string $stored): bool
+    {
+        $stored = trim($stored);
+
+        return $stored === '' || is_numeric($stored) || preg_match('~^[a-z0-9_\-.:#/]{1,32}$~', $stored) === 1;
     }
 
     /**
