@@ -273,7 +273,8 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
 - **Order:** the tasks are listed in the order they are done, in four stages. Glyn does them alone, in this order. The roadmap's §5 table shows which tasks Alex could take later without touching the same files.
 - **"Depends on"** names the tasks that must be merged first.
 - **Sizes:** S, M and L as in the §5 intro, but relative. Phases 1 and 2 were each sized M and took 2 to 3 days.
-- **Scenarios:** each task runs the scenarios it names, within its cap. The phase budget is **$60**: the caps add up to about $43, and the rest covers re-runs, with Glyn's agreement each time. Price basis: about $0.07 a run on gpt-4o (P2.9 measured $0.063).
+- **Scenarios (WP-4):** each task runs a free `--fake` run of the scenarios it touches and ×1 of its own new or changed ones, within its cap. Each stage ends with a ×3 comparison task (P3.S1–P3.S4), where the merge rule is applied. P3.5-1, P3.2-1, P3.6-1, P3.6-2 and P3.6a keep their own ×3 runs before merge. Price basis: about $0.07 a run on gpt-4o (P2.9 measured $0.063).
+- **Budget (recomputed in WP-4):** the phase budget is **$60**. P3.3-1 spent $2.17; the other caps are Stage 1 $12.05 (P3.S1 $6.60 of it), Stage 2 $3.50 (P3.S2), Stage 3 $8.20 (P3.S3 $0.80), Stage 4 $10.60 (P3.S4 $10.10), alongside $0.25, and P3.12 $10.10: **about $46.90, leaving about $13.10** for re-runs, with Glyn's agreement each time. If no task merges after P3.S4, its run is the exit run and P3.12 costs nothing more: about $36.80, leaving about $23.20. Before WP-4 the caps came to about $43.60 (with P3.6a and P3.10-1), leaving $16.40. P5.0's $0.85 is now in Phase 5's budget.
 - **Every Phase 3 comparison runs on gpt-4o.** A model change gets its own comparison run (P3.8-1).
 - **From P3.6-1 on, the write scenarios gain approve and deny steps.** Each change to a scenario's expected values goes in its own commit with the reason, as the merge rule says.
 - **Internal pilot (WP-4, Glyn):** once Stage 3 is merged (including P3.6a), Glyn uses Neuron on Katalysis's own sites, subject to §6's "before any non-dev install" line. Stage 4 continues during the pilot, and each pilot failure becomes a scenario. Client use waits for the Phase 3 exit.
@@ -471,7 +472,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `show_prompt.php` in SETUP (P2.4's question)
 
 #### Last
-- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: full run; cap $7.70.
+- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: full run (×3, the unstable ones ×5, about 143 runs by then); cap $10.10 (was $7.70, for a smaller suite). If no task merged after P3.S4, P3.S4's run is the exit run (WP-4).
 
 #### Removed, merged or moved (on the roadmap, 27 October 2026)
 - **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).
