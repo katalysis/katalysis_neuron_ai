@@ -678,7 +678,7 @@ $seedStatus = (function () use ($args, $output) {
         $entityMarks = implode(',', array_fill(0, max(1, count($fixtureEntityIDs)), '?'));
         $fixtureAccessIDs = [];
         $fixtureAreaAccessIDs = [];
-        $fixtureAreaCID = 0;
+        $fixtureAreaCIDs = [];
         if ($fixtureEntityIDs !== []) {
             if ($page) {
                 $fixtureAccessIDs = array_map('intval', $db->fetchFirstColumn(
@@ -688,18 +688,22 @@ $seedStatus = (function () use ($args, $output) {
                     array_merge([$page->getCollectionID()], $fixtureEntityIDs)
                 ));
             }
-            // The Main-area add-block grant on /headings (P1.5a). Only an access that lists one of the fixture users is
-            // ours: the copies of the global add_block access that Concrete makes for an overridden area never list them.
-            $headingsPage = Page::getByPath($pagePath . '/headings');
-            if ($headingsPage && !$headingsPage->isError()) {
-                $fixtureAreaCID = (int) $headingsPage->getCollectionID();
-                $fixtureAreaAccessIDs = array_map('intval', $db->fetchFirstColumn(
+            // The Main-area add-block grants on /headings (P1.5a) and /block-types (P3.3-6). Only an access that lists
+            // one of the fixture users is ours: the copies of the global add_block access that Concrete makes for an
+            // overridden area never list them.
+            foreach (['/headings', '/block-types'] as $grantedPath) {
+                $grantedPage = Page::getByPath($pagePath . $grantedPath);
+                if (!$grantedPage || $grantedPage->isError()) {
+                    continue;
+                }
+                $fixtureAreaCIDs[] = (int) $grantedPage->getCollectionID();
+                $fixtureAreaAccessIDs = array_merge($fixtureAreaAccessIDs, array_map('intval', $db->fetchFirstColumn(
                     'SELECT DISTINCT apa.paID FROM AreaPermissionAssignments apa'
                     . ' JOIN PermissionKeys pk ON pk.pkID = apa.pkID AND pk.pkHandle = ?'
                     . ' JOIN PermissionAccessList pal ON pal.paID = apa.paID'
                     . ' WHERE apa.cID = ? AND pal.peID IN (' . $entityMarks . ')',
-                    array_merge(['add_block_to_area', $headingsPage->getCollectionID()], $fixtureEntityIDs)
-                ));
+                    array_merge(['add_block_to_area', $grantedPage->getCollectionID()], $fixtureEntityIDs)
+                )));
             }
         }
         // The old P1.10 settings-page grant, if this site still has it (dev-only clean-up, see the header).
@@ -731,8 +735,10 @@ $seedStatus = (function () use ($args, $output) {
         }
         // Deleting a page leaves the area permission rows of an overridden area behind. Remove the ones for the page
         // remembered above (the page no longer exists), so the checks below see what is really still in use.
-        if ($fixtureAreaCID && (int) $db->fetchOne('SELECT COUNT(*) FROM Pages WHERE cID = ?', [$fixtureAreaCID]) === 0) {
-            $db->executeStatement('DELETE FROM AreaPermissionAssignments WHERE cID = ?', [$fixtureAreaCID]);
+        foreach ($fixtureAreaCIDs as $fixtureAreaCID) {
+            if ((int) $db->fetchOne('SELECT COUNT(*) FROM Pages WHERE cID = ?', [$fixtureAreaCID]) === 0) {
+                $db->executeStatement('DELETE FROM AreaPermissionAssignments WHERE cID = ?', [$fixtureAreaCID]);
+            }
         }
         if ($hasPeople) {
             foreach ($findPersonIDs() as $sID) {
@@ -977,6 +983,11 @@ $seedStatus = (function () use ($args, $output) {
         $builder->addAttribute('select', 'Room type', 'room_type', $roomTypes);
         $builder->addAttribute('textarea', 'Description', 'description');
         $entity = $builder->save();
+        // P3.3-6: a form, so the Block Types page can show an Express form block that uses this object. Removing the
+        // object on --reset removes its forms too (cascade).
+        $roomForm = $builder->buildForm('Room Enquiry');
+        $roomForm->addFieldSet('Room')->addAttributeKeyControl('name')->addAttributeKeyControl('capacity');
+        $roomForm->save();
 
         $rooms = [
             ['Meeting Room A', 8, 'meeting', 'Small meeting room with a screen and a whiteboard.'],
@@ -1013,7 +1024,7 @@ $seedStatus = (function () use ($args, $output) {
 
     // Pages added after P0.6 for the P1.2 scenarios. Each is created only if it is missing, so a site seeded by the
     // earlier version of this script gets them without a reset. They all sit under /neuron-test, so --reset removes them.
-    $ensureScenarioPages = function (Page $root) use ($pagePath, $addPage, $contentType, $output) {
+    $ensureScenarioPages = function (Page $root) use ($pagePath, $addPage, $contentType, $output, $findPhotoIDs, $findExpress, $grantKey, $user, $chatUser) {
         $missing = function (string $path) {
             $page = Page::getByPath($path);
 
@@ -1056,6 +1067,69 @@ $seedStatus = (function () use ($args, $output) {
                 $addPage($root, $name, $handle)->addBlock($contentType, 'Main', ['content' => $editModeHtml]);
                 $output->writeln('page ' . $pagePath . '/' . $handle . ': created');
             }
+        }
+
+        // P3.3-6: one block of each core type Katalysis uses most, for scenarios 27 to 32. Like /headings, its Main area
+        // lets the fixture users add blocks (the global add-block key isn't covered by the page grant).
+        if ($missing($pagePath . '/block-types')) {
+            $blockTypes = $addPage($root, 'Block Types', 'block-types');
+            $blockTypes->addBlock($contentType, 'Main', ['content' =>
+                '<h2>Block Types Content</h2>'
+                . '<p>The library opens at nine on weekdays.</p>'
+                . '<p>Children\'s story time is on Saturday mornings.</p>',
+            ]);
+            $photoIDs = $findPhotoIDs();
+            if ($photoIDs !== []) {
+                $blockTypes->addBlock(BlockType::getByHandle('image'), 'Main', [
+                    'fID' => (int) $photoIDs[0],
+                    'altText' => 'Neuron test person photo',
+                    'title' => '',
+                    'imageLink__which' => 'none',
+                ]);
+            } else {
+                $output->writeln('<comment>page ' . $pagePath . '/block-types: no seed photo, so no Image block.</comment>');
+            }
+            $blockTypes->addBlock(BlockType::getByHandle('page_list'), 'Main', [
+                'num' => 3,
+                'orderBy' => 'display_asc',
+                'cParentID' => (int) $root->getCollectionID(),
+                'pageListTitle' => 'Neuron test pages',
+                'includeName' => 1,
+            ]);
+            $blockTypes->addBlock(BlockType::getByHandle('feature'), 'Main', [
+                'icon' => 'fas fa-star',
+                'title' => 'Feature Heading',
+                'paragraph' => '<p>Feature paragraph about the reading room.</p>',
+                'titleFormat' => 'h4',
+                // The block's save() reads its link from Concrete's destination picker inputs and refuses none.
+                'link__which' => 'none',
+            ]);
+            $blockTypes->addBlock(BlockType::getByHandle('accordion'), 'Main', [
+                'initialState' => 'closed',
+                'itemHeadingFormat' => 'h4',
+                'accordionBlockData' => json_encode([
+                    ['title' => 'How do I join?', 'description' => '<p>Ask at the front desk.</p>'],
+                    ['title' => 'Can I renew online?', 'description' => '<p>Yes, from your account page.</p>'],
+                ]),
+            ]);
+            $roomEntity = $findExpress();
+            $roomForm = $roomEntity ? $roomEntity->getDefaultEditForm() : null;
+            if ($roomForm) {
+                $blockTypes->addBlock(BlockType::getByHandle('express_form'), 'Main', [
+                    'exFormID' => $roomForm->getId(),
+                    'submitLabel' => 'Send enquiry',
+                    'thankyouMsg' => 'Thanks for your enquiry.',
+                    'storeFormSubmission' => 1,
+                ]);
+            } else {
+                $output->writeln('<comment>page ' . $pagePath . '/block-types: the Express object has no form (seeded before P3.3-6), so no Form block. Run --reset.</comment>');
+            }
+            $blockTypesMain = Area::getOrCreate($blockTypes, 'Main');
+            $blockTypesMain->overridePagePermissions();
+            foreach ([$user, $chatUser] as $fixtureUser) {
+                $grantKey($blockTypesMain, 'add_block_to_area', UserEntity::getOrCreate($fixtureUser));
+            }
+            $output->writeln('page ' . $pagePath . '/block-types: created');
         }
     };
 
