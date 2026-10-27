@@ -314,7 +314,7 @@ Why first:
   - remove the double save in `update_block_in_page_area` (`UpdatePageBlockCommand`, then `$blockToEdit->update()`; still there)
   - new block IDs after a copy: BF-7's `BlockNotFound` and `TurnChanges` cover the error and the response. Check whether a successful result still needs them, and BF-7's note on stale IDs inside the model's own turn (seen in a scenario 05 run)
   - a refused call leaves no `Areas` row (`Area::getOrCreate()` runs before the check in `add_block_to_page_area` and `move_block_between_areas`; BF-3 plan §9)
-  - scenarios: 05, 06, 07, 10, 15, 23, 24 ×3; cap $1.50. Scenario 24's publishing regex could also accept "visible to visitors once you publish" (BF-10): Glyn decides, in its own commit
+  - scenarios: `--fake` of 05, 06, 07, 10, 15, 23, 24; ×1 of its own new or changed ones: 24, if its publishing regex changes. It could also accept "visible to visitors once you publish" (BF-10): Glyn decides, in its own commit; cap $0.20. Compared ×3 in P3.S1
 - [ ] P3.3-6 **Core block coverage** (M; WP-4, Glyn). Depends on: P3.3-2.
   - the core blocks Katalysis uses most: Content, Image, Page List, Feature, Accordion and Form (the Express form block)
   - for each, one scenario that reads a block of that type, edits one field in a draft, and adds a new one to a page area, with checks that the stored fields are what was asked and the live version is unchanged
@@ -328,24 +328,24 @@ Why first:
   - "You have access to 71 tools across 11 categories" and the stale per-category list (B-TRU-6)
   - `FilteredToolkit::from()` wraps a toolkit that is already filtered again, giving a second "Toolkit: FilteredToolkit" line (P2.4); fix `from()`
   - retire `PromptBaselineTest` and its v3 capture, or replace them with a new baseline: decided here, as the first deliberate prompt change
-  - scenarios: 01, 02, 13 ×3; cap $0.65
+  - scenarios: `--fake` of 01, 02, 13; none new or changed, so no paid run. Compared ×3 in P3.S1
 - [ ] P3.11-1 **Scenario honesty checks** (S; honesty). Depends on: nothing.
   - a check that a reply never describes a page whose content wasn't read in that turn (P2.9's browser check 6; the "unverified claim" pattern)
   - a run of an injection scenario that never reads the injected content is marked `inconclusive`, not failed, and counts as neither a pass nor a fail (P2.8: scenario 21 run 3 answered from `get_page_content`; BF-6: run 1 read people through core `get_person_details`, which returns no biography)
   - B-INJ-4: a link check like `no_invented_hosts`, so that no reply links site data to a host only the untrusted content named
-  - scenarios: 16, 21 ×5; cap $0.70
+  - scenarios: 16 and 21 (their checks change) ×1, after a `--fake` run; cap $0.15. Compared in P3.S1 (×5, as unstable)
 - [ ] P3.5-1 **Per-object permission checks** (L, in two halves; safety). Depends on: nothing. A shared helper first, as its own small PR; then one half for Pages, Blocks and Versions, and one for Files, Users, People, Topics and the attribute toolkits.
   - replace the login-only `guarded()` with per-object permission checks in every write tool (B-ACC-4); `FilesToolkit::guarded()` checks nothing today
   - the 12 tools that never went through `guarded()` (no envelope, no login check; from P2.3): `BlocksToolkit`'s 7 (`count_blocks_by_type`, `get_block_controller_data`, `get_block_data`, `get_doc_download_files_on_page`, `list_container_blocks`, `list_page_blocks_by_type`, `search_blocks_by_type`) and `VersionsToolkit`'s 5 (`approve_page_version`, `create_page_draft`, `discard_draft_version`, `get_version_content`, `list_page_versions`)
   - `search_blocks_by_type` checks only `canViewPage`, so by default it lists blocks in a page's newest, unpublished version to a user who can't view versions. Use the published version for that user (as `PageVersionRead` does for the page reads), with a denied-case test (BF-6)
   - one PHPUnit test per write tool for the denied case, calling the tool by name, so the tests survive P3.3-4
   - B-ACC-5: check that no tool elevates (today "Not verified"); B-ACC-6: tests that a refused write isn't reached by the obvious other routes
-  - scenarios: 11 ×5; 02, 03, 08, 10, 18 ×3; a new denied-write scenario ×3; cap $1.60
+  - scenarios (keeps its own ×3 before merge, WP-4): 11 ×5; 02, 03, 08, 10, 18 ×3; a new denied-write scenario ×3; cap $1.60
 - [ ] P3.5-2 **Personal data** (S–M; safety). Depends on: P3.5-1's helper.
   - `get_user` and the people tools return only the fields the request needs (B-PII-2; scenario 03 is partial on this)
   - remove `set_user_attribute_value` (disabled in P1.7); a scenario for B-ACC-7
   - from P2.8: `katalysis_pro`'s `guarded()` catches `\Throwable` and returns the raw exception message as `{ok: false, error}`, which skips `SecretRedactor`. Route that text through `SecretRedactor` (for example by letting the exception reach the agent's tool error handler, which redacts and logs it), in a `katalysis_pro` PR with a test here
-  - scenarios: 03, 21, 25 ×3; cap $0.65
+  - scenarios: the new B-ACC-7 scenario ×1, and `--fake` of 03, 21, 25; cap $0.10. Compared ×3 in P3.S1
 - [ ] P3.2-1 **Tier keys and tier gating** (M; safety). Depends on: nothing.
   - **The tiers are additional task permission keys (same `admin` category, installed by the same routine as P1.10a's), not custom checks** (B-ACC-9). Tiers are cumulative in code (a higher tier's key also passes a lower tier's check); `use_neuron_ai` (P1.10a) is the Tier 1 (Content) key. Concrete groups such as "Neuron AI – Content", "Neuron AI – Configure" and "Neuron AI – Generate" are only groups an admin may grant the keys to; the code never checks a group. Superusers get Tier 3. The tier keys use `neuron_ai_tier_*` handles (for example `neuron_ai_tier_configure`), so they are not confused with P1.10a's settings key `configure_neuron_ai`.
   - every tool is tagged with a tier and offered only if the user's tier allows it (B-ACC-2). The Tier 2 tools leave Tier 1: attribute definitions, attribute sets and topic trees (B-T2-6); today every user with the use key gets them
@@ -353,7 +353,8 @@ Why first:
   - P1.10a already gives chat and settings their own permissions, separate from the settings dashboard page; P3.2-1 does not repeat that
   - the seed: P1.10a keeps `neuron_editor` in no group as the no-access fixture, so add a Content-tier test user; the scenario runner's users get their keys (scenario 11, B-ACC-9)
   - **Decide, with the tiers: panel only where the toolbar shows (P1.10a), or everywhere.** If "everywhere", the acceptance test is that a user with a tier key and no toolbar permission can open the panel
-  - scenarios: all ×1 (every user's tool list changes), 11 ×5; cap $2.10
+  - scenarios (keeps its own runs before merge, WP-4): all ×1 (every user's tool list changes), 11 ×5; cap $2.10
+- [ ] P3.S1 **Stage 1 comparison** (S; WP-4). Depends on: every Stage 1 task. One ×3 run of the scenarios Stage 1's tasks name (01, 02, 03, 05, 06, 07, 08, 10, 11, 13, 14, 15, 16, 18, 21, 23, 24, 25, 26, P3.3-6's six, P3.5-1's denied-write scenario and P3.5-2's B-ACC-7 scenario), the unstable ones (05, 07, 11, 15, 16, 21) ×5, from a reset, on gpt-4o. The merge rule is applied here to every task of the stage that ran ×1; a regression gets its own fix task before Stage 2 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $6.60 (about 93 runs).
 
 #### Stage 2: tidy, then split
 Deleting first means less code to move, and every later behaviour change lands in smaller files. P3.3-5 follows the split straight away: it decides whether `instructions()` keeps the `onlyVisible` rule before P3.7-2 cuts the prompt, and it fixes the scenario 07 and 17 input failures before the full ×3 runs in P3.2-2 and P3.7-2.
@@ -367,12 +368,12 @@ Deleting first means less code to move, and every later behaviour change lands i
   - with the code gone, the BF-8 note "before any deploy to the EPRA site, check whether another EPRA block relied on the `slide` aliases" lapses
   - from P1.8a, for the future EPRA package: if `sync_multi_links_to_epra_resources_list` is ever re-enabled, it must get its draft from `PageDraft::of()`, and `DraftIsolationTest` gets a case for it
   - more than 20 lines of working code are deleted: covered by this plan
-  - scenarios: 05, 07, 13 ×3; cap $0.65
+  - scenarios: `--fake` of 05, 07, 13; none new or changed, so no paid run. Compared ×3 in P3.S2
 - [ ] P3.3-4 **Split `PagesToolkit.php`, mechanically** (M). Depends on: P3.3-1, P3.3-2, P3.4 and P3.5-1's Pages half.
   - `PagesToolkit` (3,490 lines, 18 tools) becomes Pages, Content (page blocks and areas) and BatchEdit; two PRs if that is easier to review (Content out, then BatchEdit out)
   - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
   - the tools stay on `CallableTool` (the subclass conversion is dropped)
-  - scenarios: the write scenarios ×1; cap $0.70
+  - scenarios: `--fake` of the write scenarios; none new or changed, so no paid run. Compared ×3 in P3.S2
 - [ ] P3.3-5 **List and input fixes** (S–M). Depends on: P3.3-4.
   - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so it is refused, and `get_page_children` doesn't have it. Declare it on both, or drop the rule (BF-6)
   - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`; BF-6)
@@ -381,8 +382,9 @@ Deleting first means less code to move, and every later behaviour change lands i
   - `list_pages` and `get_page_children` with `parentPath` `/` error ("Parent page not found at path: /"; `Page::getByPath('/')` finds nothing), seen in scenario 15 at the Phase 1 exit (B-ERR-1). Resolve `/` to the home page, as `PageContextResolver` does since BF-1
   - declare `items` for the 6 array properties in `ToolRegistryTest`'s known list (P2.3)
   - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
-  - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, so it is checked by this task's scenarios)
-  - scenarios: 04, 12, 15, 17 ×3; cap $0.85
+  - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, checked in P3.S2's comparison)
+  - scenarios: `--fake` of 04, 12, 15, 17; none new or changed, so no paid run. Compared ×3 in P3.S2
+- [ ] P3.S2 **Stage 2 comparison** (S; WP-4). Depends on: every Stage 2 task. One ×3 run of the scenarios Stage 2's tasks name (the write scenarios 04, 05, 06, 07, 08, 09, 10, 15, 17, 20, 23, 24, plus 12 and 13), the unstable ones (05, 07, 12, 15) ×5, from a reset, on gpt-4o. The merge rule is applied here; a regression gets its own fix task before Stage 3 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $3.50 (about 50 runs).
 
 #### Stage 3: approval
 After permissions, so that approval never stands in for a permission check.
@@ -395,7 +397,7 @@ After permissions, so that approval never stands in for a permission check.
   - a failed turn's stored reply names the write tools that ran before it failed, and the page they ran on (proposed in P2.6). The per-turn tracking exists since BF-7 (`TurnChanges`, a `ToolCalled` listener that de-duplicates by call ID and passes what it records through `SecretRedactor`); the stored reply doesn't use it yet. This also takes P3.9's "PSR-14 logging listener": any log listener is the same listener, redacted
   - the scenario runner learns approve and deny steps
   - first set of tools: `update_page`, `set_page_attribute_value` and `create_page`
-  - scenarios: 08, 10, 14 ×3; cap $0.65
+  - scenarios (keeps its own ×3 before merge, WP-4): 08, 10, 14 ×3; cap $0.65
 - [ ] P3.6-2 **Approval on every write tool, with previews** (L; safety). Depends on: P3.6-1 and P3.3-4.
   - every write tool needs approval, with a summary or diff of the change, including the whole-value writes (`update_page`, `set_page_attribute_value`; B-T1-2)
   - the approval must cover `create_page`: P1.13 makes it create an unpublished page, but it still adds a page to the sitemap, and publishing stays a person's action from Page Versions
@@ -405,7 +407,7 @@ After permissions, so that approval never stands in for a permission check.
   - B-WRT-4: a change Concrete sends through a workflow is reported as "submitted for approval"
   - note from P1.11: scenario 14 (an injected line in the user's own pasted message, not in a tool result) is outside what P1.11's detector can see. Approval before writes is what covers it, so this task should make that scenario's `no_write_tool_succeeded` check pass. Add a direct live-version check to scenario 14 (its own commit, with the reason; from the Phase 1 exit review)
   - investigate scenario 09's one wrong-page write (Phase 1 exit, run 2: the model made a new live page "Move Target" with `create_page`, then moved `move-me-child` instead of `move-me`): find whether the cause is the prompt, the tool descriptions or the page resolution, and fix it in a tool check, not a prompt rule
-  - scenarios: full ×3 (every write scenario now pauses); cap $6.00
+  - scenarios (keeps its own ×3 before merge, WP-4): full ×3 (every write scenario now pauses); cap $6.00
 - [ ] P3.6a **Stack and global-area editing** (M; decided after BF-2; an exit criterion since WP-4). Depends on: P3.6-2 and P3.5-1. The assistant edits, adds and moves content in stacks and global areas the way an editor does in edit mode or under Dashboard → Stacks & Global Areas. Proposal: [plans/BF-2.md](plans/BF-2.md) §9.
   - **draft only:** changes go into an unapproved stack version (`getVersionToModify()`), never live. Through a page, the stack version is related to the page's draft, as Concrete does; directly, it's approved under Stacks & Global Areas. The assistant never approves either
   - **the user's permissions** on the stack page and the stack's own area, not only the page's; a user who can't edit the stack is refused with the reason
@@ -413,13 +415,14 @@ After permissions, so that approval never stands in for a permission check.
   - **never add to another user's pending stack version without warning:** refuse or warn, with a test (Glyn, on approving BF-2)
   - **test whether `neuron_editor` is stopped by Concrete's permissions alone** when adding a block through a global area, with the BF-2 refusal switched off in the test (Glyn, after BF-2; BF-2 couldn't tell, because its refusal comes first)
   - turn on `SystemPageGuard::stackEditingEnabled()`; system single pages and page type defaults stay refused; B-WRT-5 (b) to "met"
-  - tests per tool on a throwaway global area (BF-2's fixture); scenarios: a global-area edit through a page (draft, notice, other pages unchanged until approval), and an editor without stack permission refused; cap $0.50 (outside the $43 of caps, inside the $60)
+  - tests per tool on a throwaway global area (BF-2's fixture); scenarios (keeps its own ×3 before merge, WP-4): a global-area edit through a page (draft, notice, other pages unchanged until approval), and an editor without stack permission refused, ×3; cap $0.50
 - [ ] P3.6-3 **Re-enable tools behind approval** (M; safety). Depends on: P3.6-2 and P3.2-1. Glyn decides each:
   - `delete_page` (disabled since P1.13; its `DisabledTools` reason says it returns only behind approval) and `move_page` (scenario 09)
   - `move_file_to_folder`, as the delete redirect: when used for a delete request it can only target "Assistant – to delete" (B-T1-11; moved here from P3.5, because restricting it and re-enabling it are one change)
   - whether `approve_page_version` ever returns (publishing has been a person's action since P1.7)
   - whether the Tier 2 live writes disabled in P1.13 (the select-option tools, `delete_topic`, `delete_attribute_set`) stay disabled until Phase 6
-  - scenarios: 04, 09, 11, 18 ×5; cap $1.40
+  - scenarios: 09, 11 and 18 (their expected values change) ×1, after a `--fake` run; cap $0.25. Compared in P3.S3
+- [ ] P3.S3 **Stage 3 comparison** (S; WP-4). Depends on: every Stage 3 task. P3.6-1, P3.6-2 (the full suite) and P3.6a run their own ×3 before merge, so this run covers what P3.6-3 changed after them: 09 and 18 ×3, 11 ×5, from a reset, on gpt-4o. The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. **The internal pilot starts after this task is merged.** Cap $0.80 (11 runs).
 
 #### Stage 4: a lean agent
 The prompt cut is last because it removes the rules that the earlier tasks turned into code.
@@ -428,16 +431,16 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - a scenario through the chat endpoint from the panel's payload, not only the in-process runner (from BF-1: the panel sent no page ID, which the runner can't see)
   - coverage of the home page, dashboard pages and edit mode (scenario 22 covers the home page only)
   - **four new scenarios**, each through the controller path from the panel's payload: an ordinary page (`/neuron-test/headings`), the home page, a dashboard page, and a page in edit mode
-  - scenarios: the four new ones ×3 (12 runs at about $0.07); cap $0.85
+  - scenarios: the four new ones ×1; cap $0.30. Compared ×3 in P3.S4
 - [ ] P3.1 **ContextBuilder** (M). Depends on: P3.11-2, and P3.2-1 for the tier.
   - pull the context code out of the agent, and add the area and block tree, the user's permissions on the current page, the tier (B-CTX-3) and the site locale (B-LNG-2). Unit tests
   - a test that starts from the panel's payload (BF-1)
   - the prompt's page snapshot shows block counts but no text previews: `extractContentBlockPreview()` never gets a controller (BF-10)
-  - scenarios: 01, 02, 12, 19, 20, 22 ×3; cap $1.30
+  - scenarios: `--fake` of 01, 02, 12, 19, 20, 22; none new or changed, so no paid run. Compared ×3 in P3.S4
 - [ ] P3.2-2 **Tool groups and intent router** (L). Depends on: P3.1, P3.3-4 and P3.3-5.
   - group the tools and send only the relevant groups per request (at most 25 tools per request). The router treats all external tools (today `katalysis_pro`'s, through `ExternalToolkitRegistry`) as one group; providers declaring their own group comes with P5.0 (WP-4)
   - the runner records the number of tools offered on each request
-  - scenarios: full ×3 (tool choice changes everywhere); cap $6.00
+  - scenarios: `--fake` of the full suite; none new or changed, so no paid run (tool choice changes everywhere, so P3.S4 is the check). Compared ×3 in P3.S4
 - [ ] P3.7-2 **Cut the prompt down** (M). Depends on: P3.1, P3.2-1, P3.3-2, P3.3-5 (the `onlyVisible` rule), P3.4 and P3.6-2.
   - to identity, tier and how to use context, in at most 60 lines, not counting the context block. Each rule it holds becomes a tool check or a scenario (BEHAVIOUR_SPEC §9's table)
   - the two direct-action rules that conflict with B-CON-3 and B-CON-4 ("Do not tell the user to make manual edits…", "proceed with the write operation…")
@@ -447,7 +450,8 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - **the guidelines heading** (decided on approving the P2.4 plan): P2.4 keeps v3's rendering byte-identical through a `resolveTools()` override in `ConcreteCmsAgent` (headed `# FilteredToolkit` for filtered toolkits, then the tool names one per line, the first without `- `). Decide here: v4's own heading (the tool names), a heading of our own, or none; drop `FilteredToolkit`'s "Toolkit: X" line
   - `VersionsToolkit::guidelines()` (BF-10)
   - rules with no code yet: B-LNG-1 and B-LNG-3 (with scenarios), B-SCP-1, B-SCP-3, B-INJ-6, B-TRU-8
-  - scenarios: full ×3, plus the language scenarios; cap $6.30
+  - scenarios: the new language scenarios ×1, and `--fake` of the full suite; cap $0.20. Compared ×3 in P3.S4
+- [ ] P3.S4 **Stage 4 comparison** (S; WP-4). Depends on: every Stage 4 task. The full suite (about 43 scenarios by then) ×3, the unstable ones ×5, from a reset, on gpt-4o. The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $10.10 (about 143 runs).
 
 #### Alongside, at any point
 - [ ] P3.8-1 **Provider and model from settings** (M). Depends on: nothing.
@@ -458,7 +462,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
 - [ ] P3.8-2 **A cheaper model for routing** (S–M). Depends on: P3.2-2. Only if the router calls a model; if it routes from context without a model call, this task is dropped.
 - [ ] P3.9-1 **The chat table under Doctrine** (S–M; DB schema, so significant). Depends on: nothing. Remove the `CREATE TABLE` from `on_start()` and drop the `chatHistory` column, unused since P2.5. Scenarios: none.
 - [ ] P3.9-2 **Chat retention and admin purge** (M; personal data). Depends on: P3.9-1. 90 days by default, configurable, plus an admin purge (B-PII-5). Scenarios: none.
-- [ ] P3.9-3 **Loop guard** (M). Depends on: nothing; better after P3.6-1. The same tool isn't repeated with the same arguments after it failed; after one alternative attempt the assistant reports and stops (B-ERR-3), with a new scenario. Scenarios: 15 ×5 and the new one ×3; cap $0.60.
+- [ ] P3.9-3 **Loop guard** (M). Depends on: nothing; better after P3.6-1. The same tool isn't repeated with the same arguments after it failed; after one alternative attempt the assistant reports and stops (B-ERR-3), with a new scenario. Scenarios: the new one ×1, and `--fake` of 15; cap $0.10. Compared in the next stage comparison.
 - [ ] P3.9-4 **Small fixes** (S). Depends on: nothing. Scenarios: none.
   - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
   - chat history load failures show a clear message to the user (found in P1.11: currently `catch (\Exception)` in `loadExistingMessages()`)
