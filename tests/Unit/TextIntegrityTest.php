@@ -79,13 +79,15 @@ final class TextIntegrityTest extends TestCase
         $this->assertStringContainsString('Text under the second h3 heading.', $result['message']);
     }
 
-    public function testKeepTextReportsAReorder(): void
+    public function testKeepTextRefusesAReorderThatScopedTextReports(): void
     {
         $after = '<p>Text under the first h3 heading.</p><h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p>'
             . '<h3>Seed Heading Three A</h3><h3>Seed Heading Three B</h3><p>Text under the second h3 heading.</p>';
 
-        $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'keep_text');
+        // Since P3.3-2 (BF-5 decision 7) keep_text refuses a reorder; scoped_text saves it and reports it.
+        $this->assertFalse(TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'keep_text')['ok']);
 
+        $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'scoped_text', ['content']);
         $this->assertTrue($result['ok'], $result['message']);
         $this->assertTrue($result['fields']['content']['orderChanged']);
     }
@@ -298,6 +300,122 @@ final class TextIntegrityTest extends TestCase
 
         $this->assertTrue(TextIntegrity::evaluate(['content' => $withLink], ['content' => '<h2>Read <a href="/x">the guide</a> first.</h2>'], 'keep_text')['ok']);
         $this->assertTrue(TextIntegrity::evaluate(['content' => $withLink], ['content' => $withLink . '<p>New.</p>'], 'keep_text')['ok']);
+    }
+
+    // ---- P3.3-2: literal \n and \" only refused where they look copied from an encoded result -------------------
+
+    /**
+     * New text an author can mean: a Windows path, a code example, quoted speech written with backslashes.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function legitimateBackslashProvider(): array
+    {
+        return [
+            'Windows path' => ['<p>Save it to C:\new\temp\notes.txt and open it.</p>'],
+            'code example' => ['<pre><code>printf("Hello\n"); puts("tab\there");</code></pre>'],
+            'escaped quote in text' => ['<p>In JSON a quote is written \" inside a string.</p>'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('legitimateBackslashProvider')]
+    public function testABackslashSequenceInTextIsAllowed(string $added): void
+    {
+        $this->assertNull(TextIntegrity::checkNewValue(['content' => $added]), 'a new block refused it');
+
+        $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => self::SEED . $added], 'keep_text');
+        $this->assertTrue($result['ok'], $result['message']);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function copiedEscapeProvider(): array
+    {
+        return [
+            '\n after a tag' => ['<p>New text.</p>\n'],
+            '\n before a tag' => ['<p>New text.\n</p>'],
+            '\r\n between tags' => ['<p>One.</p>\r\n<p>Two.</p>'],
+            '\" in an attribute' => ['<p><a href=\"/x\">link</a></p>'],
+            '\n in text, with <\/ elsewhere' => ['<p>Line one\nline two.<\/p>'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('copiedEscapeProvider')]
+    public function testABackslashSequenceNextToMarkupIsRefused(string $added): void
+    {
+        $this->assertStringContainsString('JSON escape sequences', (string) TextIntegrity::checkNewValue(['content' => $added]));
+
+        $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => self::SEED . $added], 'keep_text');
+        $this->assertFalse($result['ok'], 'keep_text let it through');
+        $this->assertStringContainsString('JSON escape sequences', $result['message']);
+    }
+
+    // ---- P3.3-2: strict order under keep_text (BF-5 decision 7) -----------------------------------------------
+
+    public function testKeepTextRefusesAReorderAndScopedTextAllowsIt(): void
+    {
+        $after = '<h3>Seed Heading Three B</h3><p>Text under the second h3 heading.</p>'
+            . '<h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p>'
+            . '<h3>Seed Heading Three A</h3><p>Text under the first h3 heading.</p>';
+
+        $kept = TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'keep_text');
+        $this->assertFalse($kept['ok'], 'keep_text let a reorder through');
+        $this->assertStringContainsString('changes the order of the existing text', $kept['message']);
+        $this->assertStringContainsString('Nothing was changed', $kept['message']);
+        $this->assertStringContainsString('scoped_text', $kept['message']);
+
+        $scoped = TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'scoped_text', ['content']);
+        $this->assertTrue($scoped['ok'], $scoped['message']);
+        $this->assertTrue($scoped['fields']['content']['orderChanged']);
+    }
+
+    public function testAShortPieceOfTextThatAlsoAppearsEarlierIsNotAReorder(): void
+    {
+        $before = '<h2>About us</h2><p>Contact</p><p>us</p>';
+
+        $result = TextIntegrity::evaluate(['content' => $before], ['content' => '<h3>About us</h3><p>Contact</p><p>us</p>'], 'keep_text');
+
+        $this->assertTrue($result['ok'], $result['message']);
+        $this->assertFalse($result['fields']['content']['orderChanged']);
+    }
+
+    // ---- P3.3-2: no code in content (B-T1-10) -----------------------------------------------------------------
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function codeProvider(): array
+    {
+        return [
+            'script element' => ['<p>Hi</p><script>alert(1)</script>', '<script>'],
+            'event handler' => ['<p>Hi</p><img src="/a.png" alt="" onerror="alert(1)">', 'event-handler attribute (onerror)'],
+            'javascript: URL' => ['<p><a href="javascript:alert(1)">Hi</a></p>', 'javascript: URL'],
+            'javascript: URL, entity and tab' => ['<p><a href="jav&#x61;\tscript:alert(1)">Hi</a></p>', 'javascript: URL'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('codeProvider')]
+    public function testCodeInContentIsRefusedInEveryMode(string $added, string $named): void
+    {
+        $added = str_replace('\t', "\t", $added);
+        $this->assertStringContainsString($named, (string) TextIntegrity::checkNewValue(['content' => $added]));
+
+        foreach (['keep_text', 'scoped_text'] as $mode) {
+            $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => self::SEED . $added], $mode, $mode === 'scoped_text' ? ['content'] : null);
+            $this->assertFalse($result['ok'], "{$mode} let code through");
+            $this->assertStringContainsString($named, $result['message']);
+            $this->assertStringContainsString('Nothing was changed', $result['message']);
+        }
+    }
+
+    public function testCodeTheStoredValueAlreadyHasIsKeptAndProseAboutItIsAllowed(): void
+    {
+        $embed = '<div id="map"></div><script src="https://maps.example.test/embed.js"></script>';
+        $this->assertTrue(TextIntegrity::evaluate(['content' => $embed], ['content' => '<p>Our map:</p>' . $embed], 'keep_text')['ok']);
+
+        $this->assertNull(TextIntegrity::checkNewValue(['content' => '<p>Never paste javascript: links or onclick= handlers into a page.</p>']));
+        $this->assertNull(TextIntegrity::checkNewValue(['content' => '<p>The <code>&lt;script&gt;</code> element runs code.</p>']));
     }
 
     public function testANewValueIsCheckedOnItsOwn(): void

@@ -3,6 +3,9 @@ Task ID and title from `documentation/DELIVERY_PLAN.md`:
 
 ## What changed
 
+## Decisions taken
+Questions inside the task's `DELIVERY_PLAN.md` entry, decided with Claude Code's recommendation (WP-4); Glyn overrules at review. "None" if there were none.
+
 ## Out of scope / not done
 
 ## Checks

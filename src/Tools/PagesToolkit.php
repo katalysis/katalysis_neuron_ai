@@ -43,6 +43,7 @@ use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\Utilities\TextIntegrity;
+use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ArrayProperty;
@@ -661,7 +662,7 @@ class PagesToolkit extends AbstractToolkit
             }
             
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found. The page may not exist or may have been deleted.");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -1099,7 +1100,7 @@ class PagesToolkit extends AbstractToolkit
 
             $page = Page::getByID($pageID, 'RECENT');
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -1475,7 +1476,7 @@ class PagesToolkit extends AbstractToolkit
 
             $page = Page::getByID($pageID, 'RECENT');
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -1914,7 +1915,7 @@ class PagesToolkit extends AbstractToolkit
             $parent = Page::getByID($parentID);
             
             if (!$parent || $parent->isError()) {
-                throw new \RuntimeException("Parent page with ID {$parentID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $parentID, 'Parent page'));
             }
             SystemPageGuard::refuse($parent, 'parent page');
             
@@ -2139,7 +2140,7 @@ class PagesToolkit extends AbstractToolkit
             $page = Page::getByID($pageID, 'RECENT');
             
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -2253,7 +2254,7 @@ class PagesToolkit extends AbstractToolkit
             
             $page = Page::getByID($pageID);
             if (!$page || $page->isError() || !($page instanceof Page)) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -2302,7 +2303,7 @@ class PagesToolkit extends AbstractToolkit
             $page = Page::getByID($pageID, 'ACTIVE');
             
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -2475,7 +2476,7 @@ class PagesToolkit extends AbstractToolkit
 
             $page = Page::getByID($pageID);
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -2483,22 +2484,29 @@ class PagesToolkit extends AbstractToolkit
 
             $bt = BlockType::getByHandle($blockType);
             if (!$bt) {
-                throw new \RuntimeException("Invalid block type handle '{$blockType}'");
+                throw new \RuntimeException(WriteRefusal::unknownBlockType((string) $blockType));
             }
 
             $normalizedValue = $this->normalizeCustomBlockPayload((string) $blockType, $value ?? []);
-            // No escaped or broken HTML in a new block either (BF-7, browser check 6).
+            // No escaped or broken HTML, and no code, in a new block either (BF-7, browser check 6; P3.3-2, B-T1-10).
             $valueProblem = TextIntegrity::checkNewValue($normalizedValue);
             if ($valueProblem !== null) {
                 throw new \RuntimeException($valueProblem);
             }
 
-            /** @var mixed $pageForArea */
-            $pageForArea = $page;
-            $area = Area::getOrCreate($pageForArea, $areaHandle);
+            // The block type's own check, as Concrete's add-block dialog runs it (AddBlockToPageCommand doesn't; P3.3-2).
+            $validation = WriteRefusal::blockValidation($bt->getController()->validate($normalizedValue), (string) $blockType);
+            if ($validation !== null) {
+                throw new \RuntimeException($validation);
+            }
+
+            // A refused add leaves no Areas row (P3.3-2; BF-3 plan §9): an area made here is removed again.
+            [$area, $areaIsNew] = $this->areaForWrite($page, $areaHandle);
             $checker = new Checker($area);
             if (!$checker->canAddBlock($bt)) {
-                throw new \RuntimeException("Permission denied: Cannot add '{$blockType}' blocks to area '{$areaHandle}' on page {$pageID}");
+                $this->removeNewArea($area, $areaIsNew);
+                throw new \RuntimeException("Permission denied: Cannot add '{$blockType}' blocks to area '{$areaHandle}' on page {$pageID}. "
+                    . 'Your account may not add this block type there; ask an editor who can, or a site administrator. Nothing was changed.');
             }
 
             // The command makes its own draft from the page it is given. Give it the draft, so a
@@ -2589,7 +2597,7 @@ class PagesToolkit extends AbstractToolkit
 
             $page = Page::getByID($pageID, 'RECENT');
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -2640,8 +2648,12 @@ class PagesToolkit extends AbstractToolkit
 
             $validation = $this->validateBlock($block, $body);
             if ($validation instanceof JsonResponse) {
-                $validationBody = (string) $validation->getContent();
-                throw new \RuntimeException("Block validation failed: {$validationBody}");
+                $errors = json_decode((string) $validation->getContent(), true);
+                $list = new \Concrete\Core\Error\ErrorList\ErrorList();
+                foreach ((array) ($errors['errors'] ?? [(string) $validation->getContent()]) as $error) {
+                    $list->add(is_array($error) ? (string) ($error['message'] ?? json_encode($error)) : (string) $error);
+                }
+                throw new \RuntimeException((string) WriteRefusal::blockValidation($list, $block->getBlockTypeHandle()));
             }
 
             // Make the draft only now that the checks have passed. If it exists already this
@@ -2654,12 +2666,12 @@ class PagesToolkit extends AbstractToolkit
             $command->setData($body);
             $command->setBlock($blockToEdit);
 
+            // The command's handler saves the block (Block::update()); a second save here was removed in P3.3-2.
             $updatedBlock = Application::getFacadeApplication()->executeCommand($command);
-            $blockToEdit->update($body);
 
             $afterRecord = $this->getBlockTableRecord($dbTable, (int) $updatedBlock->getBlockID());
 
-            return $this->serializeBlock($updatedBlock, true) + [
+            return $this->serializeBlock($updatedBlock, true) + $this->previousBlockID((int) $blockID, (int) $updatedBlock->getBlockID()) + [
                 'textCheck' => [
                     'mode' => $mode,
                     'fields' => $textPolicy['fields'],
@@ -2971,7 +2983,7 @@ class PagesToolkit extends AbstractToolkit
 
             $page = Page::getByID($pageID, 'RECENT');
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -3069,7 +3081,7 @@ class PagesToolkit extends AbstractToolkit
 
             $page = Page::getByID($pageID, 'RECENT');
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page with ID {$pageID} not found");
+                throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
@@ -3089,11 +3101,14 @@ class PagesToolkit extends AbstractToolkit
             }
 
             // Check the destination before making a draft, so a refused move leaves no draft behind.
-            // (Areas belong to the page, not to a version.)
+            // (Areas belong to the page, not to a version.) An area made for the check is removed again (P3.3-2).
             $destinationBlockType = $block->getBlockTypeObject();
-            $destinationChecker = new Checker(Area::getOrCreate($page, $toAreaHandle));
+            [$destination, $destinationIsNew] = $this->areaForWrite($page, $toAreaHandle);
+            $destinationChecker = new Checker($destination);
             if ($destinationBlockType && !$destinationChecker->canAddBlock($destinationBlockType)) {
-                throw new \RuntimeException("Permission denied: Cannot move '{$block->getBlockTypeHandle()}' blocks to area '{$toAreaHandle}' on page {$pageID}");
+                $this->removeNewArea($destination, $destinationIsNew);
+                throw new \RuntimeException("Permission denied: Cannot move '{$block->getBlockTypeHandle()}' blocks to area '{$toAreaHandle}' on page {$pageID}. "
+                    . 'Your account may not add this block type there; ask an editor who can, or a site administrator. Nothing was changed.');
             }
 
             $pageToModify = $this->getDraftOf($page);
@@ -3110,10 +3125,58 @@ class PagesToolkit extends AbstractToolkit
 
             $movedBlock = Block::getByID($editableBlock->getBlockID(), $pageToModify, $destinationArea);
 
-            return $this->serializeBlock($movedBlock ?: $editableBlock, true) + DraftState::of($pageToModify);
+            return $this->serializeBlock($movedBlock ?: $editableBlock, true)
+                + $this->previousBlockID((int) $blockID, (int) $editableBlock->getBlockID())
+                + DraftState::of($pageToModify);
         }));
 
         return $tool;
+    }
+
+    /**
+     * The area to check a write against, and whether it was made here (P3.3-2). Area::getOrCreate() writes an Areas row,
+     * so a refused call removes the row it made with removeNewArea().
+     *
+     * @return array{0: Area, 1: bool}
+     */
+    private function areaForWrite(Page $page, string $areaHandle): array
+    {
+        $existing = Area::get($page, $areaHandle);
+        if ($existing instanceof Area) {
+            return [$existing, false];
+        }
+
+        /** @var mixed $pageForArea */
+        $pageForArea = $page;
+
+        return [Area::getOrCreate($pageForArea, $areaHandle), true];
+    }
+
+    private function removeNewArea(Area $area, bool $isNew): void
+    {
+        if ($isNew && (int) $area->getAreaID() > 0) {
+            Application::getFacadeApplication()->make('database')->connection()
+                ->executeStatement('DELETE FROM Areas WHERE arID = ?', [(int) $area->getAreaID()]);
+            Application::getFacadeApplication()->make('cache/request')->flush();
+        }
+    }
+
+    /**
+     * After a copy into the draft the block has a new ID (BF-7). The result names the one it replaced, so later calls
+     * in the same turn use the new one.
+     *
+     * @return array{previousBlockID?: int, blockIDNote?: string}
+     */
+    private function previousBlockID(int $previous, int $current): array
+    {
+        if ($previous === $current || $current <= 0) {
+            return [];
+        }
+
+        return [
+            'previousBlockID' => $previous,
+            'blockIDNote' => "The block was copied into the draft and now has ID {$current} (it was {$previous}). Use {$current} for further changes to it.",
+        ];
     }
 
     /**

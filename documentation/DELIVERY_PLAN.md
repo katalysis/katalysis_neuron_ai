@@ -306,7 +306,7 @@ Why first:
   - the `batch_update_content_headings` bugs: it changes only one matching heading per block (05, 06 and 23 fail on it; BF-7, BF-10), and with `matchMode=bold_paragraph` and no `headingTexts` it logs `foreach() argument must be of type array|object, null given` (`PagesToolkit.php:1059`) instead of refusing with a clear message (P1.12)
   - a test per change, red first
   - scenarios: 02, 05, 06, 14, 16, 23, 24, 25 ×3, and a new "summarise another page by path" ×3; cap $1.90
-- [ ] P3.3-2 **Write checks** (M; safety). Depends on: P3.3-1 (the same handlers in `PagesToolkit.php`).
+- [x] P3.3-2 **Write checks** (M; safety). Done (PR #64). Depends on: P3.3-1 (the same handlers in `PagesToolkit.php`).
   - **B-T1-10:** content and HTML block writes refuse `<script>`, event-handler attributes and `javascript:` URLs, with a test per write tool (Glyn, on the roadmap)
   - `add_block_to_page_area` validates the new block's data with its controller's `validate()` before the draft, as Concrete's own add-block UI does (Concrete's `AddBlockToPageCommand` doesn't), with a test (BF-3)
   - the text check refuses JSON escape sequences the stored text doesn't have (`<\/`, a literal `\r`, `\n`, `\t` or `\"`), but a literal `\n` or `\"` can be legitimate new text, such as a code example or a Windows path. Refine it (for example, refuse those only next to tags or when `<\/` is also present), with a test for each case (BF-7)
@@ -472,7 +472,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `show_prompt.php` in SETUP (P2.4's question)
 
 #### Last
-- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: full run (×3, the unstable ones ×5, about 143 runs by then); cap $10.10 (was $7.70, for a smaller suite). If no task merged after P3.S4, P3.S4's run is the exit run (WP-4).
+- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: full run (×3, the unstable ones ×5, about 143 runs by then); cap $10.10 (was $7.70, for a smaller suite). **If nothing merges after P3.S4, P3.S4's run is the exit run and P3.12 doesn't repeat it** (Glyn, after WP-4); the cap is for a run only when something merged after P3.S4.
 
 #### Removed, merged or moved (on the roadmap, 27 October 2026)
 - **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).

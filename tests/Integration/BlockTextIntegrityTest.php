@@ -125,15 +125,24 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         $this->assertSame(2, $this->versionCount($cID), 'One draft');
     }
 
-    public function testAReorderIsSavedAndReported(): void
+    public function testAReorderIsRefusedUnderKeepTextAndSavedAndReportedUnderScopedText(): void
     {
         [$cID, $bID] = $this->newHeadingsPage();
+        $versions = $this->versionCount($cID);
+        $reordered = '<h3>Seed Heading Three B</h3><p>Text under the second h3 heading.</p>'
+            . '<h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p>'
+            . '<h3>Seed Heading Three A</h3><p>Text under the first h3 heading.</p>';
+
+        // Since P3.3-2 (BF-5 decision 7) keep_text refuses a reorder, before any draft.
+        $refused = $this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+            'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['content' => $reordered],
+        ]);
+        $this->assertStringContainsString('changes the order of the existing text', $refused);
+        $this->assertSame($versions, $this->versionCount($cID), 'A refused update must not make a draft');
 
         $result = $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
-            'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
-            'value' => ['content' => '<h3>Seed Heading Three B</h3><p>Text under the second h3 heading.</p>'
-                . '<h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p>'
-                . '<h3>Seed Heading Three A</h3><p>Text under the first h3 heading.</p>'],
+            'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['content' => $reordered],
+            'changeMode' => 'scoped_text', 'textFields' => ['content'],
         ]));
 
         $this->assertTrue($result['textCheck']['fields']['content']['orderChanged']);

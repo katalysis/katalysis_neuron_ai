@@ -16,7 +16,8 @@ namespace Katalysis\NeuronAi\Tools\Utilities;
  *
  * In every mode, a value that looks built from a shortened read (stored text cut off and followed by "..."), is refused.
  * In every mode too (BF-7, browser check 6), a value with JSON escape sequences the stored text doesn't have ("<\/",
- * a literal "\r\n"), or whose HTML is no longer well-formed, is refused; under keep_text no element may be removed.
+ * a literal "\r\n" next to markup), or whose HTML is no longer well-formed, is refused; under keep_text no element may
+ * be removed and existing text may not move (P3.3-2). A value that adds code (UnsafeMarkup, B-T1-10) is refused too.
  */
 final class TextIntegrity
 {
@@ -124,6 +125,14 @@ final class TextIntegrity
             }
         }
 
+        // No code in content (P3.3-2, B-T1-10), in any field of the value, watched or not.
+        foreach ($proposed as $field => $value) {
+            $code = UnsafeMarkup::problem((string) $field, $value, $before[$field] ?? null);
+            if ($code !== null) {
+                return $fail($code);
+            }
+        }
+
         $fields = [];
         foreach ($watched as $field) {
             if (!array_key_exists($field, $proposed)) {
@@ -148,19 +157,21 @@ final class TextIntegrity
                 ));
             }
 
+            // Each stored piece is looked for after the previous one (P3.3-2), so a short piece that also appears
+            // inside an earlier one isn't taken for a move. A piece found only before that point has moved.
             $missing = [];
-            $positions = [];
+            $orderChanged = false;
+            $cursor = 0;
             foreach (self::segments($before[$field] ?? null) as $segment) {
-                $position = mb_strpos($afterText, $segment);
-                if ($position === false) {
-                    $missing[] = $segment;
+                $position = mb_strpos($afterText, $segment, $cursor);
+                if ($position !== false) {
+                    $cursor = $position + mb_strlen($segment);
+                } elseif (mb_strpos($afterText, $segment) !== false) {
+                    $orderChanged = true;
                 } else {
-                    $positions[] = $position;
+                    $missing[] = $segment;
                 }
             }
-            $sorted = $positions;
-            sort($sorted);
-            $orderChanged = $positions !== $sorted;
 
             $isListed = in_array($field, $listed, true);
             if ($mode === 'formatting_only' && $beforeText !== $afterText) {
@@ -174,6 +185,16 @@ final class TextIntegrity
                     . 'full block with get_block_data and keep its text.',
                     $field,
                     self::clip($missing[0]),
+                    $field
+                ));
+            }
+            // Strict order under keep_text (P3.3-2, BF-5 decision 7): moving existing text is a text change.
+            if ($mode === 'keep_text' && $orderChanged) {
+                return $fail(sprintf(
+                    "Field '%s': the new value changes the order of the existing text. keep_text (the default) keeps existing "
+                    . 'text where it is; text may be added. Nothing was changed. If the user asked to move text, send changeMode '
+                    . '"scoped_text" with textFields ["%s"]. Otherwise read the full block with get_block_data and keep its order.',
+                    $field,
                     $field
                 ));
             }
@@ -218,7 +239,9 @@ final class TextIntegrity
     public static function checkNewValue(array $proposed): ?string
     {
         foreach ($proposed as $field => $value) {
-            $problem = self::escapeProblem((string) $field, null, $value) ?? self::structureProblem((string) $field, null, $value, 'new');
+            $problem = UnsafeMarkup::problem((string) $field, $value)
+                ?? self::escapeProblem((string) $field, null, $value)
+                ?? self::structureProblem((string) $field, null, $value, 'new');
             if ($problem !== null) {
                 return $problem;
             }
@@ -237,7 +260,8 @@ final class TextIntegrity
         }
         $stored = is_string($stored) ? $stored : '';
 
-        $escapes = HtmlIntegrity::introducedEscapes($value, $stored);
+        // Only where they look copied from an encoded result (P3.3-2): a Windows path or a code example is the author's.
+        $escapes = HtmlIntegrity::copiedEscapes($value, $stored);
         if ($escapes !== []) {
             if (in_array('\\r', $escapes, true) && in_array('\\n', $escapes, true)) {
                 $escapes = array_values(array_diff($escapes, ['\\r', '\\n']));
