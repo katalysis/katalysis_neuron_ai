@@ -884,7 +884,9 @@ class PagesToolkit extends AbstractToolkit
         $successCount = count(array_filter($blockResults, static fn (array $r): bool => $r['ok'] === true));
         $failureCount = count($blockResults) - $successCount;
 
-        $result = [
+        // P3.3-1 (B-TRU-2): a batch in which every item failed is not a success, so the checks that read `ok` see it.
+        $result = $successCount === 0 && $blockResults !== [] ? ['ok' => false] : [];
+        $result += [
             'id' => $page->getCollectionID(),
             'path' => $page->getCollectionPath(),
             'name' => $page->getCollectionName(),
@@ -1073,7 +1075,8 @@ class PagesToolkit extends AbstractToolkit
             }
 
             $normalizedTitles = [];
-            foreach ($headingTexts as $text) {
+            // With bold_paragraph, no headingTexts means every bold paragraph (P1.12: a null here raised a warning).
+            foreach ($headingTexts ?? [] as $text) {
                 if (!is_string($text)) {
                     continue;
                 }
@@ -1131,6 +1134,7 @@ class PagesToolkit extends AbstractToolkit
             $placements = $qb->execute()->fetchAllAssociative();
             if (empty($placements)) {
                 return [
+                    'ok' => false,
                     'summary' => [
                         'requestedHeadings' => count($normalizedTitles),
                         'updatedCount' => 0,
@@ -1204,15 +1208,15 @@ class PagesToolkit extends AbstractToolkit
                         continue;
                     }
 
-                    $match = null;
+                    // P3.3-1: every matching heading in the block, not only the first (scenarios 05, 06 and 23).
+                    $matches = [];
                     if ($matchMode === 'explicit') {
-                        $match = $this->findMatchingHeadingTextInContent($content, $pendingHeadings);
+                        $matches = $this->findMatchingHeadingTextsInContent($content, $pendingHeadings);
                     } else {
-                        $detectedHeading = $this->extractBoldParagraphHeadingText($content);
-                        if ($detectedHeading !== null) {
+                        foreach ($this->extractBoldParagraphHeadingTexts($content) as $detectedHeading) {
                             $detectedKey = $this->normalizeHeadingLookupText($detectedHeading);
                             if (empty($pendingHeadings) || isset($pendingHeadings[$detectedKey])) {
-                                $match = [
+                                $matches[$detectedKey] = [
                                     'key' => $detectedKey,
                                     'text' => empty($pendingHeadings) ? $detectedHeading : (string) ($pendingHeadings[$detectedKey] ?? $detectedHeading),
                                 ];
@@ -1220,22 +1224,26 @@ class PagesToolkit extends AbstractToolkit
                         }
                     }
 
-                    if ($match === null) {
-                        continue;
+                    // Each heading is applied in turn; one whose text is only in the body (not a heading) changes nothing.
+                    $transformedContent = $content;
+                    $applied = [];
+                    foreach ($matches as $match) {
+                        $next = $this->applyHeadingLevelToContent($transformedContent, $match['text'], $targetTag);
+                        if ($next !== $transformedContent) {
+                            $transformedContent = $next;
+                            $applied[] = $match;
+                        }
                     }
 
-                    $headingKey = $match['key'];
-                    $headingText = $match['text'];
-                    $transformedContent = $this->applyHeadingLevelToContent($content, $headingText, $targetTag);
-
-                    if ($transformedContent === $content) {
+                    if ($applied === []) {
                         continue;
                     }
 
                     $beforeText = TextIntegrity::normalize($content);
                     $afterText = TextIntegrity::normalize($transformedContent);
                     if ($beforeText !== $afterText) {
-                        throw new \RuntimeException("text integrity check failed for '{$headingText}' (body text changed)");
+                        $names = implode("', '", array_column($applied, 'text'));
+                        throw new \RuntimeException("text integrity check failed for '{$names}' (body text changed)");
                     }
 
                     // Never change a block under the user's open editor (BF-7): reported with the failures.
@@ -1245,12 +1253,13 @@ class PagesToolkit extends AbstractToolkit
                         'blockID' => (int) $blockID,
                         'areaHandle' => $areaHandle,
                         'dbTable' => $dbTable,
-                        'headingKey' => $headingKey,
-                        'headingText' => $headingText,
+                        'headings' => $applied,
                         'transformedContent' => $transformedContent,
                         'beforeText' => $beforeText,
                     ];
-                    unset($pendingHeadings[$headingKey]);
+                    foreach ($applied as $match) {
+                        unset($pendingHeadings[$match['key']]);
+                    }
                 } catch (\Throwable $e) {
                     $failed[] = [
                         'blockID' => (int) $blockID,
@@ -1293,16 +1302,19 @@ class PagesToolkit extends AbstractToolkit
                         $afterRecord = $this->getBlockTableRecord($change['dbTable'], $blockID);
                         $afterContent = is_string($afterRecord['content'] ?? null) ? (string) $afterRecord['content'] : '';
 
-                        $updated[] = [
-                            'blockID' => $blockID,
-                            'oldBlockID' => $oldBlockID,
-                            'areaHandle' => $areaHandle,
-                            'headingText' => $change['headingText'],
-                            'targetTag' => $targetTag,
-                            'matchMode' => $matchMode,
-                            'textChecksumBefore' => sha1($change['beforeText']),
-                            'textChecksumAfter' => sha1(TextIntegrity::normalize($afterContent)),
-                        ];
+                        // One entry per heading, as before; headings in the same block share its block IDs.
+                        foreach ($change['headings'] as $heading) {
+                            $updated[] = [
+                                'blockID' => $blockID,
+                                'oldBlockID' => $oldBlockID,
+                                'areaHandle' => $areaHandle,
+                                'headingText' => $heading['text'],
+                                'targetTag' => $targetTag,
+                                'matchMode' => $matchMode,
+                                'textChecksumBefore' => sha1($change['beforeText']),
+                                'textChecksumAfter' => sha1(TextIntegrity::normalize($afterContent)),
+                            ];
+                        }
                     } catch (\Throwable $e) {
                         $failed[] = [
                             'blockID' => $blockID,
@@ -1310,8 +1322,10 @@ class PagesToolkit extends AbstractToolkit
                             'matchMode' => $matchMode,
                             'error' => $e->getMessage(),
                         ];
-                        if (isset($normalizedTitles[$change['headingKey']])) {
-                            $pendingHeadings[$change['headingKey']] = $normalizedTitles[$change['headingKey']];
+                        foreach ($change['headings'] as $heading) {
+                            if (isset($normalizedTitles[$heading['key']])) {
+                                $pendingHeadings[$heading['key']] = $normalizedTitles[$heading['key']];
+                            }
                         }
 
                         if (!$continueOnError) {
@@ -1321,7 +1335,18 @@ class PagesToolkit extends AbstractToolkit
                 }
             }
 
-            return [
+            // P3.3-1 (B-TRU-2): nothing updated while a heading failed, wasn't found, or (bold_paragraph) none was
+            // detected is not a success, so the checks that read `ok` see it.
+            $result = [];
+            if ($updated === []) {
+                if ($failed !== [] || $pendingHeadings !== []) {
+                    $result = ['ok' => false];
+                } elseif ($matchMode === 'bold_paragraph') {
+                    $result = ['ok' => false, 'note' => 'No bold-paragraph headings were found, so nothing was changed.'];
+                }
+            }
+
+            return $result + [
                 'summary' => [
                     'requestedHeadings' => count($normalizedTitles),
                     'updatedCount' => count($updated),
@@ -1940,34 +1965,47 @@ class PagesToolkit extends AbstractToolkit
      * @param array<string, string> $pendingHeadings
      * @return array{key:string,text:string}|null
      */
-    private function findMatchingHeadingTextInContent(string $content, array $pendingHeadings): ?array
+    /**
+     * Every pending heading whose text is in the block (P3.3-1: not only the first).
+     *
+     * @return array<string, array{key: string, text: string}>
+     */
+    private function findMatchingHeadingTextsInContent(string $content, array $pendingHeadings): array
     {
         $plain = $this->normalizeHeadingLookupText(TextIntegrity::normalize($content));
+        $found = [];
         foreach ($pendingHeadings as $key => $text) {
-            if ($key === '') {
-                continue;
-            }
-            if (strpos($plain, $key) !== false) {
-                return ['key' => $key, 'text' => $text];
+            $key = (string) $key;
+            if ($key !== '' && strpos($plain, $key) !== false) {
+                $found[$key] = ['key' => $key, 'text' => $text];
             }
         }
 
-        return null;
+        return $found;
     }
 
-    private function extractBoldParagraphHeadingText(string $html): ?string
+    /**
+     * The text of every bold paragraph (<p><strong>…</strong></p> or <b>) in the block, in order (P3.3-1: not only the first).
+     *
+     * @return list<string>
+     */
+    private function extractBoldParagraphHeadingTexts(string $html): array
     {
         $pattern = '~<p\b[^>]*>\s*(?:<strong\b[^>]*>|<b\b[^>]*>)\s*(.*?)\s*(?:</strong>|</b>)\s*</p>~isu';
-        if (!preg_match($pattern, $html, $matches)) {
-            return null;
+        if (!preg_match_all($pattern, $html, $matches)) {
+            return [];
         }
 
-        $candidate = isset($matches[1]) ? (string) $matches[1] : '';
-        $candidate = html_entity_decode(strip_tags($candidate), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $candidate = preg_replace('/\s+/u', ' ', $candidate) ?: '';
-        $candidate = trim($candidate);
+        $texts = [];
+        foreach ($matches[1] as $candidate) {
+            $candidate = html_entity_decode(strip_tags((string) $candidate), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $candidate = trim(preg_replace('/\s+/u', ' ', $candidate) ?: '');
+            if ($candidate !== '') {
+                $texts[] = $candidate;
+            }
+        }
 
-        return $candidate !== '' ? $candidate : null;
+        return $texts;
     }
 
     private function normalizeHeadingLookupText(string $value): string
@@ -1986,7 +2024,7 @@ class PagesToolkit extends AbstractToolkit
         $updated = preg_replace_callback($headingPattern, function (array $matches) use ($targetTag, $headingText): string {
             $attrs = isset($matches[2]) ? (string) $matches[2] : '';
             return '<' . $targetTag . $attrs . '>' . $headingText . '</' . $targetTag . '>';
-        }, $html, 1, $count);
+        }, $html, -1, $count); // every heading with this text in the block (P3.3-1)
 
         if (is_string($updated) && $count > 0) {
             return $updated;
@@ -1994,7 +2032,7 @@ class PagesToolkit extends AbstractToolkit
 
         // Bold paragraph heading: <p><strong>Title</strong></p> or <p><b>Title</b></p>
         $boldParagraphPattern = '~<p\b[^>]*>\s*(?:<strong\b[^>]*>|<b\b[^>]*>)\s*' . $escaped . '\s*(?:</strong>|</b>)\s*</p>~iu';
-        $updated = preg_replace($boldParagraphPattern, '<' . $targetTag . '>' . $headingText . '</' . $targetTag . '>', $html, 1, $count);
+        $updated = preg_replace($boldParagraphPattern, '<' . $targetTag . '>' . $headingText . '</' . $targetTag . '>', $html, -1, $count);
         if (is_string($updated) && $count > 0) {
             return $updated;
         }
