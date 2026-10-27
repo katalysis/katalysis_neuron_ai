@@ -446,9 +446,9 @@ final class ChecksTest extends TestCase
             $this->ctx(reply: 'hi there')
         );
 
-        // The second state result is saved_html_valid (BF-7) and the last reply result linked_files_exist (BF-13);
-        // both run for every expect block.
-        $this->assertSame([CheckResult::STATE, CheckResult::STATE, CheckResult::TOOLS, CheckResult::REPLY, CheckResult::REPLY], array_map(static fn (CheckResult $r): string => $r->group, $results));
+        // The second state result is saved_html_valid (BF-7) and the last two reply results linked_files_exist (BF-13)
+        // and no_false_success (P3.11-1); all three run for every expect block.
+        $this->assertSame([CheckResult::STATE, CheckResult::STATE, CheckResult::TOOLS, CheckResult::REPLY, CheckResult::REPLY, CheckResult::REPLY], array_map(static fn (CheckResult $r): string => $r->group, $results));
         $this->assertAllPass($results);
     }
 }
