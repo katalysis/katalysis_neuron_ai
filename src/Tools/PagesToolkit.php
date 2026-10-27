@@ -339,14 +339,22 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'get_page_content',
-            'Get page content as a document with HTML and plain text. Prefer this over get_page when you need to review or summarize page copy. Reads the newest version by default (see version).'
+            'Get page content as a document with HTML and plain text. Prefer this over get_page when you need to review or summarize page copy. '
+            . 'Give pageID or pagePath (a page the user names by its path). Reads the newest version by default (see version).'
         );
 
         $tool->addProperty(new ToolProperty(
             'pageID',
             PropertyType::INTEGER,
-            'ID of the page to read',
-            true
+            'ID of the page to read. Give pageID or pagePath.',
+            false
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'pagePath',
+            PropertyType::STRING,
+            'Path of the page to read, for example /about/team ("/" is the home page). Give pageID or pagePath.',
+            false
         ));
 
         $tool->addProperty(new ToolProperty(
@@ -356,10 +364,8 @@ class PagesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $version = null): array {
-            if (!$pageID) {
-                throw new \RuntimeException("pageID is required");
-            }
+        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $pagePath = null, ?string $version = null): array {
+            $pageID = $this->pageIDFromIdOrPath($pageID, $pagePath);
 
             // BF-10: the newest version by default, as editors see it; the result says which version it shows.
             [$page, $versionInfo] = PageVersionRead::load($pageID, $version);
@@ -3085,6 +3091,42 @@ class PagesToolkit extends AbstractToolkit
     protected function getDraftOf(Page $page): Page
     {
         return PageDraft::of($page);
+    }
+
+    /**
+     * The ID of the page a read names by pageID or pagePath (P3.3-1). In P2.9's browser check 6 the user named a page by
+     * its path, the tool took only an ID, and the model read the current page instead. An ID and a path that name
+     * different pages are refused, so a stale ID never wins silently.
+     *
+     * @throws \RuntimeException when neither is given, the path matches no page, or the two disagree
+     */
+    private function pageIDFromIdOrPath(?int $pageID, ?string $pagePath): int
+    {
+        $pagePath = is_string($pagePath) ? trim($pagePath) : '';
+        if ($pagePath === '') {
+            if (!$pageID) {
+                throw new \RuntimeException('Give pageID or pagePath.');
+            }
+
+            return $pageID;
+        }
+
+        $page = PageContextResolver::pageForPath($pagePath);
+        if ($page === null) {
+            // A page that was never published has no active version for the path lookup to find.
+            $page = Page::getByPath(rtrim($pagePath, '/'), 'RECENT');
+            $page = $page instanceof Page && !$page->isError() ? $page : null;
+        }
+        if ($page === null) {
+            throw new \RuntimeException("No page at path {$pagePath}. Nothing was read.");
+        }
+
+        $found = (int) $page->getCollectionID();
+        if ($pageID && $pageID !== $found) {
+            throw new \RuntimeException("pageID {$pageID} and pagePath {$pagePath} (page {$found}) name different pages. Nothing was read; give the one the user meant.");
+        }
+
+        return $found;
     }
 
     protected function resolveCurrentContextPage(): array

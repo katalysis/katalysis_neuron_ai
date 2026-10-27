@@ -14,6 +14,8 @@ use Concrete\Core\File\File;
 use Concrete\Core\Http\Request;
 use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
+use Concrete\Core\Page\Template as PageTemplate;
+use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\Tree\Node\Type\Category as CategoryNode;
 use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\Tree\Type\Topic as TopicTree;
@@ -97,6 +99,18 @@ final class HonestReadsTest extends ConcreteTestCase
         $missing = $this->tool(new PagesToolkit(), 'get_page_content', ['pagePath' => '/neuron-test/no-such-page-p331']);
         $this->assertFalse(ToolKind::succeeded($missing), $missing);
         $this->assertStringContainsString('/neuron-test/no-such-page-p331', $missing);
+
+        // A page never published (as create_page makes since P1.13) is found by its path too.
+        $template = PageTemplate::getByHandle('full');
+        $draftOnly = Page::getByPath('/neuron-test')->add(PageType::getByHandle('page'), [
+            'cName' => 'Never published ' . bin2hex(random_bytes(3)),
+            'cvIsApproved' => 0,
+            'pTemplateID' => $template->getPageTemplateID(),
+        ], $template);
+        $this->pages->adopt((int) $draftOnly->getCollectionID());
+        CacheLocal::flush();
+        $unpublished = $this->json($this->tool(new PagesToolkit(), 'get_page_content', ['pagePath' => (string) $draftOnly->getCollectionPath()]));
+        $this->assertSame((int) $draftOnly->getCollectionID(), (int) $unpublished['id']);
 
         // A stale ID (the current page's, in P2.9) and the path the user named: refused, not silently the ID.
         $other = (int) Page::getByPath('/neuron-test')->getCollectionID();
