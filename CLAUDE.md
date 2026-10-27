@@ -16,7 +16,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - Stop and ask whenever any of these apply:
   - the task needs files outside the approved plan
   - a test or scenario that used to pass now fails
-  - you're about to delete more than about 20 lines of working code **that the approved plan didn't list for deletion** (planned deletions, such as `src/Toolkits/` in P3.3, are covered by plan approval)
+  - you're about to delete more than about 20 lines of working code **that the approved plan didn't list for deletion** (planned deletions, such as `src/Toolkits/` in P3.3-3, are covered by plan approval)
   - a design doc and the code disagree
 - **Commit messages** start with the task ID (`P1.4: ...`, `WP-1: ...`). Changes to the plan, design or workflow docs made after a review start with `PLAN: ...`.
 - **Don't rewrite pushed or shared history.** Never amend or reword commits someone else made, even unpushed ones, unless you're asked to.
@@ -66,7 +66,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - `src/Tools/ExternalToolkitRegistry.php`: lets other packages register toolkits
 - `src/Entity/`, `src/Chat/ChatMessageStore.php`: chat persistence (Neuron 4 message store, one row per message; P2.5)
 - `js/chat-panel.js`, `css/chat-panel.css`, `elements/chat_panel.php`: UI
-- `src/Toolkits/` is legacy and duplicated. Don't edit it; it's due for removal in Phase 2.
+- `src/Toolkits/` is legacy and duplicated. Don't edit it; it's due for removal in P3.3-3.
 
 ## Rules
 1. **Never delete or rewrite a file or a large block of code to "rebuild" it.** Make small, incremental edits. If a rewrite seems necessary, stop and propose a plan first.
