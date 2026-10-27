@@ -276,6 +276,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
 - **Scenarios:** each task runs the scenarios it names, within its cap. The phase budget is **$60**: the caps add up to about $43, and the rest covers re-runs, with Glyn's agreement each time. Price basis: about $0.07 a run on gpt-4o (P2.9 measured $0.063).
 - **Every Phase 3 comparison runs on gpt-4o.** A model change gets its own comparison run (P3.8-1).
 - **From P3.6-1 on, the write scenarios gain approve and deny steps.** Each change to a scenario's expected values goes in its own commit with the reason, as the merge rule says.
+- **Internal pilot (WP-4, Glyn):** once Stage 3 is merged (including P3.6a), Glyn uses Neuron on Katalysis's own sites, subject to §6's "before any non-dev install" line. Stage 4 continues during the pilot, and each pilot failure becomes a scenario. Client use waits for the Phase 3 exit.
 
 **Decided on the roadmap (Glyn, 27 October 2026):**
 - converting the tools to `Tool` subclasses is dropped (§4 step 3)
