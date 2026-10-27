@@ -410,7 +410,8 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
 - [ ] P3.11-2 **Scenarios through the browser and controller path** (M). Depends on: nothing; before P3.1, so the ContextBuilder is tested from the real path.
   - a scenario through the chat endpoint from the panel's payload, not only the in-process runner (from BF-1: the panel sent no page ID, which the runner can't see)
   - coverage of the home page, dashboard pages and edit mode (scenario 22 covers the home page only)
-  - scenarios: the new ones ×3; cap $0.85
+  - **four new scenarios**, each through the controller path from the panel's payload: an ordinary page (`/neuron-test/headings`), the home page, a dashboard page, and a page in edit mode
+  - scenarios: the four new ones ×3 (12 runs at about $0.07); cap $0.85
 - [ ] P3.1 **ContextBuilder** (M). Depends on: P3.11-2, and P3.2-1 for the tier.
   - pull the context code out of the agent, and add the area and block tree, the user's permissions on the current page, the tier (B-CTX-3) and the site locale (B-LNG-2). Unit tests
   - a test that starts from the panel's payload (BF-1)
