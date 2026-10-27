@@ -651,6 +651,13 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - **Security first:** how `js/chat-panel.js` turns a reply into the page, and whether model output reaches it as live HTML (script, event handlers, links, forms, iframes), with a harmless proof such as `<img src=x onerror=console.log('xss')>`
   - **The in-between messages:** the panel shows the model's notes from between tool calls ("I will change it… Let me update that"). Was that so on v3? Propose: the final reply only, or the notes as a subdued "working" line
   - the wording finding goes to P3.7 (the version-state item)
+- [x] BF-13 **Visible seed photo and file-link checks** (small; its own PR into `development`; no plan stop; Glyn's decision after his browser check for P3.3-6). Done (PR #66). Found: "Give me a link to the image on this page" on `/neuron-test/block-types` gave the right URL (`200 OK`, `image/png`), but the seed photo `neuron-test-person.png` is a 1×1 pixel, so nothing showed. Every reset also re-imports the photo with a new path, so links in older chats go dead. Scope:
+  - replace the fixture with a visible image (about 200×200, a clear shape and "Neuron test photo", a few KB), same filename and title
+  - SETUP: file links in old chats stop working after any seed reset or scenario run; the reset's behaviour is unchanged
+  - `FileUrlTargetsTest`: every file URL a tool returns (`get_page_content`'s image `url`, `get_block_controller_data`'s image `src`, `get_page`'s file attributes, the people tools' `imageUrl`) is under the canonical URL and its file exists on disk under the web root
+  - `SeedResetTest`: after the reset the seed photo exists on disk and is at least 16×16 (red against the old fixture)
+  - a `linked_files_exist` reply check, run always like `saved_html_valid`: every link in a reply on the site's own host under `/application/files/` points to a file that exists on disk at the end of the turn; unit-tested with recorded replies; a row in the scenarios README
+  - a backup, then one seed `--reset` on the dev site; no paid scenario runs, a free `--fake` run of 25 and 28
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
