@@ -325,7 +325,7 @@ Why first:
   - Glyn's browser check from P3.3-1, which needs a seeded image: as `neuron_chat_editor`, ask for a link to the image on that page; the link opens the image
   - ends with a recommendation to Glyn on whether to bring P5.2's Level 0 generic block adapter forward into Phase 3
   - scenarios: the six new ones ×3; cap $1.30
-- [ ] P3.7-1 **Remove what the prompt says that isn't true** (S; honesty). Depends on: nothing.
+- [x] P3.7-1 **Remove what the prompt says that isn't true** (S; honesty). Done (PR #68). Depends on: nothing.
   - "You have access to 71 tools across 11 categories" and the stale per-category list (B-TRU-6)
   - `FilteredToolkit::from()` wraps a toolkit that is already filtered again, giving a second "Toolkit: FilteredToolkit" line (P2.4); fix `from()`
   - retire `PromptBaselineTest` and its v3 capture, or replace them with a new baseline: decided here, as the first deliberate prompt change
