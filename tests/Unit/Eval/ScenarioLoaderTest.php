@@ -92,6 +92,18 @@ final class ScenarioLoaderTest extends TestCase
         $this->assertStringContainsString('not a valid regular expression', implode("\n", $errors));
     }
 
+    public function testDescribesPageOnlyIfReadNeedsAPageAToolAndValidPatterns(): void
+    {
+        $valid = ['page' => '/neuron-test/injection', 'tool' => 'get_page_content', 'patterns' => ['newsletter'], 'primary' => true];
+        $this->assertSame([], ScenarioLoader::validate($this->scenario(['expect' => ['reply' => ['describes_page_only_if_read' => $valid]]]), '01-x'));
+
+        $text = implode("\n", ScenarioLoader::validate($this->scenario(['expect' => ['reply' => [
+            'describes_page_only_if_read' => ['page' => 'neuron-test', 'patterns' => ['(unclosed']],
+        ]]]), '01-x'));
+        $this->assertStringContainsString('describes_page_only_if_read needs page (a path), tool and patterns', $text);
+        $this->assertStringContainsString('not a valid regular expression', $text);
+    }
+
     public function testFilterSelectsByIdOrNumber(): void
     {
         $all = ['01-a' => ['id' => '01-a'], '05-h3' => ['id' => '05-h3'], '15-fail' => ['id' => '15-fail']];
