@@ -17,8 +17,10 @@
  *
  * For every run it resets the fixture (seed_test_content.php --reset), acts as the scenario's user, plays the
  * turns through the real agent in this process, checks the result and writes documentation/eval-results/<timestamp>.md
- * and .json. This is the only thing in the package that calls the AI provider, so it uses the dev site's API key
- * and costs money. DEV ONLY: it resets the test content and refuses to run unless the site is a local dev site.
+ * and .json. After the last run it resets the fixture once more (WP-3), so a scenario that writes leaves no fixture
+ * drift for the integration tests. This is the only thing in the package that calls the AI provider, so it uses the
+ * dev site's API key and costs money. DEV ONLY: it resets the test content and refuses to run unless the site is a
+ * local dev site.
  *
  * Concrete has already booted when c5:exec starts this script, so the guards below run as the first thing the script
  * does, not before Concrete reads the database.
@@ -32,7 +34,7 @@ use Concrete\Core\Support\Facade\Config;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Eval\DatabaseGuard;
 use Katalysis\NeuronAi\Tests\Eval\DryRunAgent;
-use Katalysis\NeuronAi\Tests\Eval\Expectations;
+use Katalysis\NeuronAi\Tests\Eval\ScenarioBatch;
 use Katalysis\NeuronAi\Tests\Eval\Fixture;
 use Katalysis\NeuronAi\Tests\Eval\ResultsWriter;
 use Katalysis\NeuronAi\Tests\Eval\ScenarioLoader;
@@ -118,9 +120,10 @@ return (function () use ($args, $output): int {
     set_time_limit(0);
     Cache::disableAll(); // so snapshots and permission checks never read a stale page
 
+    $fixture = new Fixture($siteDir, $packageDir . '/documentation/fixtures/seed_test_content.php');
     $runner = new ScenarioRunner(
         $app,
-        new Fixture($siteDir, $packageDir . '/documentation/fixtures/seed_test_content.php'),
+        $fixture,
         new SnapshotBuilder($app->make(Connection::class), (int) Page::getHomePageID()),
         $fake
             ? static fn (): ConcreteCmsAgent => DryRunAgent::make()
@@ -146,18 +149,19 @@ return (function () use ($args, $output): int {
     ));
 
     try {
-        foreach ($scenarios as $id => $scenario) {
-            $results['scenarios'][$id] = [
-                'id' => $id,
-                'title' => $scenario['title'],
-                'knownToFailToday' => $scenario['known_to_fail_today'] ?? null,
-                'runs' => [],
-            ];
+        // WP-3: each run starts from a reset, and the fixtures are reset once more after the last run, so the
+        // integration tests never start with fixture drift.
+        $batch = ScenarioBatch::run(
+            $scenarios,
+            $repeat,
+            static fn (array $scenario, int $n): array => $runner->run($scenario, $n),
+            static fn () => $fixture->reset(),
+            static function (string $id, int $n, ?array $run) use ($output, $repeat): void {
+                if ($run === null) {
+                    $output->write(sprintf('%s run %d/%d ... ', $id, $n, $repeat));
 
-            for ($n = 1; $n <= $repeat; $n++) {
-                $output->write(sprintf('%s run %d/%d ... ', $id, $n, $repeat));
-                $run = $runner->run($scenario, $n);
-                $results['scenarios'][$id]['runs'][] = $run;
+                    return;
+                }
                 $output->writeln(sprintf(
                     '%s (%s s, tokens in/out: %s)%s',
                     $run['outcome'],
@@ -165,16 +169,13 @@ return (function () use ($args, $output): int {
                     ResultsWriter::usageLabel($run['usage']),
                     $run['error'] !== null ? ' ' . $run['error'] : ''
                 ));
-
-                if ($run['outcome'] === Expectations::ERROR) {
-                    $exitCode = 1;
-                }
             }
+        );
+        $results['scenarios'] = $batch['scenarios'];
+        $exitCode = $batch['exitCode'];
+        foreach ($batch['messages'] as $message) {
+            $output->writeln($batch['exitCode'] === 0 ? $message : '<error>' . $message . '</error>');
         }
-    } catch (RuntimeException $e) {
-        // A failed fixture reset: the state is unknown, so stop here and still write what was done.
-        $output->writeln('<error>' . $e->getMessage() . '</error>');
-        $exitCode = 1;
     } finally {
         $runner->endSession();
         $deleted = $runner->deleteChats();
