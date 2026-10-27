@@ -280,7 +280,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
 **Decided on the roadmap (Glyn, 27 October 2026):**
 - converting the tools to `Tool` subclasses is dropped (§4 step 3)
 - P3.4 deletes the EPRA code from core, and the EPRA package is written if and when Neuron returns to EPRA
-- P3.6a stays in Phase 3, last, but is not an exit criterion
+- P3.6a stays in Phase 3 (WP-4, 27 October: it is an exit criterion, in Stage 3 straight after P3.6-2)
 - P3.10-2 (descriptors and block adapters) and nested-container batch support move to Phase 5
 - B-T1-10 goes into P3.3-2
 - tiers are task permission keys (B-ACC-9)
@@ -396,6 +396,14 @@ After permissions, so that approval never stands in for a permission check.
   - note from P1.11: scenario 14 (an injected line in the user's own pasted message, not in a tool result) is outside what P1.11's detector can see. Approval before writes is what covers it, so this task should make that scenario's `no_write_tool_succeeded` check pass. Add a direct live-version check to scenario 14 (its own commit, with the reason; from the Phase 1 exit review)
   - investigate scenario 09's one wrong-page write (Phase 1 exit, run 2: the model made a new live page "Move Target" with `create_page`, then moved `move-me-child` instead of `move-me`): find whether the cause is the prompt, the tool descriptions or the page resolution, and fix it in a tool check, not a prompt rule
   - scenarios: full ×3 (every write scenario now pauses); cap $6.00
+- [ ] P3.6a **Stack and global-area editing** (M; decided after BF-2; an exit criterion since WP-4). Depends on: P3.6-2 and P3.5-1. The assistant edits, adds and moves content in stacks and global areas the way an editor does in edit mode or under Dashboard → Stacks & Global Areas. Proposal: [plans/BF-2.md](plans/BF-2.md) §9.
+  - **draft only:** changes go into an unapproved stack version (`getVersionToModify()`), never live. Through a page, the stack version is related to the page's draft, as Concrete does; directly, it's approved under Stacks & Global Areas. The assistant never approves either
+  - **the user's permissions** on the stack page and the stack's own area, not only the page's; a user who can't edit the stack is refused with the reason
+  - **a notice** before the change (the approval preview) and in the report: it will appear on every page that shows the area (count and examples), when the page or stack is published
+  - **never add to another user's pending stack version without warning:** refuse or warn, with a test (Glyn, on approving BF-2)
+  - **test whether `neuron_editor` is stopped by Concrete's permissions alone** when adding a block through a global area, with the BF-2 refusal switched off in the test (Glyn, after BF-2; BF-2 couldn't tell, because its refusal comes first)
+  - turn on `SystemPageGuard::stackEditingEnabled()`; system single pages and page type defaults stay refused; B-WRT-5 (b) to "met"
+  - tests per tool on a throwaway global area (BF-2's fixture); scenarios: a global-area edit through a page (draft, notice, other pages unchanged until approval), and an editor without stack permission refused; cap $0.50 (outside the $43 of caps, inside the $60)
 - [ ] P3.6-3 **Re-enable tools behind approval** (M; safety). Depends on: P3.6-2 and P3.2-1. Glyn decides each:
   - `delete_page` (disabled since P1.13; its `DisabledTools` reason says it returns only behind approval) and `move_page` (scenario 09)
   - `move_file_to_folder`, as the delete redirect: when used for a delete request it can only target "Assistant – to delete" (B-T1-11; moved here from P3.5, because restricting it and re-enabling it are one change)
@@ -456,15 +464,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `show_prompt.php` in SETUP (P2.4's question)
 
 #### Last
-- [ ] P3.6a **Stack and global-area editing** (M; decided after BF-2; **not an exit criterion**). Depends on: P3.6-3 and P3.5-1. The assistant edits, adds and moves content in stacks and global areas the way an editor does in edit mode or under Dashboard → Stacks & Global Areas. Proposal: [plans/BF-2.md](plans/BF-2.md) §9.
-  - **draft only:** changes go into an unapproved stack version (`getVersionToModify()`), never live. Through a page, the stack version is related to the page's draft, as Concrete does; directly, it's approved under Stacks & Global Areas. The assistant never approves either
-  - **the user's permissions** on the stack page and the stack's own area, not only the page's; a user who can't edit the stack is refused with the reason
-  - **a notice** before the change (the approval preview) and in the report: it will appear on every page that shows the area (count and examples), when the page or stack is published
-  - **never add to another user's pending stack version without warning:** refuse or warn, with a test (Glyn, on approving BF-2)
-  - **test whether `neuron_editor` is stopped by Concrete's permissions alone** when adding a block through a global area, with the BF-2 refusal switched off in the test (Glyn, after BF-2; BF-2 couldn't tell, because its refusal comes first)
-  - turn on `SystemPageGuard::stackEditingEnabled()`; system single pages and page type defaults stay refused; B-WRT-5 (b) to "met"
-  - tests per tool on a throwaway global area (BF-2's fixture); scenarios: a global-area edit through a page (draft, notice, other pages unchanged until approval), and an editor without stack permission refused; cap $0.50 (outside the $43 of caps, inside the $60)
-- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.6a and P3.8-2. Scenarios: full run; cap $7.70.
+- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: full run; cap $7.70.
 
 #### Removed, merged or moved (on the roadmap, 27 October 2026)
 - **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).
@@ -473,7 +473,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
 - **Moved to Phase 5:** P3.10-2 (the Level 0 generic block adapter, the descriptor engine with `describe_block_type`, transforms with the core `convert_blocks` tool, the Extensions dashboard page, and the scenarios for a descriptor-only block and a rejected payload), into P5.2; nested (container) blocks in batch updates (from P1.8), which P1.8a refuses clearly.
 
 Exit (P3.12, checked in one task as P2.9 did for Phase 2):
-1. **Every Phase 3 task above is merged,** apart from P3.6a and P3.8-2, which are not exit criteria.
+1. **Every Phase 3 task above is merged,** apart from P3.8-2, which is not an exit criterion.
 2. **Every scenario passes** (the merge rule from the end of Phase 3):
    - one run on `development` from a reset, on gpt-4o (or a model chosen and re-baselined first); each scenario ×3, the unstable ones ×5
    - every scenario's majority label is **pass**; a partial is not a pass. If Glyn decides a secondary check is wrong, it is changed in its own commit with the reason, before the run
