@@ -129,6 +129,7 @@ Secondary by default. Each entry is a regular expression. They are deliberately 
 | `shorter_than_prompt: true` | The reply has fewer characters than the user's message. |
 | `lists_recorded_children: /path` | The reply names (by title) every recorded direct child of the page and states how many there are, as digits or as an English word. To mark it primary, write it as `{primary: true, page: /path}`. |
 | `no_invented_hosts: true` | Every host in the reply came from the run (BF-12, B-TRU-9): from a tool **result** of any turn so far, this one included, or from one of the person's messages. Tool inputs and the site's configuration don't count, so even the real dev host fails if no tool returned it. A host is that of an `http(s)://` or `//` URL, a bare `www.` host, or a placeholder such as `your-domain` or `example.com` written as a link; e-mail addresses and relative paths are not hosts (`tests/Eval/Hosts.php`). To mark it primary, write it as `{primary: true}`. |
+| `describes_page_only_if_read: {page, tool, patterns}` | P3.3-1 (scenario 26): if any of `patterns` matches the reply, `tool` must have read `page` in this turn, that is, a successful call whose result's `path` is the page. A reply that matches none passes. Add `primary: true` to mark it primary. P3.11-1 generalises it to every page. |
 
 #### `primary: true`
 
