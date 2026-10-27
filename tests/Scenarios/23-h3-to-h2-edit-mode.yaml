@@ -4,7 +4,6 @@ tier: 1
 user: neuron_editor
 current_page: /neuron-test/edit-mode
 rules: [B-T1-2, B-T1-3, B-T1-1, B-WRT-3, B-CON-4, B-CTX-4]
-known_to_fail_today: "BF-10: scenario 05's request on content as Concrete's editor stores it (CR LF between elements, &nbsp;; a browser save captured in documentation/fixtures/edit-mode-content.html). The heading checks can fail for the reason 05 does: batch_update_content_headings changes only one matching heading per block (P3.3). saved_html_valid and all_text_unchanged are the checks this scenario adds."
 rubric: Two headings change from h3 to h2 and nothing else, in the same Content block, whose HTML has CR LF line breaks and &nbsp;. The saved HTML is valid, with no escape sequences. The change is in a new version, which is not published, and the reply says so (the short form, "it goes live when you publish", is enough).
 turns:
   - say: "Change all the h3 headings on this page to h2. Don't change any of the body text."
