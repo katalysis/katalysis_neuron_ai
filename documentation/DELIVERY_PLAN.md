@@ -274,7 +274,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
 - **"Depends on"** names the tasks that must be merged first.
 - **Sizes:** S, M and L as in the §5 intro, but relative. Phases 1 and 2 were each sized M and took 2 to 3 days.
 - **Scenarios (WP-4):** each task runs a free `--fake` run of the scenarios it touches and ×1 of its own new or changed ones, within its cap. Each stage ends with a ×3 comparison task (P3.S1–P3.S4), where the merge rule is applied. P3.5-1, P3.2-1, P3.6-1, P3.6-2 and P3.6a keep their own ×3 runs before merge. Price basis: about $0.07 a run on gpt-4o (P2.9 measured $0.063).
-- **Budget (recomputed in WP-4):** the phase budget is **$60**. P3.3-1 spent $2.17; the other caps are Stage 1 $12.05 (P3.S1 $6.60 of it), Stage 2 $3.50 (P3.S2), Stage 3 $8.20 (P3.S3 $0.80), Stage 4 $10.60 (P3.S4 $10.10), alongside $0.25, and P3.12 $10.10: **about $46.90, leaving about $13.10** for re-runs, with Glyn's agreement each time. If no task merges after P3.S4, its run is the exit run and P3.12 costs nothing more: about $36.80, leaving about $23.20. Before WP-4 the caps came to about $43.60 (with P3.6a and P3.10-1), leaving $16.40. P5.0's $0.85 is now in Phase 5's budget.
+- **Budget (recomputed with P3.3-7, 27 October 2026; actual spend for the tasks done):** the phase budget is **$60**. Stage 1 $13.70 (P3.3-1 spent $2.17, P3.3-2 $0, P3.3-6 $0.98; the rest are caps, P3.S1 $6.60 of them), Stage 2 $7.00 (P3.3-7 $0.60, P3.S2 $6.40), Stage 3 $8.20 (P3.S3 $0.80), Stage 4 $10.60 (P3.S4 $10.10), alongside $0.25, and P3.12 $10.10: **about $49.90, leaving about $10.10** for re-runs, with Glyn's agreement each time. If no task merges after P3.S4, its run is the exit run and P3.12 costs nothing more: about $39.80, leaving about $20.20. In WP-4 (caps only, before P3.3-7) it was about $46.90, leaving $13.10. P5.0's $0.85 is in Phase 5's budget.
 - **Every Phase 3 comparison runs on gpt-4o.** A model change gets its own comparison run (P3.8-1).
 - **From P3.6-1 on, the write scenarios gain approve and deny steps.** Each change to a scenario's expected values goes in its own commit with the reason, as the merge rule says.
 - **Internal pilot (WP-4, Glyn):** once Stage 3 is merged (including P3.6a), Glyn uses Neuron on Katalysis's own sites, subject to §6's "before any non-dev install" line. Stage 4 continues during the pilot, and each pilot failure becomes a scenario. Client use waits for the Phase 3 exit.
@@ -358,7 +358,7 @@ Why first:
 - [ ] P3.S1 **Stage 1 comparison** (S; WP-4). Depends on: every Stage 1 task. One ×3 run of the scenarios Stage 1's tasks name (01, 02, 03, 05, 06, 07, 08, 10, 11, 13, 14, 15, 16, 18, 21, 23, 24, 25, 26, P3.3-6's six, P3.5-1's denied-write scenario and P3.5-2's B-ACC-7 scenario), the unstable ones (05, 07, 11, 15, 16, 21) ×5, from a reset, on gpt-4o. The merge rule is applied here to every task of the stage that ran ×1; a regression gets its own fix task before Stage 2 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $6.60 (about 93 runs).
 
 #### Stage 2: tidy, then split
-Deleting first means less code to move, and every later behaviour change lands in smaller files. P3.3-5 follows the split straight away: it decides whether `instructions()` keeps the `onlyVisible` rule before P3.7-2 cuts the prompt, and it fixes the scenario 07 and 17 input failures before the full ×3 runs in P3.2-2 and P3.7-2.
+Deleting first means less code to move, and every later behaviour change lands in smaller files. P3.3-7 (the Level 0 block adapter) comes straight after the split, so it lands in the split-out Content toolkit. P3.3-5 follows it: it decides whether `instructions()` keeps the `onlyVisible` rule before P3.7-2 cuts the prompt, and it fixes the scenario 07 and 17 input failures before the full ×3 runs in P3.2-2 and P3.7-2.
 
 - [ ] P3.3-3 **Legacy deletion** (S). Depends on: nothing. Planned deletions, covered by plan approval:
   - `src/Toolkits/`, `src/ConcreteCmsAIProvider.php` (a legacy agent that uses them; unused, decided after P2.2), and the root scripts `test_tools.php` and `test_container_search.php`
@@ -375,6 +375,12 @@ Deleting first means less code to move, and every later behaviour change lands i
   - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
   - the tools stay on `CallableTool` (the subclass conversion is dropped)
   - scenarios: `--fake` of the write scenarios; none new or changed, so no paid run. Compared ×3 in P3.S2
+- [ ] P3.3-7 **Level 0 generic block adapter** (M; Glyn, on P3.3-6's recommendation and review, 27 October 2026). Depends on: P3.3-4.
+  - P5.2's item 1 only: export metadata, child tables and import-mode `save()`, so any core or package block type's fields can be read and written without hand-written knowledge, failing clearly when a field can't be mapped
+  - the six hand-written fixes from P3.3-6 (`BlockSaveInputs`) move onto the generic path where it covers them; their tests (`CoreBlockWritesTest`) stay
+  - descriptors, `describe_block_type`, transforms, `convert_blocks` and the Extensions dashboard page stay in P5.2
+  - **plan stop:** a one-page plan, because it is a design choice
+  - scenarios: 27 to 32 ×1, plus two new ones ×1 on block types outside the six (Image Slider, with its repeating entries, and Testimonial); cap $0.60. Its scenarios join P3.S2's comparison
 - [ ] P3.3-5 **List and input fixes** (S–M). Depends on: P3.3-4.
   - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so it is refused, and `get_page_children` doesn't have it. Declare it on both, or drop the rule (BF-6)
   - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`; BF-6)
@@ -385,7 +391,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
   - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, checked in P3.S2's comparison)
   - scenarios: `--fake` of 04, 12, 15, 17; none new or changed, so no paid run. Compared ×3 in P3.S2
-- [ ] P3.S2 **Stage 2 comparison** (S; WP-4). Depends on: every Stage 2 task. One ×3 run of the scenarios Stage 2's tasks name (the write scenarios 04, 05, 06, 07, 08, 09, 10, 15, 17, 20, 23, 24, plus 12 and 13), the unstable ones (05, 07, 12, 15) ×5, from a reset, on gpt-4o. The merge rule is applied here; a regression gets its own fix task before Stage 3 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $3.50 (about 50 runs).
+- [ ] P3.S2 **Stage 2 comparison** (S; WP-4). Depends on: every Stage 2 task. One ×3 run of the scenarios Stage 2's tasks name (the write scenarios 04, 05, 06, 07, 08, 09, 10, 15, 17, 20, 23, 24, plus 12 and 13, and P3.3-7's 27 to 32 and its two new block scenarios), the unstable ones (05, 07, 12, 15) ×5, from a reset, on gpt-4o. The merge rule is applied here; a regression gets its own fix task before Stage 3 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $6.40 (about 74 runs; the block scenarios cost about $0.12 a run, P3.3-6).
 
 #### Stage 3: approval
 After permissions, so that approval never stands in for a permission check.
@@ -512,7 +518,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   - scenarios: 03, 04, 21, 25 ×3; cap $0.85 (Phase 5's budget, not Phase 3's)
 - P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
 - P5.2 Move and convert content between block types, using per-block-type field mappers. **Takes in P3.10-2** (moved from Phase 3 on the roadmap, 27 October 2026; see `EXTENSIONS.md`):
-  1. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
+  1. ~~the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing~~ moved to Phase 3 as P3.3-7 (Glyn, 27 October 2026, on P3.3-6's recommendation); the items below build on it
   2. the descriptor engine: JSON Schema, field types, validation, mapping, `describe_block_type`
   3. transforms plus the core `convert_blocks` tool
   4. the Extensions dashboard page
