@@ -13,7 +13,7 @@ use Symfony\Component\Yaml\Yaml;
  */
 final class ScenarioLoader
 {
-    private const TOP_KEYS = ['id', 'title', 'tier', 'user', 'current_page', 'rules', 'known_to_fail_today', 'rubric', 'setup', 'turns', 'expect'];
+    private const TOP_KEYS = ['id', 'title', 'tier', 'user', 'current_page', 'rules', 'known_to_fail_today', 'rubric', 'setup', 'turns', 'expect', 'inconclusive_unless_read'];
     private const TURN_KEYS = ['say', 'approval', 'current_page', 'expect'];
     private const EXPECT_KEYS = ['state', 'tools', 'reply'];
     private const STATE_KEYS = [
@@ -23,7 +23,7 @@ final class ScenarioLoader
     ];
     private const BLOCK_KEYS = ['page', 'area', 'count', 'headings', 'contains_html', 'lacks_html', 'unchanged', 'has_block', 'has_block_unchanged', 'has_block_field'];
     private const TOOL_KEYS = ['no_write_tool_succeeded', 'no_write_tool_failed', 'not_succeeded', 'not_called', 'called_any', 'succeeded', 'notice_shown', 'notice_absent'];
-    private const REPLY_KEYS = ['matches_all', 'matches_any', 'not_matches', 'shorter_than_prompt', 'lists_recorded_children', 'no_invented_hosts', 'describes_page_only_if_read'];
+    private const REPLY_KEYS = ['matches_all', 'matches_any', 'not_matches', 'shorter_than_prompt', 'lists_recorded_children', 'no_invented_hosts', 'describes_page_only_if_read', 'no_untrusted_links'];
     private const USERS = ['neuron_editor', 'superuser'];
 
     /**
@@ -130,6 +130,11 @@ final class ScenarioLoader
             return array_merge($errors, ['turns must be a non-empty list.']);
         }
 
+        if (array_key_exists('inconclusive_unless_read', $data)
+            && (!is_string($data['inconclusive_unless_read']) || trim($data['inconclusive_unless_read']) === '')) {
+            $errors[] = 'inconclusive_unless_read must be a piece of the injected text.';
+        }
+
         if (array_key_exists('setup', $data)) {
             $errors = array_merge($errors, ScenarioSetup::validate($data['setup']));
         }
@@ -194,19 +199,30 @@ final class ScenarioLoader
             $errors[] = $e;
         }
 
-        if (isset($expect['reply']['describes_page_only_if_read'])) {
-            $spec = $expect['reply']['describes_page_only_if_read'];
+        // One page as a mapping, or several as a list of mappings (P3.11-1); tool may be left out (any read tool).
+        $describes = $expect['reply']['describes_page_only_if_read'] ?? null;
+        $describesSpecs = is_array($describes) && array_is_list($describes) ? $describes : ($describes === null ? [] : [$describes]);
+        foreach ($describesSpecs as $spec) {
             if (!is_array($spec) || !is_string($spec['page'] ?? null) || !str_starts_with($spec['page'], '/')
-                || !is_string($spec['tool'] ?? null) || $spec['tool'] === '' || !is_array($spec['patterns'] ?? null) || $spec['patterns'] === []) {
-                $errors[] = "{$label}.reply: describes_page_only_if_read needs page (a path), tool and patterns.";
+                || (array_key_exists('tool', $spec) && (!is_string($spec['tool']) || $spec['tool'] === ''))
+                || !is_array($spec['patterns'] ?? null) || $spec['patterns'] === []) {
+                $errors[] = "{$label}.reply: describes_page_only_if_read needs page (a path), tool and patterns (tool may be left out: any read tool).";
             }
         }
 
-        foreach (['matches_all', 'matches_any', 'not_matches', 'describes_page_only_if_read'] as $group) {
-            if (!isset($expect['reply'][$group])) {
-                continue;
+        $groups = [];
+        foreach (['matches_all', 'matches_any', 'not_matches'] as $group) {
+            if (isset($expect['reply'][$group])) {
+                $groups[] = [$group, $expect['reply'][$group]];
             }
-            [$patterns] = ReplyChecks::patternGroup($expect['reply'][$group]);
+        }
+        foreach ($describesSpecs as $spec) {
+            if (is_array($spec) && is_array($spec['patterns'] ?? null)) {
+                $groups[] = ['describes_page_only_if_read', $spec];
+            }
+        }
+        foreach ($groups as [$group, $groupSpec]) {
+            [$patterns] = ReplyChecks::patternGroup($groupSpec);
             foreach ($patterns as $pattern) {
                 if (!is_string($pattern) || @preg_match(ReplyChecks::regex($pattern), '') === false) {
                     $errors[] = "{$label}.reply.{$group}: not a valid regular expression: " . json_encode($pattern);
