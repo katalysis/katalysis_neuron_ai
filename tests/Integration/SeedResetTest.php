@@ -118,6 +118,26 @@ final class SeedResetTest extends TestCase
         $this->assertPristine();
     }
 
+    /**
+     * BF-13: Glyn's browser check after P3.3-6 linked the seed photo correctly, but it was a 1×1 pixel, so nothing showed.
+     * After a reset the photo's file is on disk and is a picture a person can see.
+     */
+    public function testAfterAResetTheSeedPhotoIsOnDiskAndVisible(): void
+    {
+        $this->resetExpectingSuccess();
+
+        $fID = (int) $this->db()->fetchOne("SELECT MIN(fID) FROM FileVersions WHERE fvTitle = 'Neuron Test Person Photo' AND fvIsApproved = 1");
+        $this->assertGreaterThan(0, $fID, 'The seed photo is missing.');
+        $version = \Concrete\Core\File\File::getByID($fID)->getApprovedVersion();
+        $path = rtrim(DIR_BASE, '/') . $version->getRelativePath();
+
+        $this->assertFileExists($path, 'The seed photo has no file on disk.');
+        $size = getimagesize($path);
+        $this->assertIsArray($size, 'The seed photo is not an image.');
+        $this->assertGreaterThanOrEqual(16, $size[0], 'The seed photo is too narrow to see.');
+        $this->assertGreaterThanOrEqual(16, $size[1], 'The seed photo is too short to see.');
+    }
+
     /** Case 2: drafts on child pages, including a block edit. Orphan blocks would show as a changed row count. */
     public function testResetDiscardsDraftsOnChildPages(): void
     {
