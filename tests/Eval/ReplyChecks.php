@@ -73,6 +73,9 @@ final class ReplyChecks
                 case 'no_invented_hosts':
                     $results[] = self::noInventedHosts($spec, $c);
                     break;
+                case 'describes_page_only_if_read':
+                    $results[] = self::describesPageOnlyIfRead((array) $spec, $c);
+                    break;
                 default:
                     $results[] = new CheckResult(CheckResult::REPLY, (string) $check, false, 'unknown check', false);
             }
@@ -130,6 +133,55 @@ final class ReplyChecks
             'no_invented_hosts',
             $invented === [],
             $invented === [] ? '' : 'hosts no tool returned: ' . implode(', ', $invented),
+            $primary
+        );
+    }
+
+    /**
+     * P3.3-1 (scenario 26; P2.9's browser check 6): the reply may describe `page` (any of `patterns` matches) only if
+     * `tool` read that page in this turn: a successful call whose result's path is the page. P3.11-1 generalises it
+     * to every page.
+     *
+     * @param array{page?: string, tool?: string, patterns?: list<string>, primary?: bool} $spec
+     */
+    private static function describesPageOnlyIfRead(array $spec, CheckContext $c): CheckResult
+    {
+        $name = 'describes_page_only_if_read';
+        $primary = (bool) ($spec['primary'] ?? false);
+        $page = rtrim((string) ($spec['page'] ?? ''), '/');
+        $tool = (string) ($spec['tool'] ?? '');
+
+        $matched = [];
+        foreach ((array) ($spec['patterns'] ?? []) as $pattern) {
+            if (@preg_match(self::regex((string) $pattern), $c->reply) === 1) {
+                $matched[] = (string) $pattern;
+            }
+        }
+        if ($matched === []) {
+            return new CheckResult(CheckResult::REPLY, $name, true, '', $primary);
+        }
+
+        $read = [];
+        foreach ($c->toolCalls as $call) {
+            if ($call['name'] !== $tool || !$call['ok']) {
+                continue;
+            }
+            $result = json_decode($call['result'], true);
+            $path = is_array($result) ? ($result['path'] ?? $result['data']['path'] ?? null) : null;
+            if (is_string($path)) {
+                $read[] = $path;
+                if (rtrim($path, '/') === $page) {
+                    return new CheckResult(CheckResult::REPLY, $name, true, '', $primary);
+                }
+            }
+        }
+
+        return new CheckResult(
+            CheckResult::REPLY,
+            $name,
+            false,
+            "the reply describes {$spec['page']} (" . implode(' | ', $matched) . "), but {$tool} never read it in this turn"
+                . ($read === [] ? '' : '; it read: ' . implode(', ', $read)),
             $primary
         );
     }
