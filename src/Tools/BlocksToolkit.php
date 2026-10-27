@@ -13,8 +13,10 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
+use Katalysis\NeuronAi\Tools\Utilities\PagePathLabel;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -319,7 +321,7 @@ class BlocksToolkit extends AbstractToolkit
                 $output .= "|----------|------|------|---------|----------|\n";
 
                 foreach ($results as $row) {
-                    $pageInfo = $row['pagePath'] ?: "/{$row['pageHandle']}";
+                    $pageInfo = self::pageLink((int) $row['cID'], $row['pagePath']);
                     $status = $row['cvIsApproved'] ? '✅' : '📝';
                     $modified = date('Y-m-d', strtotime($row['bDateModified']));
                     
@@ -332,9 +334,8 @@ class BlocksToolkit extends AbstractToolkit
                     }
                     
                     $output .= sprintf(
-                        "| %d | [%s](%s) | %s | %s v%d | %s |\n",
+                        "| %d | %s | %s | %s v%d | %s |\n",
                         $row['bID'],
-                        $pageInfo,
                         $pageInfo,
                         $areaDisplay,
                         $status,
@@ -613,7 +614,7 @@ class BlocksToolkit extends AbstractToolkit
                             $placementPage = (int) ($placement['cID'] ?? 0);
                             $placementCv = (int) ($placement['cvID'] ?? 0);
                             $placementArea = (string) ($placement['arHandle'] ?? '');
-                            $placementPath = (string) ($placement['pagePath'] ?? ('/' . (string) ($placement['pageHandle'] ?? '')));
+                            $placementPath = PagePathLabel::describe($placementPage, $placement['pagePath'] ?? null);
                             $placementStatus = ((int) ($placement['cvIsApproved'] ?? 0) === 1) ? 'approved' : 'draft/pending';
                             $output .= "- page {$placementPage} ({$placementPath}), area '{$placementArea}', version v{$placementCv} ({$placementStatus})\n";
                         }
@@ -696,8 +697,13 @@ class BlocksToolkit extends AbstractToolkit
                 
                 if (!empty($viewData)) {
                     $output .= "**View Data (what the block displays):**\n\n";
-                    
+                    // P3.3-1: Concrete's Html\Image gives a relative src beside an absolute srcset; make them absolute.
+                    $siteBase = AbsoluteUrl::siteBase();
+
                     foreach ($viewData as $key => $value) {
+                        if (is_string($value)) {
+                            $value = AbsoluteUrl::inHtml($value, $siteBase);
+                        }
                         $output .= $this->formatControllerValue($key, $value, $rawLongText);
                     }
                 } else {
@@ -750,6 +756,16 @@ class BlocksToolkit extends AbstractToolkit
         });
 
         return $tool;
+    }
+
+    /**
+     * A markdown link to the page's real path, or "page ID n (no path)" with no link: never a guessed path (P3.3-1).
+     */
+    private static function pageLink(int $cID, ?string $storedPath): string
+    {
+        $path = PagePathLabel::of($cID, $storedPath);
+
+        return $path !== null ? "[{$path}]({$path})" : PagePathLabel::describe($cID, null);
     }
 
     /**
@@ -1794,7 +1810,7 @@ class BlocksToolkit extends AbstractToolkit
                 $output .= "|----------|------|----------|------------------|------|----------|\n";
 
                 foreach ($results as $row) {
-                    $pageInfo = $row['pagePath'] ?: "/{$row['pageName']}";
+                    $pageInfo = self::pageLink((int) $row['cID'], $row['pagePath']);
                     $status = $row['cvIsApproved'] ? '✅' : '📝';
                     
                     // Extract trailing display area name from "Parent : <instanceID> : <subArea>" format.
@@ -1807,12 +1823,11 @@ class BlocksToolkit extends AbstractToolkit
                     }
                     
                     $output .= sprintf(
-                        "| %d | %s | %s | `%s` | [%s](%s) | %s v%d |\n",
+                        "| %d | %s | %s | `%s` | %s | %s v%d |\n",
                         $row['bID'],
                         $row['btName'],
                         $subArea,
                         (string) $row['arHandle'],
-                        $pageInfo,
                         $pageInfo,
                         $status,
                         $row['cvID']

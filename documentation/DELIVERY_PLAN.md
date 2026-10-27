@@ -291,7 +291,7 @@ Why first:
 - Permissions and tiers stop a user reaching tools and objects beyond their rights. Approval asks the user; a permission check is what stops them.
 - Doing all this before the split keeps the split mechanical.
 
-- [ ] P3.3-1 **Honest reads** (M; honesty). Depends on: nothing. The "unverified claim" items, where a read gives the model something it then states as fact (the pattern of BF-5):
+- [x] P3.3-1 **Honest reads** (M; honesty). Done (PR #62). Depends on: nothing. The "unverified claim" items, where a read gives the model something it then states as fact (the pattern of BF-5):
   - `get_page_content` accepts a path as well as `pageID` (from P2.9's browser check 6: from `/neuron-test`, "summarise: /neuron-test/injection" made the model call it with the current page's ID, and the reply said the injection page was "empty or non-existent" without having read it)
   - `search_blocks_by_type` and `list_container_blocks` stop guessing a page path (`"/{pageHandle}"`, `"/{pageName}"`) when `PagePaths` has no row; they return the real path or none (BF-12)
   - content reads give links and images the model can use (P1.10, BF-12; the rest of B-TRU-9):

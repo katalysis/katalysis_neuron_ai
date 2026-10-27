@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tools\Utilities;
 
 use Concrete\Core\File\File;
+use Concrete\Core\Support\Facade\Application;
 
 /**
  * Absolute URLs for files a tool result points at (BF-12; B-TRU-9), so the model never adds a host to a path or an
@@ -39,6 +40,51 @@ final class AbsoluteUrl
     public static function isAbsolute(string $url): bool
     {
         return preg_match('~^https?://[^/]+~i', $url) === 1;
+    }
+
+    /**
+     * The site's canonical URL (Concrete's url/canonical), or null when it has no host (the CLI with none set).
+     */
+    public static function siteBase(): ?string
+    {
+        $base = (string) Application::getFacadeApplication()->make('url/canonical');
+
+        return self::isAbsolute($base) ? $base : null;
+    }
+
+    /**
+     * HTML with every site-relative src, href and srcset URL (one leading "/") made absolute against $base (P3.3-1).
+     * Concrete's Html\Image gives an img a relative src beside an absolute srcset. Only attribute values inside tags
+     * change; with no absolute $base the HTML is returned as it is.
+     */
+    public static function inHtml(string $html, ?string $base): string
+    {
+        $base = rtrim((string) $base, '/');
+        if (!self::isAbsolute($base)) {
+            return $html;
+        }
+
+        return (string) preg_replace_callback('~<[a-z][^>]*>~i', static function (array $tag) use ($base): string {
+            return (string) preg_replace_callback(
+                '~(\s(src|href|srcset)\s*=\s*)(["\'])(.*?)\3~is',
+                static function (array $m) use ($base): string {
+                    // A srcset holds several URLs, each first or after a comma.
+                    $pattern = strtolower($m[2]) === 'srcset' ? '~(^|,\s*)/(?!/)~' : '~^()/(?!/)~';
+                    $value = (string) preg_replace($pattern, '$1' . $base . '/', $m[4]);
+
+                    return $m[1] . $m[3] . $value . $m[3];
+                },
+                $tag[0]
+            );
+        }, $html);
+    }
+
+    /**
+     * Whether a tag in the HTML has a site-relative src, href or srcset URL.
+     */
+    public static function hasRelativeUrls(string $html): bool
+    {
+        return preg_match('~<[a-z][^>]*\s(?:src|href|srcset)\s*=\s*["\'](?:[^"\']*,\s*)?/(?!/)~i', $html) === 1;
     }
 
     /**

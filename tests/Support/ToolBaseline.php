@@ -45,7 +45,7 @@ final class ToolBaseline
         'PagesToolkit::update_block_in_page_area' => 'BF-5: changeMode, textFields and replacedText inputs; the description says existing text is kept',
         'PagesToolkit::batch_update_page_content' => 'BF-5: changeMode keep_text by default, freeform removed; replacedText per block; BF-3: changeMode per block, every item checked before saving, continueOnError described',
         'PagesToolkit::get_page' => 'BF-10: reads the newest version by default; version takes "newest" or "published"',
-        'PagesToolkit::get_page_content' => 'BF-10: reads the newest version by default; version takes "newest" or "published"',
+        'PagesToolkit::get_page_content' => 'BF-10: reads the newest version by default; version takes "newest" or "published"; P3.3-1: pagePath input, pageID no longer required',
         'PagesToolkit::get_page_blocks' => 'BF-10: version takes "newest" (default) or "published"; the description no longer calls it a draft',
         'PagesToolkit::get_current_page_context' => 'BF-10: the description says it shows the newest version',
         'BlocksToolkit::get_block_data' => 'BF-10: versionID defaults to the newest version',
@@ -59,7 +59,7 @@ final class ToolBaseline
         'UsersToolkit::search_users' => 'BF-6: offset input; limit names its range; the description says the result gives the total',
         'VersionsToolkit::list_page_versions' => 'BF-6: offset input; the description says newest first and that the result gives the total',
         'PeopleToolkit::list_people' => 'BF-6: offset input; limit capped at 100; the description says the result gives the total',
-        'TopicsToolkit::get_topic_tree_structure' => 'BF-6: the description says what totalTopics counts and how a cut at max_depth is shown',
+        'TopicsToolkit::get_topic_tree_structure' => 'BF-6: the description says what totalTopics counts and how a cut at max_depth is shown; P3.3-1: the description says categories are shown and counted',
     ];
 
     /**

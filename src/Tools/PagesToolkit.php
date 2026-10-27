@@ -17,6 +17,8 @@ use Concrete\Core\Block\Traits\ValidateBlockRequestTrait;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Attribute\Category\PageCategory;
+use Concrete\Core\Editor\LinkAbstractor;
+use Concrete\Core\Entity\File\File as FileEntity;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\PageList;
 use Concrete\Core\Page\Command\DeletePageCommand;
@@ -27,6 +29,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Security\SecretRedactor;
+use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
@@ -339,14 +342,22 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'get_page_content',
-            'Get page content as a document with HTML and plain text. Prefer this over get_page when you need to review or summarize page copy. Reads the newest version by default (see version).'
+            'Get page content as a document with HTML and plain text. Prefer this over get_page when you need to review or summarize page copy. '
+            . 'Give pageID or pagePath (a page the user names by its path). Reads the newest version by default (see version).'
         );
 
         $tool->addProperty(new ToolProperty(
             'pageID',
             PropertyType::INTEGER,
-            'ID of the page to read',
-            true
+            'ID of the page to read. Give pageID or pagePath.',
+            false
+        ));
+
+        $tool->addProperty(new ToolProperty(
+            'pagePath',
+            PropertyType::STRING,
+            'Path of the page to read, for example /about/team ("/" is the home page). Give pageID or pagePath.',
+            false
         ));
 
         $tool->addProperty(new ToolProperty(
@@ -356,10 +367,8 @@ class PagesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $version = null): array {
-            if (!$pageID) {
-                throw new \RuntimeException("pageID is required");
-            }
+        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $pagePath = null, ?string $version = null): array {
+            $pageID = $this->pageIDFromIdOrPath($pageID, $pagePath);
 
             // BF-10: the newest version by default, as editors see it; the result says which version it shows.
             [$page, $versionInfo] = PageVersionRead::load($pageID, $version);
@@ -368,8 +377,10 @@ class PagesToolkit extends AbstractToolkit
             // Read the blocks directly. Rendering the page needs a current page and a web
             // request, so it fails under the CLI and in the chat panel's own context.
             $read = $this->readPageBlocks($page);
+            // P3.3-1: html is the page as Concrete renders it (links translated, absolute URLs); html_raw is the stored
+            // form ({CCM:…} placeholders, <concrete-picture> tags), which the write tools keep.
             $content = $read['html'];
-            $rawContent = $content;
+            $rawContent = $read['rawHtml'];
             $renderMethod = 'blocks';
             $renderErrors = $read['errors'];
 
@@ -396,7 +407,13 @@ class PagesToolkit extends AbstractToolkit
             if (!empty($renderErrors)) {
                 $result['renderErrors'] = $renderErrors;
             }
-            
+            if ($read['unresolvedLinks'] !== []) {
+                $result['unresolvedLinks'] = $read['unresolvedLinks'];
+            }
+            if (AbsoluteUrl::hasRelativeUrls($content)) {
+                $result['imageUrlNote'] = AbsoluteUrl::NOTE;
+            }
+
             return $result;
         }));
 
@@ -867,7 +884,9 @@ class PagesToolkit extends AbstractToolkit
         $successCount = count(array_filter($blockResults, static fn (array $r): bool => $r['ok'] === true));
         $failureCount = count($blockResults) - $successCount;
 
-        $result = [
+        // P3.3-1 (B-TRU-2): a batch in which every item failed is not a success, so the checks that read `ok` see it.
+        $result = $successCount === 0 && $blockResults !== [] ? ['ok' => false] : [];
+        $result += [
             'id' => $page->getCollectionID(),
             'path' => $page->getCollectionPath(),
             'name' => $page->getCollectionName(),
@@ -1056,7 +1075,8 @@ class PagesToolkit extends AbstractToolkit
             }
 
             $normalizedTitles = [];
-            foreach ($headingTexts as $text) {
+            // With bold_paragraph, no headingTexts means every bold paragraph (P1.12: a null here raised a warning).
+            foreach ($headingTexts ?? [] as $text) {
                 if (!is_string($text)) {
                     continue;
                 }
@@ -1068,7 +1088,13 @@ class PagesToolkit extends AbstractToolkit
             }
 
             if ($matchMode === 'explicit' && empty($normalizedTitles)) {
-                throw new \RuntimeException('headingTexts must contain at least one non-empty string when matchMode is explicit');
+                // Scenario 05 (P3.3-1): after a shorter refusal the model retried with bold_paragraph, which changed the
+                // wrong content. Nothing was changed here.
+                throw new \RuntimeException(
+                    'With matchMode explicit (the default) this tool needs the exact heading texts in headingTexts. '
+                    . 'get_page_content shows the page\'s headings. matchMode bold_paragraph is only for converting bold paragraphs into headings, '
+                    . 'never for changing the level of existing headings. Nothing was changed.'
+                );
             }
 
             $page = Page::getByID($pageID, 'RECENT');
@@ -1114,6 +1140,7 @@ class PagesToolkit extends AbstractToolkit
             $placements = $qb->execute()->fetchAllAssociative();
             if (empty($placements)) {
                 return [
+                    'ok' => false,
                     'summary' => [
                         'requestedHeadings' => count($normalizedTitles),
                         'updatedCount' => 0,
@@ -1187,15 +1214,15 @@ class PagesToolkit extends AbstractToolkit
                         continue;
                     }
 
-                    $match = null;
+                    // P3.3-1: every matching heading in the block, not only the first (scenarios 05, 06 and 23).
+                    $matches = [];
                     if ($matchMode === 'explicit') {
-                        $match = $this->findMatchingHeadingTextInContent($content, $pendingHeadings);
+                        $matches = $this->findMatchingHeadingTextsInContent($content, $pendingHeadings);
                     } else {
-                        $detectedHeading = $this->extractBoldParagraphHeadingText($content);
-                        if ($detectedHeading !== null) {
+                        foreach ($this->extractBoldParagraphHeadingTexts($content) as $detectedHeading) {
                             $detectedKey = $this->normalizeHeadingLookupText($detectedHeading);
                             if (empty($pendingHeadings) || isset($pendingHeadings[$detectedKey])) {
-                                $match = [
+                                $matches[$detectedKey] = [
                                     'key' => $detectedKey,
                                     'text' => empty($pendingHeadings) ? $detectedHeading : (string) ($pendingHeadings[$detectedKey] ?? $detectedHeading),
                                 ];
@@ -1203,22 +1230,26 @@ class PagesToolkit extends AbstractToolkit
                         }
                     }
 
-                    if ($match === null) {
-                        continue;
+                    // Each heading is applied in turn; one whose text is only in the body (not a heading) changes nothing.
+                    $transformedContent = $content;
+                    $applied = [];
+                    foreach ($matches as $match) {
+                        $next = $this->applyHeadingLevelToContent($transformedContent, $match['text'], $targetTag);
+                        if ($next !== $transformedContent) {
+                            $transformedContent = $next;
+                            $applied[] = $match;
+                        }
                     }
 
-                    $headingKey = $match['key'];
-                    $headingText = $match['text'];
-                    $transformedContent = $this->applyHeadingLevelToContent($content, $headingText, $targetTag);
-
-                    if ($transformedContent === $content) {
+                    if ($applied === []) {
                         continue;
                     }
 
                     $beforeText = TextIntegrity::normalize($content);
                     $afterText = TextIntegrity::normalize($transformedContent);
                     if ($beforeText !== $afterText) {
-                        throw new \RuntimeException("text integrity check failed for '{$headingText}' (body text changed)");
+                        $names = implode("', '", array_column($applied, 'text'));
+                        throw new \RuntimeException("text integrity check failed for '{$names}' (body text changed)");
                     }
 
                     // Never change a block under the user's open editor (BF-7): reported with the failures.
@@ -1228,12 +1259,13 @@ class PagesToolkit extends AbstractToolkit
                         'blockID' => (int) $blockID,
                         'areaHandle' => $areaHandle,
                         'dbTable' => $dbTable,
-                        'headingKey' => $headingKey,
-                        'headingText' => $headingText,
+                        'headings' => $applied,
                         'transformedContent' => $transformedContent,
                         'beforeText' => $beforeText,
                     ];
-                    unset($pendingHeadings[$headingKey]);
+                    foreach ($applied as $match) {
+                        unset($pendingHeadings[$match['key']]);
+                    }
                 } catch (\Throwable $e) {
                     $failed[] = [
                         'blockID' => (int) $blockID,
@@ -1276,16 +1308,19 @@ class PagesToolkit extends AbstractToolkit
                         $afterRecord = $this->getBlockTableRecord($change['dbTable'], $blockID);
                         $afterContent = is_string($afterRecord['content'] ?? null) ? (string) $afterRecord['content'] : '';
 
-                        $updated[] = [
-                            'blockID' => $blockID,
-                            'oldBlockID' => $oldBlockID,
-                            'areaHandle' => $areaHandle,
-                            'headingText' => $change['headingText'],
-                            'targetTag' => $targetTag,
-                            'matchMode' => $matchMode,
-                            'textChecksumBefore' => sha1($change['beforeText']),
-                            'textChecksumAfter' => sha1(TextIntegrity::normalize($afterContent)),
-                        ];
+                        // One entry per heading, as before; headings in the same block share its block IDs.
+                        foreach ($change['headings'] as $heading) {
+                            $updated[] = [
+                                'blockID' => $blockID,
+                                'oldBlockID' => $oldBlockID,
+                                'areaHandle' => $areaHandle,
+                                'headingText' => $heading['text'],
+                                'targetTag' => $targetTag,
+                                'matchMode' => $matchMode,
+                                'textChecksumBefore' => sha1($change['beforeText']),
+                                'textChecksumAfter' => sha1(TextIntegrity::normalize($afterContent)),
+                            ];
+                        }
                     } catch (\Throwable $e) {
                         $failed[] = [
                             'blockID' => $blockID,
@@ -1293,8 +1328,10 @@ class PagesToolkit extends AbstractToolkit
                             'matchMode' => $matchMode,
                             'error' => $e->getMessage(),
                         ];
-                        if (isset($normalizedTitles[$change['headingKey']])) {
-                            $pendingHeadings[$change['headingKey']] = $normalizedTitles[$change['headingKey']];
+                        foreach ($change['headings'] as $heading) {
+                            if (isset($normalizedTitles[$heading['key']])) {
+                                $pendingHeadings[$heading['key']] = $normalizedTitles[$heading['key']];
+                            }
                         }
 
                         if (!$continueOnError) {
@@ -1304,7 +1341,27 @@ class PagesToolkit extends AbstractToolkit
                 }
             }
 
-            return [
+            // P3.3-1 (B-TRU-2): nothing updated while a heading failed, wasn't found, or (bold_paragraph) none was
+            // detected is not a success, so the checks that read `ok` see it.
+            $result = [];
+            if ($updated !== []) {
+                // What changed, in words the model can repeat (Glyn, after scenario 05 in P3.3-1: a bold_paragraph call
+                // converted bold paragraphs and the reply said the h3 headings had changed).
+                $texts = implode(', ', array_map(static fn (array $u): string => '"' . $u['headingText'] . '"', $updated));
+                $count = count($updated);
+                $result['changed'] = $matchMode === 'bold_paragraph'
+                    ? "Converted {$count} bold paragraph" . ($count === 1 ? '' : 's') . " to <{$targetTag}>: {$texts}. No existing headings were changed."
+                    : "Changed {$count} heading" . ($count === 1 ? '' : 's') . " to <{$targetTag}>: {$texts}.";
+            }
+            if ($updated === []) {
+                if ($failed !== [] || $pendingHeadings !== []) {
+                    $result = ['ok' => false];
+                } elseif ($matchMode === 'bold_paragraph') {
+                    $result = ['ok' => false, 'note' => 'No bold-paragraph headings were found, so nothing was changed.'];
+                }
+            }
+
+            return $result + [
                 'summary' => [
                     'requestedHeadings' => count($normalizedTitles),
                     'updatedCount' => count($updated),
@@ -1923,34 +1980,47 @@ class PagesToolkit extends AbstractToolkit
      * @param array<string, string> $pendingHeadings
      * @return array{key:string,text:string}|null
      */
-    private function findMatchingHeadingTextInContent(string $content, array $pendingHeadings): ?array
+    /**
+     * Every pending heading whose text is in the block (P3.3-1: not only the first).
+     *
+     * @return array<string, array{key: string, text: string}>
+     */
+    private function findMatchingHeadingTextsInContent(string $content, array $pendingHeadings): array
     {
         $plain = $this->normalizeHeadingLookupText(TextIntegrity::normalize($content));
+        $found = [];
         foreach ($pendingHeadings as $key => $text) {
-            if ($key === '') {
-                continue;
-            }
-            if (strpos($plain, $key) !== false) {
-                return ['key' => $key, 'text' => $text];
+            $key = (string) $key;
+            if ($key !== '' && strpos($plain, $key) !== false) {
+                $found[$key] = ['key' => $key, 'text' => $text];
             }
         }
 
-        return null;
+        return $found;
     }
 
-    private function extractBoldParagraphHeadingText(string $html): ?string
+    /**
+     * The text of every bold paragraph (<p><strong>…</strong></p> or <b>) in the block, in order (P3.3-1: not only the first).
+     *
+     * @return list<string>
+     */
+    private function extractBoldParagraphHeadingTexts(string $html): array
     {
         $pattern = '~<p\b[^>]*>\s*(?:<strong\b[^>]*>|<b\b[^>]*>)\s*(.*?)\s*(?:</strong>|</b>)\s*</p>~isu';
-        if (!preg_match($pattern, $html, $matches)) {
-            return null;
+        if (!preg_match_all($pattern, $html, $matches)) {
+            return [];
         }
 
-        $candidate = isset($matches[1]) ? (string) $matches[1] : '';
-        $candidate = html_entity_decode(strip_tags($candidate), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $candidate = preg_replace('/\s+/u', ' ', $candidate) ?: '';
-        $candidate = trim($candidate);
+        $texts = [];
+        foreach ($matches[1] as $candidate) {
+            $candidate = html_entity_decode(strip_tags((string) $candidate), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $candidate = trim(preg_replace('/\s+/u', ' ', $candidate) ?: '');
+            if ($candidate !== '') {
+                $texts[] = $candidate;
+            }
+        }
 
-        return $candidate !== '' ? $candidate : null;
+        return $texts;
     }
 
     private function normalizeHeadingLookupText(string $value): string
@@ -1969,7 +2039,7 @@ class PagesToolkit extends AbstractToolkit
         $updated = preg_replace_callback($headingPattern, function (array $matches) use ($targetTag, $headingText): string {
             $attrs = isset($matches[2]) ? (string) $matches[2] : '';
             return '<' . $targetTag . $attrs . '>' . $headingText . '</' . $targetTag . '>';
-        }, $html, 1, $count);
+        }, $html, -1, $count); // every heading with this text in the block (P3.3-1)
 
         if (is_string($updated) && $count > 0) {
             return $updated;
@@ -1977,7 +2047,7 @@ class PagesToolkit extends AbstractToolkit
 
         // Bold paragraph heading: <p><strong>Title</strong></p> or <p><b>Title</b></p>
         $boldParagraphPattern = '~<p\b[^>]*>\s*(?:<strong\b[^>]*>|<b\b[^>]*>)\s*' . $escaped . '\s*(?:</strong>|</b>)\s*</p>~iu';
-        $updated = preg_replace($boldParagraphPattern, '<' . $targetTag . '>' . $headingText . '</' . $targetTag . '>', $html, 1, $count);
+        $updated = preg_replace($boldParagraphPattern, '<' . $targetTag . '>' . $headingText . '</' . $targetTag . '>', $html, -1, $count);
         if (is_string($updated) && $count > 0) {
             return $updated;
         }
@@ -3087,6 +3157,42 @@ class PagesToolkit extends AbstractToolkit
         return PageDraft::of($page);
     }
 
+    /**
+     * The ID of the page a read names by pageID or pagePath (P3.3-1). In P2.9's browser check 6 the user named a page by
+     * its path, the tool took only an ID, and the model read the current page instead. An ID and a path that name
+     * different pages are refused, so a stale ID never wins silently.
+     *
+     * @throws \RuntimeException when neither is given, the path matches no page, or the two disagree
+     */
+    private function pageIDFromIdOrPath(?int $pageID, ?string $pagePath): int
+    {
+        $pagePath = is_string($pagePath) ? trim($pagePath) : '';
+        if ($pagePath === '') {
+            if (!$pageID) {
+                throw new \RuntimeException('Give pageID or pagePath.');
+            }
+
+            return $pageID;
+        }
+
+        $page = PageContextResolver::pageForPath($pagePath);
+        if ($page === null) {
+            // A page that was never published has no active version for the path lookup to find.
+            $page = Page::getByPath(rtrim($pagePath, '/'), 'RECENT');
+            $page = $page instanceof Page && !$page->isError() ? $page : null;
+        }
+        if ($page === null) {
+            throw new \RuntimeException("No page at path {$pagePath}. Nothing was read.");
+        }
+
+        $found = (int) $page->getCollectionID();
+        if ($pageID && $pageID !== $found) {
+            throw new \RuntimeException("pageID {$pageID} and pagePath {$pagePath} (page {$found}) name different pages. Nothing was read; give the one the user meant.");
+        }
+
+        return $found;
+    }
+
     protected function resolveCurrentContextPage(): array
     {
         $request = Application::getFacadeApplication()->make('request');
@@ -3244,8 +3350,10 @@ class PagesToolkit extends AbstractToolkit
     protected function readPageBlocks(Page $page): array
     {
         $sections = [];
+        $rawSections = [];
         $blocks = [];
         $errors = [];
+        $unresolved = [];
         $hidden = 0;
 
         // Area::getListOnPage() is typed against the global `Page` alias. PHP does not
@@ -3290,32 +3398,102 @@ class PagesToolkit extends AbstractToolkit
                 }
 
                 $hasText = $text !== null && trim($text) !== '';
-                $blocks[] = [
+                $entry = [
                     'blockID' => $blockID,
                     'blockType' => $type,
                     'area' => $handle,
                     'hasText' => $hasText,
                 ];
 
+                // An image block has no text, but its file and alt text are what it shows (P3.3-1).
+                $image = $hasText ? null : $this->blockImage($block);
+                if ($image !== null) {
+                    $entry['image'] = $image;
+                }
+                $blocks[] = $entry;
+
+                $open = sprintf(
+                    '<section data-area="%s" data-block-type="%s" data-block-id="%d"><div>',
+                    htmlspecialchars($handle, ENT_QUOTES),
+                    htmlspecialchars($type, ENT_QUOTES),
+                    $blockID
+                );
                 if ($hasText) {
                     // The block text is HTML (content blocks) or plain text. It is not escaped:
                     // HtmlToText strips the tags to give 'text', and 'html' keeps the markup.
-                    $sections[] = sprintf(
-                        '<section data-area="%s" data-block-type="%s" data-block-id="%d"><div>%s</div></section>',
-                        htmlspecialchars($handle, ENT_QUOTES),
-                        htmlspecialchars($type, ENT_QUOTES),
-                        $blockID,
-                        $text
+                    $rawSections[] = $open . $text . '</div></section>';
+                    $sections[] = $open . $this->readableBlockHtml($text, $unresolved) . '</div></section>';
+                } elseif ($image !== null) {
+                    $img = sprintf(
+                        '<img%s alt="%s">',
+                        $image['url'] !== null ? ' src="' . htmlspecialchars($image['url'], ENT_QUOTES) . '"' : '',
+                        htmlspecialchars($image['alt'], ENT_QUOTES)
                     );
+                    $rawSections[] = $open . $img . '</div></section>';
+                    $sections[] = $open . $img . '</div></section>';
                 }
             }
         }
 
         return [
             'html' => implode("\n", $sections),
+            'rawHtml' => implode("\n", $rawSections),
             'blocks' => $blocks,
             'hiddenBlocks' => $hidden,
             'errors' => $errors,
+            'unresolvedLinks' => array_values($unresolved),
+        ];
+    }
+
+    /**
+     * A block's stored HTML as Concrete renders it (P3.3-1): {CCM:…} placeholders and <concrete-picture> tags translated
+     * by LinkAbstractor::translateFrom(), as the content block's view does, and site-relative URLs made absolute.
+     * A link to a page that is gone or inactive comes out of translateFrom() with an empty href, so it is listed in
+     * $unresolved (by page ID) rather than left as a silent empty link.
+     *
+     * @param array<int, array{pageID: int, reason: string}> $unresolved
+     */
+    private function readableBlockHtml(string $html, array &$unresolved): string
+    {
+        if (str_contains($html, '{CCM:') || stripos($html, '<concrete-picture') !== false) {
+            if (preg_match_all('~\{CCM:CID_([0-9]+)\}~i', $html, $matches)) {
+                foreach (array_unique(array_map('intval', $matches[1])) as $cID) {
+                    $linked = Page::getByID($cID, 'ACTIVE');
+                    if (!$linked || $linked->isError()) {
+                        $unresolved[$cID] = ['pageID' => $cID, 'reason' => 'no such page'];
+                    } elseif (!$linked->isActive()) {
+                        $unresolved[$cID] = ['pageID' => $cID, 'reason' => 'page is inactive, so the link is empty'];
+                    }
+                }
+            }
+            $html = (string) LinkAbstractor::translateFrom($html);
+        }
+
+        return AbsoluteUrl::inHtml($html, AbsoluteUrl::siteBase());
+    }
+
+    /**
+     * The file and alt text of an image block (core image, or any block whose controller has getFileID() and
+     * getAltText()), or null.
+     *
+     * @return array{fileID: int, url: ?string, alt: string, title: string}|null
+     */
+    private function blockImage(Block $block): ?array
+    {
+        $controller = $block->getController();
+        if (!$controller || !method_exists($controller, 'getFileID') || !method_exists($controller, 'getAltText')) {
+            return null;
+        }
+        $fID = (int) $controller->getFileID();
+        if ($fID <= 0) {
+            return null;
+        }
+
+        return [
+            'fileID' => $fID,
+            'url' => AbsoluteUrl::forFile($fID),
+            'alt' => (string) $controller->getAltText(),
+            'title' => method_exists($controller, 'getTitle') ? (string) $controller->getTitle() : '',
         ];
     }
 
@@ -3456,6 +3634,19 @@ class PagesToolkit extends AbstractToolkit
                 'name' => $value->getCollectionName(),
                 'path' => $value->getCollectionPath(),
             ];
+        }
+
+        // An image or file attribute (P3.3-1, BF-12). The File entity has getTitle() only through __call, so the test
+        // below left it out, and the model couldn't see a page's thumbnail.
+        if ($value instanceof FileEntity) {
+            $version = $value->getApprovedVersion();
+            if (!$version) {
+                return ['fileID' => (int) $value->getFileID(), 'missing' => true];
+            }
+            $url = AbsoluteUrl::forFile((int) $value->getFileID());
+            $file = ['fileID' => (int) $value->getFileID(), 'title' => (string) $version->getTitle(), 'url' => $url];
+
+            return $url === null ? $file + ['urlNote' => AbsoluteUrl::NOTE] : $file;
         }
 
         if (is_object($value) && method_exists($value, 'getFileID') && method_exists($value, 'getTitle')) {
