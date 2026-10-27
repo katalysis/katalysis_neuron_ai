@@ -59,7 +59,7 @@ final class ToolBaseline
         'UsersToolkit::search_users' => 'BF-6: offset input; limit names its range; the description says the result gives the total',
         'VersionsToolkit::list_page_versions' => 'BF-6: offset input; the description says newest first and that the result gives the total',
         'PeopleToolkit::list_people' => 'BF-6: offset input; limit capped at 100; the description says the result gives the total',
-        'TopicsToolkit::get_topic_tree_structure' => 'BF-6: the description says what totalTopics counts and how a cut at max_depth is shown',
+        'TopicsToolkit::get_topic_tree_structure' => 'BF-6: the description says what totalTopics counts and how a cut at max_depth is shown; P3.3-1: the description says categories are shown and counted',
     ];
 
     /**

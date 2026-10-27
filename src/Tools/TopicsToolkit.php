@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tools;
 
 use Concrete\Core\Tree\Type\Topic as TopicTree;
+use Concrete\Core\Tree\Node\Type\Category as CategoryNode;
 use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
@@ -79,7 +80,8 @@ class TopicsToolkit extends AbstractToolkit
         $tool = new CallableTool(
             'get_topic_tree_structure',
             'Get the hierarchical structure of a topic tree with its topics and their children, down to max_depth. '
-            . 'totalTopics counts the topics shown; when max_depth cut the tree, cutAtDepth is true and each cut topic has childrenNotShown.'
+            . 'Categories are shown as nodes with type "category", with the topics under them. '
+            . 'totalTopics counts the topics shown and totalCategories the categories; when max_depth cut the tree, cutAtDepth is true and each cut node has childrenNotShown.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -126,6 +128,7 @@ class TopicsToolkit extends AbstractToolkit
                 ],
                 'topics' => $structure,
                 'totalTopics' => $this->countNodes($structure),
+                'totalCategories' => $this->countNodes($structure, 'category'),
                 'cutAtDepth' => $cut > 0,
             ];
             if ($cut > 0) {
@@ -535,11 +538,13 @@ class TopicsToolkit extends AbstractToolkit
         $children = $node->getChildNodes();
 
         foreach ($children as $child) {
-            if ($child instanceof TopicNode) {
+            // P3.3-1 (BF-6): a category is shown with what is under it; skipping it hid every topic it holds.
+            if ($child instanceof TopicNode || $child instanceof CategoryNode) {
                 $childStructure = $this->buildNodeStructure($child, $currentDepth + 1, $maxDepth, $cut);
                 $topic = [
                     'treeNodeID' => $child->getTreeNodeID(),
                     'name' => $child->getTreeNodeDisplayName(),
+                    'type' => $child instanceof CategoryNode ? 'category' : 'topic',
                     'hasChildren' => !empty($childStructure),
                     'children' => $childStructure,
                 ];
@@ -562,7 +567,7 @@ class TopicsToolkit extends AbstractToolkit
     {
         $node->populateChildren();
         foreach ($node->getChildNodes() as $child) {
-            if ($child instanceof TopicNode) {
+            if ($child instanceof TopicNode || $child instanceof CategoryNode) {
                 return true;
             }
         }
@@ -571,14 +576,17 @@ class TopicsToolkit extends AbstractToolkit
     }
 
     /**
-     * Count total nodes in structure
+     * Count the nodes of one type ('topic' or 'category') in the structure.
      */
-    private function countNodes(array $structure): int
+    private function countNodes(array $structure, string $type = 'topic'): int
     {
-        $count = count($structure);
+        $count = 0;
         foreach ($structure as $node) {
+            if ($node['type'] === $type) {
+                $count++;
+            }
             if (!empty($node['children'])) {
-                $count += $this->countNodes($node['children']);
+                $count += $this->countNodes($node['children'], $type);
             }
         }
         return $count;
