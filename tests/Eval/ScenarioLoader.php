@@ -21,7 +21,7 @@ final class ScenarioLoader
         'attribute_on_children_of', 'blocks', 'all_text_unchanged', 'live_version_unchanged', 'file_exists',
         'people', 'person_field_empty', 'changed_pages',
     ];
-    private const BLOCK_KEYS = ['page', 'area', 'count', 'headings', 'contains_html', 'lacks_html', 'unchanged', 'has_block', 'has_block_unchanged'];
+    private const BLOCK_KEYS = ['page', 'area', 'count', 'headings', 'contains_html', 'lacks_html', 'unchanged', 'has_block', 'has_block_unchanged', 'has_block_field'];
     private const TOOL_KEYS = ['no_write_tool_succeeded', 'no_write_tool_failed', 'not_succeeded', 'not_called', 'called_any', 'succeeded', 'notice_shown', 'notice_absent'];
     private const REPLY_KEYS = ['matches_all', 'matches_any', 'not_matches', 'shorter_than_prompt', 'lists_recorded_children', 'no_invented_hosts', 'describes_page_only_if_read'];
     private const USERS = ['neuron_editor', 'superuser'];

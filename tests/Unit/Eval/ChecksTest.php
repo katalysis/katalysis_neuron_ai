@@ -271,6 +271,18 @@ final class ChecksTest extends TestCase
         $this->assertAnyFails(StateChecks::run(['blocks' => [['page' => '/nowhere', 'unchanged' => true]]], $this->ctx($before, $after)));
     }
 
+    public function testHasBlockFieldReadsTheStoredSetting(): void
+    {
+        $list = static fn (string $num): array => ['area' => 'Main', 'type' => 'page_list', 'order' => 0, 'data' => ['num' => $num, 'cParentID' => '7']];
+        $before = S::make([S::page(5, '/neuron-test/block-types', ['latestBlocks' => [$list('3')]])]);
+        $after = S::make([S::page(5, '/neuron-test/block-types', ['latestBlocks' => [$list('5')]])]);
+        $page = '/neuron-test/block-types';
+
+        $this->assertAllPass(StateChecks::run(['blocks' => [['page' => $page, 'has_block_field' => ['type' => 'page_list', 'field' => 'num', 'equals' => 5]]]], $this->ctx($before, $after)));
+        $this->assertAnyFails(StateChecks::run(['blocks' => [['page' => $page, 'has_block_field' => ['type' => 'page_list', 'field' => 'num', 'equals' => 3]]]], $this->ctx($before, $after)));
+        $this->assertAnyFails(StateChecks::run(['blocks' => [['page' => $page, 'has_block_field' => ['type' => 'feature', 'field' => 'num', 'equals' => 5]]]], $this->ctx($before, $after)), 'no such block');
+    }
+
     public function testBlocksInAContainerAreaAndUnchanged(): void
     {
         $c1 = S::block('content', '<p><strong>Bold A</strong></p>', 'Main : 51 : Column 1');

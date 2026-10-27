@@ -25,6 +25,9 @@ final class BlockSaveInputs
     /** Express form inputs its save() reads that are not columns. */
     private const EXPRESS_FORM_INPUTS = ['formName', 'resultsFolder', 'addFilesToFolder'];
 
+    /** @var array<string, list<string>> child tables by block table */
+    private static array $childTables = [];
+
     /**
      * Refuses an update this tool can't make for the block type. The reason, or null.
      *
@@ -128,10 +131,12 @@ final class BlockSaveInputs
             return [];
         }
         $db = self::db();
-        $children = $db->fetchFirstColumn(
+        // The table list doesn't change within a process (the scenario snapshot asks for every block).
+        self::$childTables[$table] ??= $db->fetchFirstColumn(
             'SELECT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = ? AND TABLE_NAME LIKE ? AND TABLE_NAME <> ? ORDER BY TABLE_NAME',
             ['bID', $table . '%', $table]
         );
+        $children = self::$childTables[$table];
         $rows = [];
         foreach ($children as $child) {
             if (preg_match('/^[A-Za-z0-9_]+$/', (string) $child) !== 1) {

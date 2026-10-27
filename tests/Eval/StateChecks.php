@@ -266,6 +266,19 @@ final class StateChecks
                 case 'has_block':
                     $results[] = self::result("{$label} has {$spec['type']} block", self::findBlock($blocks, $spec) !== null, 'no ' . $spec['type'] . ' block containing ' . json_encode($spec['containing'] ?? []));
                     break;
+                case 'has_block_field':
+                    // P3.3-6: a block of the type stores exactly this value in the field (a setting, such as a
+                    // page list's number of pages).
+                    $match = array_filter($blocks, static fn (array $b): bool => $b['type'] === (string) $spec['type']
+                        && array_key_exists((string) $spec['field'], $b['data']) && (string) $b['data'][(string) $spec['field']] === (string) $spec['equals']);
+                    $values = array_map(static fn (array $b): string => json_encode($b['data'][(string) $spec['field']] ?? null),
+                        array_values(array_filter($blocks, static fn (array $b): bool => $b['type'] === (string) $spec['type'])));
+                    $results[] = self::result(
+                        "{$label} has {$spec['type']} block with {$spec['field']} = " . json_encode((string) $spec['equals']),
+                        $match !== [],
+                        'values found: ' . ($values === [] ? '(no such block)' : implode(', ', $values))
+                    );
+                    break;
                 case 'has_block_unchanged':
                     $found = self::findBlock($blocks, $spec);
                     $unchanged = $found !== null && in_array(self::comparableOne($found), self::comparable($beforeBlocks), true);
