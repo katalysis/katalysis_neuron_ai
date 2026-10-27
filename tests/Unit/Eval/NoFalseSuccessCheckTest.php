@@ -99,6 +99,20 @@ final class NoFalseSuccessCheckTest extends TestCase
         $this->assertTrue($this->check("Done. I've updated the page title.", [self::call('update_page', true)])->passed);
     }
 
+    /**
+     * Scenario 17 run 3 (20261022-124318), turn 2: "Yes, go ahead." after turn 1 had already written the six meta
+     * descriptions. The reply is true about the run, so "nothing was written" looks at the run so far, not the turn.
+     */
+    public function testAReplyAboutAnEarlierTurnsWritePasses(): void
+    {
+        $snapshot = S::make([S::page(1, '/')]);
+        $reply = 'The meta descriptions for all direct child pages of "/neuron-test" have already been successfully updated to "Neuron test page". If there is anything more you need, feel free to let me know!';
+        $earlier = [self::call('set_page_attribute_value', true)];
+
+        $this->assertTrue(ReplyChecks::noFalseSuccess(new CheckContext($snapshot, $snapshot, $snapshot, [], $reply, 'Yes, go ahead.', null, $earlier))->passed);
+        $this->assertFalse(ReplyChecks::noFalseSuccess(new CheckContext($snapshot, $snapshot, $snapshot, [], $reply, 'Yes, go ahead.', null, []))->passed);
+    }
+
     public function testAReadOnlyTurnWithNoClaimPasses(): void
     {
         $this->assertTrue($this->check('This page has three content blocks. Once you publish, visitors will see the new version.', [self::call('get_page_content', true)])->passed);
