@@ -358,7 +358,7 @@ Why first:
 - [ ] P3.S1 **Stage 1 comparison** (S; WP-4). Depends on: every Stage 1 task. One ×3 run of the scenarios Stage 1's tasks name (01, 02, 03, 05, 06, 07, 08, 10, 11, 13, 14, 15, 16, 18, 21, 23, 24, 25, 26, P3.3-6's six, P3.5-1's denied-write scenario and P3.5-2's B-ACC-7 scenario), the unstable ones (05, 07, 11, 15, 16, 21) ×5, from a reset, on gpt-4o. The merge rule is applied here to every task of the stage that ran ×1; a regression gets its own fix task before Stage 2 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $6.60 (about 93 runs).
 
 #### Stage 2: tidy, then split
-Deleting first means less code to move, and every later behaviour change lands in smaller files. P3.3-5 follows the split straight away: it decides whether `instructions()` keeps the `onlyVisible` rule before P3.7-2 cuts the prompt, and it fixes the scenario 07 and 17 input failures before the full ×3 runs in P3.2-2 and P3.7-2.
+Deleting first means less code to move, and every later behaviour change lands in smaller files. P3.3-7 (the Level 0 block adapter) comes straight after the split, so it lands in the split-out Content toolkit. P3.3-5 follows it: it decides whether `instructions()` keeps the `onlyVisible` rule before P3.7-2 cuts the prompt, and it fixes the scenario 07 and 17 input failures before the full ×3 runs in P3.2-2 and P3.7-2.
 
 - [ ] P3.3-3 **Legacy deletion** (S). Depends on: nothing. Planned deletions, covered by plan approval:
   - `src/Toolkits/`, `src/ConcreteCmsAIProvider.php` (a legacy agent that uses them; unused, decided after P2.2), and the root scripts `test_tools.php` and `test_container_search.php`
@@ -375,6 +375,12 @@ Deleting first means less code to move, and every later behaviour change lands i
   - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
   - the tools stay on `CallableTool` (the subclass conversion is dropped)
   - scenarios: `--fake` of the write scenarios; none new or changed, so no paid run. Compared ×3 in P3.S2
+- [ ] P3.3-7 **Level 0 generic block adapter** (M; Glyn, on P3.3-6's recommendation and review, 27 October 2026). Depends on: P3.3-4.
+  - P5.2's item 1 only: export metadata, child tables and import-mode `save()`, so any core or package block type's fields can be read and written without hand-written knowledge, failing clearly when a field can't be mapped
+  - the six hand-written fixes from P3.3-6 (`BlockSaveInputs`) move onto the generic path where it covers them; their tests (`CoreBlockWritesTest`) stay
+  - descriptors, `describe_block_type`, transforms, `convert_blocks` and the Extensions dashboard page stay in P5.2
+  - **plan stop:** a one-page plan, because it is a design choice
+  - scenarios: 27 to 32 ×1, plus two new ones ×1 on block types outside the six (Image Slider, with its repeating entries, and Testimonial); cap $0.60. Its scenarios join P3.S2's comparison
 - [ ] P3.3-5 **List and input fixes** (S–M). Depends on: P3.3-4.
   - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so it is refused, and `get_page_children` doesn't have it. Declare it on both, or drop the rule (BF-6)
   - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`; BF-6)
@@ -385,7 +391,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
   - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, checked in P3.S2's comparison)
   - scenarios: `--fake` of 04, 12, 15, 17; none new or changed, so no paid run. Compared ×3 in P3.S2
-- [ ] P3.S2 **Stage 2 comparison** (S; WP-4). Depends on: every Stage 2 task. One ×3 run of the scenarios Stage 2's tasks name (the write scenarios 04, 05, 06, 07, 08, 09, 10, 15, 17, 20, 23, 24, plus 12 and 13), the unstable ones (05, 07, 12, 15) ×5, from a reset, on gpt-4o. The merge rule is applied here; a regression gets its own fix task before Stage 3 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $3.50 (about 50 runs).
+- [ ] P3.S2 **Stage 2 comparison** (S; WP-4). Depends on: every Stage 2 task. One ×3 run of the scenarios Stage 2's tasks name (the write scenarios 04, 05, 06, 07, 08, 09, 10, 15, 17, 20, 23, 24, plus 12 and 13, and P3.3-7's 27 to 32 and its two new block scenarios), the unstable ones (05, 07, 12, 15) ×5, from a reset, on gpt-4o. The merge rule is applied here; a regression gets its own fix task before Stage 3 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $6.40 (about 74 runs; the block scenarios cost about $0.12 a run, P3.3-6).
 
 #### Stage 3: approval
 After permissions, so that approval never stands in for a permission check.
