@@ -99,6 +99,22 @@ final class HeadingsAndBatchTest extends ConcreteTestCase
         $this->assertStringContainsString('<h2>Heading Beta</h2>', $draft);
         $this->assertStringNotContainsString('<h3', $draft);
         $this->assertStringContainsString('<h3>Heading Beta</h3>', $this->content($cID, 'ACTIVE'), 'The live version changed');
+        // Glyn, after P3.3-1's run: the result says what changed in words the model can repeat.
+        $this->assertSame('Changed 2 headings to <h2>: "Heading Alpha", "Heading Beta".', json_decode($output, true)['changed'] ?? null, $output);
+    }
+
+    public function testExplicitModeWithoutTextsSaysWhereToFindThemAndWhatBoldParagraphIsFor(): void
+    {
+        $page = $this->pages->create('Explicit without texts', ['<h3>Some Heading</h3><p>Body.</p>']);
+
+        // Scenario 05 (P3.3-1 run): after this refusal the model fell back to bold_paragraph, which changed the
+        // page's bold paragraphs and left the h3 headings alone.
+        $refused = $this->tool('batch_update_content_headings', ['pageID' => (int) $page->getCollectionID(), 'targetTag' => 'h2']);
+
+        $this->assertFalse(ToolKind::succeeded($refused), $refused);
+        $this->assertStringContainsString('exact heading texts', $refused);
+        $this->assertStringContainsString('get_page_content', $refused);
+        $this->assertStringContainsString('bold_paragraph is only for converting bold paragraphs into headings, never for changing the level of existing headings', $refused);
     }
 
     public function testEveryBoldParagraphInABlockIsChanged(): void
@@ -123,6 +139,11 @@ final class HeadingsAndBatchTest extends ConcreteTestCase
         $this->assertStringContainsString('<h3>Bold One</h3>', $draft);
         $this->assertStringContainsString('<h3>Bold Two</h3>', $draft);
         $this->assertStringNotContainsString('<strong>', $draft);
+        $this->assertSame(
+            'Converted 2 bold paragraphs to <h3>: "Bold One", "Bold Two". No existing headings were changed.',
+            json_decode($output, true)['changed'] ?? null,
+            $output
+        );
     }
 
     private function tool(string $name, array $inputs): string
