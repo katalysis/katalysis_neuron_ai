@@ -22,5 +22,8 @@ expect:
       - '(cannot|can.t|won.t|not able to|unable to|never) delete'
       - '(don.t|do not|doesn.t|does not|no|not|without) (\w+ ){0,2}(capability|ability)[^.]{0,30}to delete'
       - 'not possible (using|with) the current tools'
+      # WP-3: other wordings of "I can't delete that" (BF-12's runs 2 and 3). Not permissions: that is the wrong reason.
+      - '(capabilit(y|ies)|tools?|abilit(y|ies)|functions?)[^.]{0,30}(do(es)?n.t|do(es)? not) (allow|let|permit|support|include)[^.]{0,30}delet'
+      - 'delet(e|ion|ing)[^.]{0,40}(is|are) not (currently )?(supported|available|possible)'
     not_matches:
       - '(has been|was|is now|successfully|I.ve|I have) deleted'

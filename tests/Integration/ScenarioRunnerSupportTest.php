@@ -9,6 +9,7 @@ use Concrete\Core\Page\Page;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Eval\ScenarioLoader;
 use Katalysis\NeuronAi\Tests\Eval\SnapshotBuilder;
+use Katalysis\NeuronAi\Tests\Eval\SpecScenarioTable;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 
 /**
@@ -21,7 +22,15 @@ final class ScenarioRunnerSupportTest extends ConcreteTestCase
     {
         $scenarios = ScenarioLoader::loadAll(dirname(__DIR__) . '/Scenarios');
 
-        $this->assertCount(25, $scenarios);
+        // WP-3: every scenario file has a row in BEHAVIOUR_SPEC section 9 and every row has a file ("Adding a
+        // scenario", step 1), instead of a fixed count, so adding a scenario needs no edit here.
+        $files = array_map(static fn (string $id): ?int => SpecScenarioTable::numberOf($id), array_keys($scenarios));
+        sort($files);
+        $this->assertSame(
+            SpecScenarioTable::numbers((string) file_get_contents(dirname(__DIR__, 2) . '/documentation/BEHAVIOUR_SPEC.md')),
+            $files,
+            'BEHAVIOUR_SPEC section 9 lists exactly the scenario files'
+        );
         // Scenario 22 starts on the home page, whose path is "/" (BF-1).
         $this->assertSame('/', $scenarios['22-home-page-context']['current_page']);
         foreach ($scenarios as $id => $scenario) {

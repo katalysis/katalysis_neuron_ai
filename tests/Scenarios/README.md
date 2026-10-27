@@ -9,7 +9,7 @@ Every scenario cites the `documentation/BEHAVIOUR_SPEC.md` rule IDs it checks. T
 - **Checks are deterministic.** No LLM judge. State and tool-call checks decide pass or fail. Reply checks are regular expressions and are secondary, except where a scenario marks one `primary: true` because the reply is the behaviour being tested (see "Results").
 - **Fixture content is found by path, handle, title or name, never by ID.** IDs change on every reset.
 - **Sets of pages are recorded, not hard-coded.** `children_of: /path` means the direct children of that page **as recorded when the fixture was set up, before the first turn**. A scenario never states how many there are, so adding a test page to the seed doesn't break it.
-- **The starting state is the seed.** The runner runs `documentation/fixtures/seed_test_content.php -- --reset` before each scenario. See `documentation/SETUP.md` for what it creates.
+- **The starting state is the seed.** The runner runs `documentation/fixtures/seed_test_content.php -- --reset` before each scenario, and once more after the last run (WP-3), so a scenario that writes leaves no fixture drift for the integration tests. See `documentation/SETUP.md` for what it creates.
 - **The agent runs in-process as the scenario's user**, not over HTTP (spec section 10, decision 14).
 - **Anything a scenario creates must be removed by the reset.** New pages go under `/neuron-test`. New people must be named "Test Person ..." with an `@neuron-test.invalid` email.
 
@@ -170,7 +170,7 @@ The same wording is in the Testing section of `CLAUDE.md`. After the P1.5 baseli
 
 ## Adding a scenario
 
-1. Pick the spec rule IDs it checks, and add the scenario to section 9 of the spec.
+1. Pick the spec rule IDs it checks, and add the scenario to section 9 of the spec. `ScenarioRunnerSupportTest` fails until every scenario file has a row there and every row has a file (WP-3).
 2. Start from the seed. If it needs new fixture content, add it to the seed script (additive, same marker and reset rules), not to the scenario.
 3. Write state and tool checks first. Add reply checks last, and keep them loose. Mark a reply check `primary` only by the principle above.
 4. Say in `known_to_fail_today` only what the spec's "Today" column or the code actually says.
