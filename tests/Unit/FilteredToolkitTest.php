@@ -24,6 +24,16 @@ final class FilteredToolkitTest extends TestCase
         $this->assertSame(['keep'], array_map(static fn ($t): string => $t->getName(), $filtered->tools()));
     }
 
+    public function testFilteringAFilteredToolkitAgainNamesTheOriginalOnce(): void
+    {
+        // ToolNameResolver filters first, then DisabledTools filters the result again (P3.7-1).
+        $once = FilteredToolkit::from(new FilteredToolkitTestPagesToolkit(), [new CallableTool('a', 'd'), new CallableTool('keep', 'd')]);
+        $twice = FilteredToolkit::from($once, [new CallableTool('keep', 'd')]);
+
+        $this->assertSame("Toolkit: FilteredToolkitTestPagesToolkit\nPages guidance.", $twice->guidelines());
+        $this->assertSame(['keep'], array_map(static fn ($t): string => $t->getName(), $twice->tools()));
+    }
+
     public function testAToolkitWithoutGuidelinesStaysWithoutThem(): void
     {
         // Neuron adds a title only when there is guideline text, so null must stay null.
