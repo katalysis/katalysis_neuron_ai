@@ -182,6 +182,18 @@ final class HonestReadsTest extends ConcreteTestCase
         $this->assertStringContainsString('{CCM:CID_' . $targetID . '}', $read['html_raw']);
     }
 
+    public function testALinkToAPageThatIsGoneIsListedNotLeftEmpty(): void
+    {
+        // translateFrom() resolves a link to any active page, published or not, and gives an empty href otherwise.
+        $goneID = (int) $this->db()->fetchOne('SELECT MAX(cID) FROM Pages') + 100000;
+        $page = $this->pages->create('Link to a page that is gone', ['<p><a href="{CCM:CID_' . $goneID . '}">Old link</a></p>']);
+
+        $read = $this->json($this->tool(new PagesToolkit(), 'get_page_content', ['pageID' => (int) $page->getCollectionID()]));
+
+        $this->assertSame([$goneID], array_column($read['unresolvedLinks'] ?? [], 'pageID'), json_encode($read));
+        $this->assertSame('no such page', $read['unresolvedLinks'][0]['reason']);
+    }
+
     public function testImageBlockAltTextIsReturned(): void
     {
         $page = $this->pages->create('Image block', []);

@@ -13,6 +13,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\PagePathLabel;
@@ -696,8 +697,13 @@ class BlocksToolkit extends AbstractToolkit
                 
                 if (!empty($viewData)) {
                     $output .= "**View Data (what the block displays):**\n\n";
-                    
+                    // P3.3-1: Concrete's Html\Image gives a relative src beside an absolute srcset; make them absolute.
+                    $siteBase = AbsoluteUrl::siteBase();
+
                     foreach ($viewData as $key => $value) {
+                        if (is_string($value)) {
+                            $value = AbsoluteUrl::inHtml($value, $siteBase);
+                        }
                         $output .= $this->formatControllerValue($key, $value, $rawLongText);
                     }
                 } else {

@@ -17,6 +17,8 @@ use Concrete\Core\Block\Traits\ValidateBlockRequestTrait;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Attribute\Category\PageCategory;
+use Concrete\Core\Editor\LinkAbstractor;
+use Concrete\Core\Entity\File\File as FileEntity;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\PageList;
 use Concrete\Core\Page\Command\DeletePageCommand;
@@ -27,6 +29,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Security\SecretRedactor;
+use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
@@ -374,8 +377,10 @@ class PagesToolkit extends AbstractToolkit
             // Read the blocks directly. Rendering the page needs a current page and a web
             // request, so it fails under the CLI and in the chat panel's own context.
             $read = $this->readPageBlocks($page);
+            // P3.3-1: html is the page as Concrete renders it (links translated, absolute URLs); html_raw is the stored
+            // form ({CCM:…} placeholders, <concrete-picture> tags), which the write tools keep.
             $content = $read['html'];
-            $rawContent = $content;
+            $rawContent = $read['rawHtml'];
             $renderMethod = 'blocks';
             $renderErrors = $read['errors'];
 
@@ -402,7 +407,13 @@ class PagesToolkit extends AbstractToolkit
             if (!empty($renderErrors)) {
                 $result['renderErrors'] = $renderErrors;
             }
-            
+            if ($read['unresolvedLinks'] !== []) {
+                $result['unresolvedLinks'] = $read['unresolvedLinks'];
+            }
+            if (AbsoluteUrl::hasRelativeUrls($content)) {
+                $result['imageUrlNote'] = AbsoluteUrl::NOTE;
+            }
+
             return $result;
         }));
 
@@ -3286,8 +3297,10 @@ class PagesToolkit extends AbstractToolkit
     protected function readPageBlocks(Page $page): array
     {
         $sections = [];
+        $rawSections = [];
         $blocks = [];
         $errors = [];
+        $unresolved = [];
         $hidden = 0;
 
         // Area::getListOnPage() is typed against the global `Page` alias. PHP does not
@@ -3332,32 +3345,102 @@ class PagesToolkit extends AbstractToolkit
                 }
 
                 $hasText = $text !== null && trim($text) !== '';
-                $blocks[] = [
+                $entry = [
                     'blockID' => $blockID,
                     'blockType' => $type,
                     'area' => $handle,
                     'hasText' => $hasText,
                 ];
 
+                // An image block has no text, but its file and alt text are what it shows (P3.3-1).
+                $image = $hasText ? null : $this->blockImage($block);
+                if ($image !== null) {
+                    $entry['image'] = $image;
+                }
+                $blocks[] = $entry;
+
+                $open = sprintf(
+                    '<section data-area="%s" data-block-type="%s" data-block-id="%d"><div>',
+                    htmlspecialchars($handle, ENT_QUOTES),
+                    htmlspecialchars($type, ENT_QUOTES),
+                    $blockID
+                );
                 if ($hasText) {
                     // The block text is HTML (content blocks) or plain text. It is not escaped:
                     // HtmlToText strips the tags to give 'text', and 'html' keeps the markup.
-                    $sections[] = sprintf(
-                        '<section data-area="%s" data-block-type="%s" data-block-id="%d"><div>%s</div></section>',
-                        htmlspecialchars($handle, ENT_QUOTES),
-                        htmlspecialchars($type, ENT_QUOTES),
-                        $blockID,
-                        $text
+                    $rawSections[] = $open . $text . '</div></section>';
+                    $sections[] = $open . $this->readableBlockHtml($text, $unresolved) . '</div></section>';
+                } elseif ($image !== null) {
+                    $img = sprintf(
+                        '<img%s alt="%s">',
+                        $image['url'] !== null ? ' src="' . htmlspecialchars($image['url'], ENT_QUOTES) . '"' : '',
+                        htmlspecialchars($image['alt'], ENT_QUOTES)
                     );
+                    $rawSections[] = $open . $img . '</div></section>';
+                    $sections[] = $open . $img . '</div></section>';
                 }
             }
         }
 
         return [
             'html' => implode("\n", $sections),
+            'rawHtml' => implode("\n", $rawSections),
             'blocks' => $blocks,
             'hiddenBlocks' => $hidden,
             'errors' => $errors,
+            'unresolvedLinks' => array_values($unresolved),
+        ];
+    }
+
+    /**
+     * A block's stored HTML as Concrete renders it (P3.3-1): {CCM:…} placeholders and <concrete-picture> tags translated
+     * by LinkAbstractor::translateFrom(), as the content block's view does, and site-relative URLs made absolute.
+     * A link to a page that is gone or inactive comes out of translateFrom() with an empty href, so it is listed in
+     * $unresolved (by page ID) rather than left as a silent empty link.
+     *
+     * @param array<int, array{pageID: int, reason: string}> $unresolved
+     */
+    private function readableBlockHtml(string $html, array &$unresolved): string
+    {
+        if (str_contains($html, '{CCM:') || stripos($html, '<concrete-picture') !== false) {
+            if (preg_match_all('~\{CCM:CID_([0-9]+)\}~i', $html, $matches)) {
+                foreach (array_unique(array_map('intval', $matches[1])) as $cID) {
+                    $linked = Page::getByID($cID, 'ACTIVE');
+                    if (!$linked || $linked->isError()) {
+                        $unresolved[$cID] = ['pageID' => $cID, 'reason' => 'no such page'];
+                    } elseif (!$linked->isActive()) {
+                        $unresolved[$cID] = ['pageID' => $cID, 'reason' => 'page is inactive, so the link is empty'];
+                    }
+                }
+            }
+            $html = (string) LinkAbstractor::translateFrom($html);
+        }
+
+        return AbsoluteUrl::inHtml($html, AbsoluteUrl::siteBase());
+    }
+
+    /**
+     * The file and alt text of an image block (core image, or any block whose controller has getFileID() and
+     * getAltText()), or null.
+     *
+     * @return array{fileID: int, url: ?string, alt: string, title: string}|null
+     */
+    private function blockImage(Block $block): ?array
+    {
+        $controller = $block->getController();
+        if (!$controller || !method_exists($controller, 'getFileID') || !method_exists($controller, 'getAltText')) {
+            return null;
+        }
+        $fID = (int) $controller->getFileID();
+        if ($fID <= 0) {
+            return null;
+        }
+
+        return [
+            'fileID' => $fID,
+            'url' => AbsoluteUrl::forFile($fID),
+            'alt' => (string) $controller->getAltText(),
+            'title' => method_exists($controller, 'getTitle') ? (string) $controller->getTitle() : '',
         ];
     }
 
