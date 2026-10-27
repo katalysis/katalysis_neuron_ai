@@ -461,7 +461,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - the model stays gpt-4o for every Phase 3 comparison; choosing another (§7 decision 2) needs its own comparison run (about $8 per model at gpt-4o prices, not in the phase budget)
   - scenarios: 01, 13 ×1; cap $0.15
 - [ ] P3.8-2 **A cheaper model for routing** (S–M). Depends on: P3.2-2. Only if the router calls a model; if it routes from context without a model call, this task is dropped.
-- [ ] P3.9-1 **The chat table under Doctrine** (S–M; DB schema, so significant). Depends on: nothing. Remove the `CREATE TABLE` from `on_start()` and drop the `chatHistory` column, unused since P2.5. Scenarios: none.
+- [ ] P3.9-1 **The chat table under Doctrine** (S–M; DB schema, so it stops for a plan). Depends on: nothing. Remove the `CREATE TABLE` from `on_start()` and drop the `chatHistory` column, unused since P2.5. Scenarios: none.
 - [ ] P3.9-2 **Chat retention and admin purge** (M; personal data). Depends on: P3.9-1. 90 days by default, configurable, plus an admin purge (B-PII-5). Scenarios: none.
 - [ ] P3.9-3 **Loop guard** (M). Depends on: nothing; better after P3.6-1. The same tool isn't repeated with the same arguments after it failed; after one alternative attempt the assistant reports and stops (B-ERR-3), with a new scenario. Scenarios: the new one ×1, and `--fake` of 15; cap $0.10. Compared in the next stage comparison.
 - [ ] P3.9-4 **Small fixes** (S). Depends on: nothing. Scenarios: none.
@@ -545,7 +545,14 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
 
 ## 6. Working practices
 - **One task ID = one branch = one PR into `development`.** Merge `development` into `main` at releases.
-- **Claude Code** (the VS Code extension, with `packages/katalysis_neuron_ai` as the workspace root, so `CLAUDE.md` and `.claude/settings.json` apply): follow `CLAUDE.md`. Plan first for significant tasks, keep diffs small, never rewrite wholesale. Every task PR runs the full PHPUnit suite. **Scenarios run when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit.** They don't run on every merge.
+- **Claude Code** (the VS Code extension, with `packages/katalysis_neuron_ai` as the workspace root, so `CLAUDE.md` and `.claude/settings.json` apply): follow `CLAUDE.md`. Keep diffs small, never rewrite wholesale. Every task PR runs the full PHPUnit suite. **Scenarios run when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit.** They don't run on every merge.
+- **Faster working (WP-4, Glyn, 27 October 2026):**
+  - **Plan stops** only for the DB schema; the approval, permission or tier mechanisms (P3.5-x, P3.2-1, P3.6-x, P3.6a); dependencies; and deleting working code the task's entry doesn't list. Every other task, including tool and prompt changes, is implemented directly and the PR is the report. A plan fits on one page: files, decisions with a recommendation, risks.
+  - **Decisions inside a task's entry** are taken with Claude Code's recommendation and listed under "Decisions taken" in the PR; Glyn overrules at review. The "always stop" list in `CLAUDE.md` is unchanged.
+  - **Scenarios:** a task runs a free `--fake` run of what it touches and ×1 of its own new or changed scenarios; each stage ends with a ×3 comparison task (P3.S1–P3.S4) where the merge rule is applied. P3.5-1, P3.2-1, P3.6-1, P3.6-2 and P3.6a keep their own ×3.
+  - **Tests:** red first for safety work and bug fixes; one integration test per read tool for a change to what it returns. Fast tier after each change, full tier in `/finish-task`.
+  - **PROGRESS** entries at most 10 lines; BEHAVIOUR_SPEC's "Today" column updated at each stage's end.
+  - **Reviews:** Glyn's reviewer reads plans and PRs from the repo; a plan stop says where the plan is.
 - **`main` and `development` are protected** (PRs only, no force pushes, no deletion). Each task's tick here and its PROGRESS entry go inside the task PR.
 - **Review:** Glyn or Alex reviews each PR. The other person reviews anything touching permissions, approval, the generator or dependencies.
 - **Releases:** bump `pkgVersion`, add a changelog entry, run the scenarios on the dev site, then deploy to EPRA.

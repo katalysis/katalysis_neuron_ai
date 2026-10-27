@@ -23,7 +23,14 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - Report results honestly. "Not tested" is an acceptable answer; claiming something works when it wasn't checked is not.
 
 ## Working agreement
-- **Significant tasks stop for plan approval** after `/start-task`. A task is significant if it touches prompts (`instructions()`, guidelines), tools, the safety layers (draft isolation, injection detection, disabled tools, approval), permissions, the DB schema or fixtures, dependencies, or anything in `BEHAVIOUR_SPEC.md`. **Everything else is a small task:** implement it, then report with the PR and its PROGRESS entry. If unsure, treat it as significant.
+- **A task stops for plan approval** after `/start-task` only if it touches (WP-4, Glyn, 27 October 2026):
+  - the DB schema
+  - the approval, permission or tier mechanisms (P3.5-x, P3.2-1, P3.6-x, P3.6a)
+  - dependencies
+  - deleting working code that its `DELIVERY_PLAN.md` entry doesn't list
+
+  **Every other task, including tool and prompt changes, is implemented directly, and the PR is the report.** A plan, when needed, fits on one page: files, decisions with your recommendation, risks. At a plan stop, say where the plan is; Glyn's reviewer reads plans and PRs from the repo, so don't repeat the plan in the reply.
+- **Decisions inside the task:** when a question is inside the task's `DELIVERY_PLAN.md` entry and you have a recommendation, go with it and list it under "Decisions taken" in the PR description. Glyn overrules at review. This doesn't change the "always stop" list below.
 - **Always stop and ask**, whatever the size: anything in the Workflow "Stop and ask" list, any change to a scenario's expected values or the baseline, running paid scenarios the plan doesn't name, and any command that prompts: the `ask` rules (`gh pr create`, `mysql`, the scenario runner, `composer require|update`, deleting a branch, discarding changes) and anything not allowed, such as a push to a branch other than `task/*` or `spike/*`. Commits and pushes to `task/*` and `spike/*` are allowed (WP-1a). Run commands one per call, not in `&&` chains, so the allow rules match.
 - **PR contents, in commit order:**
   1. `PLAN:` the plan, or the `DELIVERY_PLAN.md` entry for a new task
@@ -33,6 +40,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
   5. last, after `gh pr create` so the number is known: the PROGRESS entry, "Current position" and the `DELIVERY_PLAN.md` tick ("Done (PR #N)"), with the task ID prefix
 
   Nothing is pushed straight to `development` or `main`.
+- **PROGRESS entries** are at most 10 lines (WP-4). `BEHAVIOUR_SPEC.md`'s "Today" column is updated in each stage's comparison task (P3.S1–P3.S4), not in each task.
 - **PROGRESS fields**, in every entry. Write "not recorded" rather than guess.
   - `Who / tool / model`: e.g. `Glyn; Claude Code (VS Code); claude-opus-5-5`
   - `Time`: elapsed from `/start-task` to the PR. Own time is "not recorded" unless the person volunteers it; don't ask for it.
@@ -71,7 +79,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 ## Rules
 1. **Never delete or rewrite a file or a large block of code to "rebuild" it.** Make small, incremental edits. If a rewrite seems necessary, stop and propose a plan first.
 2. **Work on a branch** and keep each change to a single task. Never commit to `main` directly.
-3. **Plan before editing** anything in `src/ConcreteCmsAgent.php`, `controllers/chat.php` or any toolkit's write tools.
+3. **Read before editing** anything in `src/ConcreteCmsAgent.php`, `controllers/chat.php` or any toolkit's write tools: know what the change touches. A written plan is needed only when the Working agreement's plan-stop list applies (WP-4).
 4. **Every tool:**
    - has a clear name, description and typed properties
    - returns the `{ok: true, data}` / `{ok: false, error}` envelope through `guarded()`
@@ -98,7 +106,8 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - **Test tiers:**
   - **Fast**, after every change: `php tools/phpunit/vendor/bin/phpunit --exclude-group slow` (about 18 s) and `node --test tests/js/*.test.mjs` (under a second). The `slow` group is `SeedResetTest`. A new test class that takes more than about 2 s goes in it too (`#[Group('slow')]`), with a note in PROGRESS.
   - **Full**, before every PR (in `/finish-task`): `php tools/phpunit/vendor/bin/phpunit` (about 43 s) and the JS safety tests.
-  - **Scenarios** cost money and call the AI. Run them only when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit. The plan names the scenarios and `--repeat`. They don't run on every merge.
+  - **Scenarios** cost money and call the AI. Run them only when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit. They don't run on every merge. **In Phase 3 (WP-4):** a task runs a free `--fake` run of the scenarios it touches, and only its own new or changed scenarios ×1. The ×3 comparison of the stage's named scenarios runs once at the end of each stage, in its own task (P3.S1–P3.S4), and the merge rule is applied there. P3.5-1, P3.2-1, P3.6-1, P3.6-2 and P3.6a keep their own ×3 runs before merge. Each task's `DELIVERY_PLAN.md` entry names its scenarios and cap.
+- **Red first** stays for safety work and bug fixes. For a change to what a read tool returns, one integration test per tool is enough (WP-4).
 - **No test may call the AI provider or use an API key.** Only the scenario runner does that.
 - Tests that change shared fixtures restore the state they found. They never assume or force a fixed starting state.
 - Tests that run the seed's reset change fixture IDs and the Config record; compare by structure and row counts, as SeedResetTest does.

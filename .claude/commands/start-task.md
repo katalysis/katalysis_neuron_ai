@@ -16,11 +16,6 @@ Run each command below as its own Bash call: no `&&` or `;` chains, and no `cd` 
    1. `git switch -c task/$ARGUMENTS-<short-slug>`
    2. `git config branch.<branch>.description "started <date -u +%Y-%m-%dT%H:%MZ>; base <base>"` (`/finish-task` uses it for the Time field and the PR base)
    3. `git push -u origin <branch>`
-5. Decide whether the task is **significant** or **small** (CLAUDE.md, Working agreement), and say which and why.
-   - **Significant:** write the plan in `documentation/plans/$ARGUMENTS.md` and STOP for approval. Edit no other files until the plan is approved. The plan must cover:
-     - **Goal:** one sentence
-     - **Files:** each one you will change or create
-     - **Out of scope:** what you will deliberately not touch
-     - **Tests:** how you will check it works (the PHPUnit tiers, which scenarios and `--repeat` if the scenario rule applies, manual steps)
-     - **Risks and questions:** anything unclear in the plan
-   - **Small:** implement it without a plan stop. Run the fast tier after every change. Finish with `/finish-task`. The PR and its PROGRESS entry are the report.
+5. Decide whether the task **stops for a plan** (CLAUDE.md, Working agreement, WP-4), and say which and why. It stops only if it touches the DB schema; the approval, permission or tier mechanisms (P3.5-x, P3.2-1, P3.6-x, P3.6a); dependencies; or deletes working code its `DELIVERY_PLAN.md` entry doesn't list.
+   - **Plan stop:** write the plan in `documentation/plans/$ARGUMENTS.md`, on one page: the files, the decisions with your recommendation, and the risks. Commit it as `PLAN:`, push, and STOP for approval; say where the plan is, without repeating it. Edit no other files until it is approved.
+   - **Otherwise (tool and prompt changes included):** implement it directly. When a question is inside the task's entry and you have a recommendation, go with it and list it under "Decisions taken" in the PR. Red first for safety work and bug fixes; for a change to what a read tool returns, one integration test per tool. Run the fast tier after every change. Scenarios: a free `--fake` run of the ones the task touches and ×1 of its own new or changed ones, as its entry names. Finish with `/finish-task`; the PR is the report.
