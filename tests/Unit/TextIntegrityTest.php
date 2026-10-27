@@ -418,6 +418,19 @@ final class TextIntegrityTest extends TestCase
         $this->assertNull(TextIntegrity::checkNewValue(['content' => '<p>The <code>&lt;script&gt;</code> element runs code.</p>']));
     }
 
+    // ---- P3.3-6: settings in string columns are not text --------------------------------------------------------
+
+    public function testASettingChangeIsNotATextChangeButALabelIs(): void
+    {
+        $before = ['itemHeadingFormat' => 'h4', 'num' => '3', 'orderBy' => 'display_asc', 'submitLabel' => 'Send'];
+
+        $settings = TextIntegrity::evaluate($before, ['itemHeadingFormat' => 'h3', 'num' => '5', 'orderBy' => 'chrono_desc'], 'keep_text');
+        $this->assertTrue($settings['ok'], $settings['message']);
+
+        $label = TextIntegrity::evaluate($before, ['submitLabel' => 'Book'], 'keep_text');
+        $this->assertFalse($label['ok'], 'A label with a capital is text, and keep_text keeps it');
+    }
+
     public function testANewValueIsCheckedOnItsOwn(): void
     {
         $this->assertNull(TextIntegrity::checkNewValue(['content' => '<h1>A further New Page Test</h1>']));
