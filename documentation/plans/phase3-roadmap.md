@@ -363,14 +363,15 @@ Why this order:
 8. P3.3-3 Legacy deletion.
 9. P3.4 EPRA out of core.
 10. P3.3-4 Mechanical split.
+11. P3.3-5 List and input fixes (moved here on Glyn's review of PR #61: it decides whether `instructions()` keeps the `onlyVisible` rule before P3.7-2, and fixes the scenario 07 and 17 input failures before the full runs of P3.2-2 and P3.7-2).
 
 Deleting first means less code to move, and every later behaviour change lands in smaller files that are easier to review.
 
 **Stage 3: approval.**
 
-11. P3.6-1 Approval mechanism.
-12. P3.6-2 Approval on every write tool.
-13. P3.6-3 Re-enable tools behind approval.
+12. P3.6-1 Approval mechanism.
+13. P3.6-2 Approval on every write tool.
+14. P3.6-3 Re-enable tools behind approval.
 
 Why here:
 - Approval is the largest safety item, and it unblocks scenarios 04, 09, 14, 17 and 18.
@@ -380,12 +381,11 @@ Why here:
 
 **Stage 4: a lean agent.**
 
-14. P3.11-2 Browser-path scenarios.
-15. P3.1 ContextBuilder.
-16. P3.10-1 Provider contract.
-17. P3.2-2 Groups and router.
-18. P3.7-2 Prompt cut.
-19. P3.3-5 List and input fixes.
+15. P3.11-2 Browser-path scenarios.
+16. P3.1 ContextBuilder.
+17. P3.10-1 Provider contract.
+18. P3.2-2 Groups and router.
+19. P3.7-2 Prompt cut.
 
 The prompt cut is last because it removes the rules that the earlier tasks turned into code. Cut sooner, it would remove rules that nothing has replaced yet.
 
@@ -403,9 +403,9 @@ The rule: two tasks run in parallel only if they don't change the same files. `C
 |---|---|---|---|
 | 1 | P3.3-1 → P3.3-2 (`PagesToolkit`, `BlocksToolkit`, `TopicsToolkit`) → P3.5-1's Pages, Blocks and Versions half | P3.11-1 (tests) → P3.5-1's shared helper → its Files, Users, People, Topics and attribute toolkits half → P3.5-2 | The helper goes first, as one small PR. `TopicsToolkit`: P3.3-1's categories fix before Alex's permissions half. |
 | 1 | P3.7-1 (`instructions()`) | P3.2-1 (`controller.php`, `ChatAccess`, `tools()`, seed) | `ConcreteCmsAgent.php`: different methods (`instructions()` against `tools()`), but merge one before the other starts. |
-| 2 | P3.3-3 → P3.4 → P3.3-4 | P3.9-1 → P3.9-2, P3.9-4 (`controller.php` `on_start()`, entities, settings) | `controller.php`: P3.2-1 (install routine) must be merged before P3.9-1. |
+| 2 | P3.3-3 → P3.4 → P3.3-4 → P3.3-5 | P3.9-1 → P3.9-2, P3.9-4 (`controller.php` `on_start()`, entities, settings) | `controller.php`: P3.2-1 (install routine) must be merged before P3.9-1. |
 | 3 | P3.6-1 → P3.6-2 → P3.6-3 | P3.8-1 (`provider()`, settings), P3.11-2 (runner and scenarios), P3.10-1 (`src/Extension/`, `katalysis_pro`) | P3.6-1 changes the runner for approve and deny steps, and so does P3.11-2: P3.6-1's runner change goes first. Settings: P3.8-1 and P3.9-4 both edit the settings page, so both stay with Alex, one after the other. |
-| 4 | P3.1 → P3.2-2 → P3.7-2 | P3.3-5 (the split toolkits' list tools), P3.9-3 | `ConcreteCmsAgent.php` stays with Glyn for the whole stage. |
+| 4 | P3.1 → P3.2-2 → P3.7-2 | P3.9-3 | `ConcreteCmsAgent.php` stays with Glyn for the whole stage. |
 
 The review rule (§6) still applies: whoever didn't write it reviews anything touching permissions, approval or dependencies. So Alex reviews P3.6, and Glyn reviews P3.5-2 and P3.2-1.
 

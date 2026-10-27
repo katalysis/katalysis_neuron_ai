@@ -346,7 +346,7 @@ Why first:
   - scenarios: all ×1 (every user's tool list changes), 11 ×5; cap $2.10
 
 #### Stage 2: tidy, then split
-Deleting first means less code to move, and every later behaviour change lands in smaller files.
+Deleting first means less code to move, and every later behaviour change lands in smaller files. P3.3-5 follows the split straight away: it decides whether `instructions()` keeps the `onlyVisible` rule before P3.7-2 cuts the prompt, and it fixes the scenario 07 and 17 input failures before the full ×3 runs in P3.2-2 and P3.7-2.
 
 - [ ] P3.3-3 **Legacy deletion** (S). Depends on: nothing. Planned deletions, covered by plan approval:
   - `src/Toolkits/`, `src/ConcreteCmsAIProvider.php` (a legacy agent that uses them; unused, decided after P2.2), and the root scripts `test_tools.php` and `test_container_search.php`
@@ -363,6 +363,15 @@ Deleting first means less code to move, and every later behaviour change lands i
   - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
   - the tools stay on `CallableTool` (the subclass conversion is dropped)
   - scenarios: the write scenarios ×1; cap $0.70
+- [ ] P3.3-5 **List and input fixes** (S–M). Depends on: P3.3-4.
+  - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so it is refused, and `get_page_children` doesn't have it. Declare it on both, or drop the rule (BF-6)
+  - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`; BF-6)
+  - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
+  - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list (BF-6)
+  - declare `items` for the 6 array properties in `ToolRegistryTest`'s known list (P2.3)
+  - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
+  - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, so it is checked by this task's scenarios)
+  - scenarios: 04, 12, 15, 17 ×3; cap $0.85
 
 #### Stage 3: approval
 After permissions, so that approval never stands in for a permission check.
@@ -412,11 +421,11 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - a shim for `ExternalToolkitRegistry` for one release
   - (decided after P2.2) today the AI settings page builds every external toolkit on each load, to list the ones that fail. Revisit that here (an MCP toolkit would connect on every page view)
   - scenarios: 03, 04, 21, 25 ×3; cap $0.85
-- [ ] P3.2-2 **Tool groups and intent router** (L). Depends on: P3.1, P3.3-4 and P3.10-1.
+- [ ] P3.2-2 **Tool groups and intent router** (L). Depends on: P3.1, P3.3-4, P3.3-5 and P3.10-1.
   - group the tools and send only the relevant groups per request (target: at most about 25 tools per request); external providers declare their group
   - the runner records the number of tools offered on each request
   - scenarios: full ×3 (tool choice changes everywhere); cap $6.00
-- [ ] P3.7-2 **Cut the prompt down** (M). Depends on: P3.1, P3.2-1, P3.3-2, P3.4 and P3.6-2.
+- [ ] P3.7-2 **Cut the prompt down** (M). Depends on: P3.1, P3.2-1, P3.3-2, P3.3-5 (the `onlyVisible` rule), P3.4 and P3.6-2.
   - to identity, tier and how to use context, under about 60 lines. Each rule it holds becomes a tool check or a scenario (BEHAVIOUR_SPEC §9's table)
   - the two direct-action rules that conflict with B-CON-3 and B-CON-4 ("Do not tell the user to make manual edits…", "proceed with the write operation…")
   - **overcautious model** (Glyn's browser check after BF-5): "Rewrite the second paragraph more concisely" got clarifying questions instead of a rewrite. A clear, scoped request should be done (in a draft) without questions; find which prompt rules cause the hesitation
@@ -426,15 +435,6 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `VersionsToolkit::guidelines()` (BF-10)
   - rules with no code yet: B-LNG-1 and B-LNG-3 (with scenarios), B-SCP-1, B-SCP-3, B-INJ-6, B-TRU-8
   - scenarios: full ×3, plus the language scenarios; cap $6.30
-- [ ] P3.3-5 **List and input fixes** (S–M). Depends on: P3.3-4.
-  - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so it is refused, and `get_page_children` doesn't have it. Declare it on both, or drop the rule (BF-6)
-  - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`; BF-6)
-  - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
-  - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list (BF-6)
-  - declare `items` for the 6 array properties in `ToolRegistryTest`'s known list (P2.3)
-  - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
-  - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, so it is checked by this task's scenarios)
-  - scenarios: 04, 12, 15, 17 ×3; cap $0.85
 
 #### Alongside, at any point
 - [ ] P3.8-1 **Provider and model from settings** (M). Depends on: nothing.
