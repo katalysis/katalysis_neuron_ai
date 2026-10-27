@@ -11,6 +11,7 @@ use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
@@ -100,12 +101,15 @@ class PeopleToolkit extends AbstractToolkit
 
             $results = $list->getResults();
             $people = [];
+            $images = [];
 
             foreach ($results as $person) {
                 if ($person instanceof Person) {
                     $specialisms = $person->getSpecialisms();
                     $topics = $person->getTopics();
                     $places = $person->getPlaces();
+                    // BF-12: the absolute URL beside the file ID, so the model never adds a host.
+                    $images[] = [$person->getImage(), $imageUrl = AbsoluteUrl::forFile($person->getImage())];
 
                     $people[] = [
                         'sID' => $person->getSID(),
@@ -114,6 +118,7 @@ class PeopleToolkit extends AbstractToolkit
                         'email' => $person->getEmail(),
                         'phone' => $person->getPhone(),
                         'image' => $person->getImage(),
+                        'imageUrl' => $imageUrl,
                         'active' => (bool) $person->getActive(),
                         'featured' => (bool) $person->getFeatured(),
                         'specialisms' => array_column($specialisms, 'treeNodeName'),
@@ -123,11 +128,11 @@ class PeopleToolkit extends AbstractToolkit
                 }
             }
 
-            return [
+            return AbsoluteUrl::withNote([
                 'success' => true,
                 'totalPeople' => $total,
                 'people' => $people,
-            ] + $window->summary($total, count($people), 'list_people', 'active_only or featured_only');
+            ] + $window->summary($total, count($people), 'list_people', 'active_only or featured_only'), $images);
         }));
 
         return $tool;
@@ -210,8 +215,9 @@ class PeopleToolkit extends AbstractToolkit
             $specialisms = $person->getSpecialisms();
             $topics = $person->getTopics();
             $places = $person->getPlaces();
+            $imageUrl = AbsoluteUrl::forFile($person->getImage());
 
-            return [
+            return AbsoluteUrl::withNote([
                 'success' => true,
                 'person' => [
                     'sID' => $person->getSID(),
@@ -222,6 +228,7 @@ class PeopleToolkit extends AbstractToolkit
                     'mobile' => $person->getMobile(),
                     'linkedin' => $person->getLinkedin(),
                     'image' => $person->getImage(),
+                    'imageUrl' => $imageUrl,
                     'active' => (bool) $person->getActive(),
                     'featured' => (bool) $person->getFeatured(),
                     'sortOrder' => $person->getSortOrder(),
@@ -229,7 +236,7 @@ class PeopleToolkit extends AbstractToolkit
                     'topics' => $topics,
                     'places' => $places,
                 ],
-            ];
+            ], [[$person->getImage(), $imageUrl]]);
         }));
 
         return $tool;
@@ -280,34 +287,38 @@ class PeopleToolkit extends AbstractToolkit
             $results = $list->getResults();
             $fileIds = [];
             $peopleWithImages = [];
+            $images = [];
 
             foreach ($results as $person) {
                 if ($person instanceof Person) {
                     $imageId = $person->getImage();
                     if ($imageId && $imageId > 0) {
                         $fileIds[] = $imageId;
+                        $images[] = [$imageId, $imageUrl = AbsoluteUrl::forFile($imageId)];
                         $peopleWithImages[] = [
                             'sID' => $person->getSID(),
                             'name' => $person->getName(),
                             'imageFileId' => $imageId,
+                            'imageUrl' => $imageUrl,
                         ];
                     } elseif (!$exclude_null) {
                         $peopleWithImages[] = [
                             'sID' => $person->getSID(),
                             'name' => $person->getName(),
                             'imageFileId' => null,
+                            'imageUrl' => null,
                         ];
                     }
                 }
             }
 
-            return [
+            return AbsoluteUrl::withNote([
                 'success' => true,
                 'totalPeople' => count($peopleWithImages),
                 'fileIds' => $fileIds,
                 'commaSeparatedFileIds' => implode(', ', $fileIds),
                 'people' => $peopleWithImages,
-            ];
+            ], $images);
         }));
 
         return $tool;

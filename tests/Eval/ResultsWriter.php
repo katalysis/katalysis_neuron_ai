@@ -164,6 +164,11 @@ final class ResultsWriter
         $md .= '**Approximate cost:** ' . self::costLabel(self::costOf($totalUsage, (string) $meta['model'])) . " (assumed list price, no cached-input discount; an upper bound).\n";
         $md .= "Time per scenario is the average of its runs. \"Expected to fail\" is the scenario's `known_to_fail_today` note from P1.2, which P1.5 confirms or corrects.\n";
 
+        $hosts = self::inventedHosts($results);
+        if ($hosts !== '') {
+            $md .= "\n## Hosts no tool returned (BF-12)\n\nRecorded for every run, whatever its outcome; scored only where a scenario has `no_invented_hosts`.\n\n" . $hosts;
+        }
+
         $details = self::details($results);
         if ($details !== '') {
             $md .= "\n## Details of runs that did not pass\n\n" . $details;
@@ -205,6 +210,25 @@ final class ResultsWriter
         }
 
         return $runs;
+    }
+
+    /**
+     * @param array<string, mixed> $results
+     */
+    private static function inventedHosts(array $results): string
+    {
+        $md = '';
+        foreach ($results['scenarios'] as $scenario) {
+            foreach ($scenario['runs'] as $run) {
+                foreach ($run['turns'] ?? [] as $i => $turn) {
+                    if (!empty($turn['inventedHosts'])) {
+                        $md .= '- ' . $scenario['id'] . ' (run ' . $run['n'] . ', turn ' . ($i + 1) . '): ' . self::inline(implode(', ', $turn['inventedHosts'])) . "\n";
+                    }
+                }
+            }
+        }
+
+        return $md;
     }
 
     /**

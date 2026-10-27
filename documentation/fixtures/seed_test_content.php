@@ -7,8 +7,9 @@
  *   - page tree /neuron-test (headings, a two-column container with nested blocks, a People list, a page whose
  *     text contains instructions aimed at the assistant, move-me (with a child) and move-target pages, and (BF-10)
  *     edit-mode and edit-mode-draft: content as a browser save in edit mode stores it)
- *   - three fake people ("Test Person Alpha/Beta/Gamma")
+ *   - three fake people ("Test Person Alpha/Beta/Gamma"); Alpha has a photo (BF-12)
  *   - one small text file in the file manager ("Neuron Test File", from fixtures/neuron-test-file.txt)
+ *   - one small image in the file manager, Alpha's photo ("Neuron Test Person Photo", from fixtures/neuron-test-person.png)
  *   - one Express object, "Test Room", with four entries
  *   - a non-admin user, "neuron_editor" (can edit /neuron-test, cannot use the assistant: the "no access" fixture)
  *   - a non-admin user, "neuron_chat_editor" (P1.10a: the same /neuron-test rights, plus the Concrete task permission
@@ -131,6 +132,9 @@ $seedStatus = (function () use ($args, $output) {
     $fileTitle = 'Neuron Test File';
     $fileMarker = $pageMarker; // the file's description; reset only touches a file with this title AND description
     $fileSource = __DIR__ . '/neuron-test-file.txt';
+    // BF-12: Test Person Alpha's photo, so scenario 25 has an image to link. Same marker as the file.
+    $photoTitle = 'Neuron Test Person Photo';
+    $photoSource = __DIR__ . '/neuron-test-person.png';
     // The review folder the assistant may create (spec B-T1-11). The script never creates it; --reset removes it only
     // when nothing else is in it. Both the en dash and the plain hyphen spelling are matched.
     $reviewFolderNames = ['Assistant – to delete', 'Assistant - to delete'];
@@ -313,6 +317,25 @@ $seedStatus = (function () use ($args, $output) {
 
         return $ids;
     };
+    // The photo, found the same way as the file (stored ID, or title and marker).
+    $storedPhotoID = function () use ($db, &$record) {
+        $id = (int) ($record['photo'] ?? 0);
+
+        return ($id > 0 && (int) $db->fetchOne('SELECT COUNT(*) FROM Files WHERE fID = ?', [$id]) > 0) ? $id : 0;
+    };
+    $findPhotoIDs = function () use ($db, $photoTitle, $fileMarker, $storedPhotoID) {
+        $ids = array_map('intval', $db->fetchFirstColumn(
+            'SELECT DISTINCT fID FROM FileVersions WHERE fvTitle = ? AND fvDescription = ? ORDER BY fID',
+            [$photoTitle, $fileMarker]
+        ));
+        if ($storedPhotoID() > 0) {
+            $ids[] = $storedPhotoID();
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+
+        return $ids;
+    };
     // Files with the fixture's title that are neither the stored file nor carry the marker.
     $countUnmarkedFiles = function () use ($db, $fileTitle, $fileMarker, $storedFileID) {
         return (int) $db->fetchOne(
@@ -322,7 +345,7 @@ $seedStatus = (function () use ($args, $output) {
     };
     // Writes the IDs of what this script owns. An ID that is already stored and still exists is kept (so a plain run
     // changes nothing); content found by its marker is adopted; anything else is left out.
-    $storeRecord = function () use ($app, $db, &$record, $inspectRoot, $lookupUser, $lookupGroup, $lookupExpress, $findPersonIDs, $findFileIDs, $hasPeople, $userName, $userEmail, $chatUserName, $chatUserEmail, $groupMarker, $expressName) {
+    $storeRecord = function () use ($app, $db, &$record, $inspectRoot, $lookupUser, $lookupGroup, $lookupExpress, $findPersonIDs, $findFileIDs, $findPhotoIDs, $hasPeople, $userName, $userEmail, $chatUserName, $chatUserEmail, $groupMarker, $expressName) {
         // A lookup made before the content was created may be cached as "not found".
         $app->make('cache/request')->flush();
         $data = ['version' => 1];
@@ -348,6 +371,10 @@ $seedStatus = (function () use ($args, $output) {
         $fileIDs = $findFileIDs();
         if ($fileIDs !== []) {
             $data['file'] = $fileIDs[0];
+        }
+        $photoIDs = $findPhotoIDs();
+        if ($photoIDs !== []) {
+            $data['photo'] = $photoIDs[0];
         }
         $data['people'] = $hasPeople ? $findPersonIDs() : [];
 
@@ -713,7 +740,7 @@ $seedStatus = (function () use ($args, $output) {
                 $output->writeln('  deleted person #' . $sID);
             }
         }
-        foreach ($findFileIDs() as $fID) {
+        foreach (array_merge($findFileIDs(), $findPhotoIDs()) as $fID) {
             $file = File::getByID($fID);
             if ($file) {
                 $file->delete();
@@ -879,6 +906,24 @@ $seedStatus = (function () use ($args, $output) {
         }
     }
 
+    $photoIDs = $findPhotoIDs();
+    if ($photoIDs !== []) {
+        $photoID = $photoIDs[0];
+        $output->writeln('file ' . $photoTitle . ': already exists, left alone');
+    } else {
+        try {
+            $photoVersion = $app->make(FileImporter::class)->importLocalFile($photoSource, 'neuron-test-person.png');
+            $photoVersion->updateTitle($photoTitle);
+            $photoVersion->updateDescription($fileMarker);
+            $photoID = (int) $photoVersion->getFileID();
+            $output->writeln('file ' . $photoTitle . ': created');
+        } catch (ImportException $e) {
+            $output->writeln('<error>Could not import the test photo: ' . $e->getMessage() . '</error>');
+
+            return 1;
+        }
+    }
+
     // ---- People ------------------------------------------------------------------------------------------------
 
     $personIDs = $findPersonIDs();
@@ -901,6 +946,8 @@ $seedStatus = (function () use ($args, $output) {
                     'active' => 1,
                     'featured' => $featured,
                     'sortOrder' => 9001 + $i,
+                    // BF-12: Alpha has a photo, so a reply can link a real image URL (scenario 25).
+                    'image' => $suffix === 'Alpha' ? $photoID : 0,
                 ]);
                 $person->save();
                 $personIDs[] = (int) $person->getSID();

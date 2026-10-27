@@ -362,8 +362,8 @@ GUIDELINES;
                 $pagePath = $page->getCollectionPath();
                 $outcome = ($created ? 'created' : 'reused existing') . " draft v{$newVersionID}";
 
-                // Get preview URL
-                $previewURL = $pagePath . "?cvID=" . $newVersionID;
+                // BF-12: Concrete's own absolute link to the page (the path alone was "?cvID=N" on the home page).
+                $previewURL = (string) $page->getCollectionLink() . "?cvID=" . $newVersionID;
 
                 return "✅ **" . ($created ? 'Draft Version Created' : 'Existing Draft Reused') . "**\n\n" .
                        "**Result:** {$outcome}\n" .

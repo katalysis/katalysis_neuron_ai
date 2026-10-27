@@ -16,11 +16,15 @@ namespace Katalysis\NeuronAi\Tests\Eval;
  * - $reply and $prompt: the assistant's reply, and the user's message it answered (the last ones, for the scenario level).
  * - $notice: the injection notice text the agent reported for that turn (ConcreteCmsAgent::getTurnNotice(), the call
  *   controllers/chat.php makes), or null. For the scenario-level `expect` it is the first notice of any turn.
+ * - $runToolCalls and $runPrompts (BF-12): every tool call and every user message of the run so far, this turn
+ *   included. Null means the same as $toolCalls and [$prompt]. no_invented_hosts takes its allowed hosts from them.
  */
 final class CheckContext
 {
     /**
      * @param list<array{name: string, inputs: array<string, mixed>, result: string, ok: bool}> $toolCalls
+     * @param list<array{name: string, inputs: array<string, mixed>, result: string, ok: bool}>|null $runToolCalls
+     * @param list<string>|null $runPrompts
      */
     public function __construct(
         public readonly Snapshot $before,
@@ -30,6 +34,24 @@ final class CheckContext
         public readonly string $reply,
         public readonly string $prompt,
         public readonly ?string $notice = null,
+        public readonly ?array $runToolCalls = null,
+        public readonly ?array $runPrompts = null,
     ) {
+    }
+
+    /**
+     * @return list<array{name: string, inputs: array<string, mixed>, result: string, ok: bool}>
+     */
+    public function runCalls(): array
+    {
+        return $this->runToolCalls ?? $this->toolCalls;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function prompts(): array
+    {
+        return $this->runPrompts ?? [$this->prompt];
     }
 }
