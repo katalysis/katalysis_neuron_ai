@@ -13,17 +13,18 @@ use Katalysis\NeuronAi\Tests\Support\PromptPreview;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 
 /**
- * P2.4: the system prompt and the tagged user message the model receives on Neuron 4 are exactly what it received on
- * Neuron 3 (tests/Support/prompt-baseline-v3.json, captured on `development` before P2.4), apart from the lines listed in
- * APPROVED_DIFFERENCES (BF-5) and, with katalysis_pro, APPROVED_WITH_EXTERNAL_DIFFERENCES (P2.8).
+ * The system prompt, the tagged user message and the tools the model receives are exactly the recorded baseline
+ * (tests/Support/prompt-baseline.json), so every prompt change is deliberate. P2.4 compared Neuron 4 with a Neuron 3
+ * capture; P3.7-1, the first deliberate prompt change, replaced that capture with one taken after it, which takes in
+ * the differences approved since (BF-5's snapshot heading, P2.8's katalysis_pro guidelines line).
  *
  * A real turn of the agent (handleUserMessage) with Neuron's FakeAIProvider as the model and an in-memory history: no
- * provider call, no API key, nothing written. The core toolkits alone (P2.4), and with katalysis_pro (P2.8).
+ * provider call, no API key, nothing written. The core toolkits alone, and with katalysis_pro.
  *
  * This is also the guard on ConcreteCmsAgent::resolveTools(), which overrides a Neuron internal to keep v3's
  * guidelines rendering (plan P2.4 §11.1): if Neuron changes or renames that method, its own headings come back and
- * this test fails. The JSON is never edited to make the test pass. If the seed's fixture page changes, the baseline is
- * recaptured on purpose, in its own commit with the reason.
+ * this test fails. The JSON is never edited by hand to make the test pass. A task that changes the prompt, or the
+ * seed's fixture page, recaptures it on purpose (capture_prompt_baseline.php), in its own commit with the reason.
  *
  * Needs the seeded dev site (/neuron-test/headings and neuron_chat_editor).
  */
@@ -45,38 +46,10 @@ final class PromptBaselineTest extends ConcreteTestCase
         Request::getInstance()->setCustomRequestUser(-1);
     }
 
-    /**
-     * The lines of both captures changed on purpose after v3, each approved by Glyn: zero-based line number =>
-     * [v3 text, new text]. Every other line must be identical.
-     */
-    private const APPROVED_DIFFERENCES = [
-        // BF-5 decision 4: the page snapshot's heading says its lines are shortened previews (plans/BF-5.md R10).
-        8 => [
-            'Current Page Content Snapshot:',
-            'Current Page Content Snapshot (shortened previews of some blocks, not the full page; get_page_content returns the full text):',
-        ],
-    ];
-
-    /**
-     * @param list<string> $capture
-     * @param array<int, array{string, string}> $differences
-     * @return list<string> the capture with the approved differences applied
-     */
-    private function withApproved(array $capture, array $differences): array
-    {
-        foreach ($differences as $line => [$v3, $now]) {
-            $this->assertSame($v3, $capture[$line] ?? null, "line {$line} of the capture is not the one the approval names");
-            $capture[$line] = $now;
-        }
-
-        return $capture;
-    }
-
-    public function testTheCorePromptIsExactlyTheV3PromptExceptTheApprovedDifferences(): void
+    public function testTheCorePromptIsExactlyTheBaseline(): void
     {
         $baseline = json_decode((string) file_get_contents(PromptBaseline::FILE), true);
-        $this->assertIsArray($baseline, 'prompt-baseline-v3.json is missing or not JSON');
-        $this->assertSame('3.15.26', $baseline['captured']['neuron'], 'the baseline must come from Neuron 3');
+        $this->assertIsArray($baseline, 'prompt-baseline.json is missing or not JSON');
 
         $page = Page::getByPath(PromptBaseline::PAGE_PATH);
         if (!$page || $page->isError()) {
@@ -101,32 +74,20 @@ final class PromptBaselineTest extends ConcreteTestCase
         $this->assertSame($expected['systemMessage'], $actual['systemMessage'], 'the system message\'s shape');
         // Line by line, so a failure shows which lines differ. If only the page lines differ, the fixture page changed.
         $this->assertSame(
-            implode("\n", $this->withApproved($expected['system'], self::APPROVED_DIFFERENCES)),
+            implode("\n", $expected['system']),
             implode("\n", $actual['system']),
-            'the system prompt must be byte-identical to v3 apart from the approved differences (Current Page lines differ? the seed fixture changed: recapture on purpose)'
+            'the system prompt must be byte-identical to the baseline (Current Page lines differ? the seed fixture changed; a prompt change? recapture on purpose)'
         );
     }
 
     /**
-     * The lines of the withExternal capture that P2.8 changes on purpose, each approved by Glyn (plans/P2.8.md §6):
-     * zero-based line number => [v3 text, P2.8 text]. Every other line must be identical.
-     */
-    private const APPROVED_WITH_EXTERNAL_DIFFERENCES = [
-        // D3: katalysis_pro's guidelines keep only their first sentence; the rest named tools that DisabledTools disables.
-        190 => [
-            'Use these tools to manage Katalysis Pro entities. For people imports, prefer update_person when matching existing records, or add_person (which now performs safe upsert behavior). When an image source is a Concrete files path (for example /application/files/.../image.jpg), provide imagePath so the tool can resolve the real Concrete file ID before saving. For bulk resets, use delete_all_people in a single call instead of many delete_person calls.',
-            'Use these tools to manage Katalysis Pro entities.',
-        ],
-    ];
-
-    /**
      * P2.8: the prompt with katalysis_pro's tools (registered through its ToolDefinitions, as its controller does) is the
-     * v3 prompt with katalysis_pro, apart from the approved differences above.
+     * baseline's withExternal part.
      */
-    public function testThePromptWithKatalysisProIsTheV3PromptExceptTheApprovedDifferences(): void
+    public function testThePromptWithKatalysisProIsExactlyTheBaseline(): void
     {
         $baseline = json_decode((string) file_get_contents(PromptBaseline::FILE), true);
-        $this->assertIsArray($baseline, 'prompt-baseline-v3.json is missing or not JSON');
+        $this->assertIsArray($baseline, 'prompt-baseline.json is missing or not JSON');
         $page = Page::getByPath(PromptBaseline::PAGE_PATH);
         if (!$page || $page->isError()) {
             $this->markTestSkipped('The dev site has no ' . PromptBaseline::PAGE_PATH . ' fixture. Run documentation/fixtures/seed_test_content.php first.');
@@ -152,11 +113,10 @@ final class PromptBaselineTest extends ConcreteTestCase
         $this->assertSame($expected['user'], $actual['user'], 'the user message with its page tag');
         $this->assertSame($expected['systemMessage'], $actual['systemMessage'], 'the system message\'s shape');
 
-        $approved = $this->withApproved($expected['system'], self::APPROVED_DIFFERENCES + self::APPROVED_WITH_EXTERNAL_DIFFERENCES);
         $this->assertSame(
-            implode("\n", $approved),
+            implode("\n", $expected['system']),
             implode("\n", $actual['system']),
-            'the system prompt with katalysis_pro must be v3\'s apart from the approved differences (an unlisted difference goes to review, plans/P2.8.md §6)'
+            'the system prompt with katalysis_pro must be byte-identical to the baseline (a prompt change? recapture on purpose)'
         );
     }
 }

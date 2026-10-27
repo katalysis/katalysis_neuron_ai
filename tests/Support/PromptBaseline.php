@@ -13,16 +13,17 @@ use NeuronAI\Providers\OpenAI\MessageMapper;
 /**
  * What the model receives for one user message, in a form that is the same on Neuron 3 and 4 (P2.4).
  *
- * The v3 baseline (prompt-baseline-v3.json) was written by capture_prompt_baseline.php on `development` before P2.4;
- * PromptBaselineTest builds the same arrays on v4 from a real turn and compares them exactly. Only classes and methods
- * that exist with the same meaning on both versions are used here (the OpenAI MessageMapper, Message, UserMessage).
+ * The baseline (prompt-baseline.json) is written by capture_prompt_baseline.php; PromptBaselineTest builds the same
+ * arrays from a real turn and compares them exactly. It was first captured on Neuron 3 for P2.4, so only classes and
+ * methods that exist with the same meaning on both versions are used here (the OpenAI MessageMapper, Message,
+ * UserMessage). P3.7-1 replaced it with a capture on Neuron 4.
  *
  * The page's ID and the user's ID change when the seed is reset, so they become {PAGE_ID} and {USER_ID}, in the three
  * places they appear and nowhere else. Everything else is compared as it is.
  */
 final class PromptBaseline
 {
-    public const FILE = __DIR__ . '/prompt-baseline-v3.json';
+    public const FILE = __DIR__ . '/prompt-baseline.json';
 
     /** The fixed inputs: a seeded page, a seeded user, one message. */
     public const PAGE_PATH = '/neuron-test/headings';

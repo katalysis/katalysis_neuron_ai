@@ -1,30 +1,47 @@
 <?php
 /**
- * Writes tests/Support/prompt-baseline-v3.json: the system prompt and the tagged user message the model received on
- * Neuron 3, for a fixed page, user and message (P2.4, plan section 3.3).
+ * Writes tests/Support/prompt-baseline.json: the system prompt and the tagged user message the model receives, for a
+ * fixed page, user and message. First written on Neuron 3 for P2.4 (prompt-baseline-v3.json); replaced on Neuron 4 by
+ * P3.7-1, the first deliberate prompt change, so later prompt changes stay deliberate.
  *
- * Run once, on `development` with Neuron 3, from the package folder:
+ * Run from the package folder, on purpose, when a task changes the prompt (the new file goes in its own commit, with
+ * the reason):
  *
  *   php ../../concrete/bin/concrete c5:exec tests/Support/capture_prompt_baseline.php
  *
- * It builds the agent's prompt and reads it (Neuron 3's start event, as its ChatNode hands it to the provider). It
- * calls no tool and no AI provider, logs no one in (the request's user is set in memory) and writes nothing but the
- * JSON file. PromptBaselineTest compares a real v4 turn with the file; the file is never edited to make that test pass.
+ * It runs the same turn as PromptBaselineTest (PromptPreview: a real turn with Neuron's FakeAIProvider and an
+ * in-memory history). It calls no tool and no AI provider, logs no one in (the request's user is set in memory) and
+ * writes nothing but the JSON file. The file is never edited by hand to make that test pass.
  *
- * Two prompts are captured: with the external toolkits the site registers (katalysis_pro), compared at P2.8, and with
- * the core toolkits only, compared by P2.4.
+ * Two prompts are captured: with the external toolkits the site registers (katalysis_pro), and with the core toolkits
+ * only.
  */
 
-require_once __DIR__ . '/PromptBaseline.php';
-
-use Concrete\Core\Http\Request;
 use Concrete\Core\Page\Page;
-use Concrete\Core\User\UserInfoRepository;
-use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Support\PromptBaseline;
+use Katalysis\NeuronAi\Tests\Support\PromptPreview;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 
 $packageDir = dirname(__DIR__, 2);
+
+spl_autoload_register(static function (string $class) use ($packageDir): void {
+    $prefix = 'Katalysis\\NeuronAi\\Tests\\';
+    if (strncmp($class, $prefix, strlen($prefix)) === 0) {
+        $file = $packageDir . '/tests/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
+        if (is_file($file)) {
+            require $file;
+        }
+    }
+});
+
+$app = \Concrete\Core\Support\Facade\Application::getFacadeApplication();
+$refusal = PromptPreview::refusal((string) $app->make('site')->getSite()->getConfigRepository()->get('seo.canonical_url'));
+if ($refusal !== null) {
+    fwrite(STDERR, $refusal . "\n");
+
+    return 1;
+}
+
 $commit = trim((string) shell_exec('git -C ' . escapeshellarg($packageDir) . ' rev-parse --short HEAD'));
 $branch = trim((string) shell_exec('git -C ' . escapeshellarg($packageDir) . ' rev-parse --abbrev-ref HEAD'));
 
@@ -37,27 +54,27 @@ foreach ($installed['packages'] ?? $installed ?? [] as $package) {
     }
 }
 
-$app = \Concrete\Core\Support\Facade\Application::getFacadeApplication();
-$user = $app->make(UserInfoRepository::class)->getByUserName(PromptBaseline::USER_NAME);
 $page = Page::getByPath(PromptBaseline::PAGE_PATH);
-if ($user === null || !$page || $page->isError()) {
-    fwrite(STDERR, "The seeded user or page is missing. Run documentation/fixtures/seed_test_content.php first.\n");
+if (!$page || $page->isError()) {
+    fwrite(STDERR, "The seeded page is missing. Run documentation/fixtures/seed_test_content.php first.\n");
 
     return 1;
 }
-Request::getInstance()->setCustomRequestUser($user);
-$context = PromptBaseline::context($page);
+try {
+    $user = PromptPreview::actAs(PromptBaseline::USER_NAME);
+} catch (\InvalidArgumentException $e) {
+    fwrite(STDERR, $e->getMessage() . " Run documentation/fixtures/seed_test_content.php first.\n");
 
-$capture = static function () use ($context, $page, $user): array {
-    $agent = new ConcreteCmsAgent();
-    $agent->setRuntimePageContext($context);
-    $system = $agent->getStartEvent()->instructions;
-    $tools = array_map(static fn ($tool): string => $tool->getName(), $agent->bootstrapTools());
+    return 1;
+}
+
+$capture = static function () use ($page, $user): array {
+    $turn = PromptPreview::turn($page, PromptBaseline::MESSAGE);
 
     return PromptBaseline::part(
-        $system,
-        $agent->tagMessage(PromptBaseline::MESSAGE),
-        $tools,
+        $turn['system'],
+        (string) $turn['messages'][0]->getContent(),
+        $turn['tools'],
         (int) $page->getCollectionID(),
         (int) $user->getUserID()
     );
