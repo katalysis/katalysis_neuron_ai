@@ -558,6 +558,10 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   - `ScenarioRunnerSupportTest` checks the scenario files against the scenarios README's table instead of a fixed count, so adding a scenario doesn't need a test edit (BF-12 had to change 24 to 25)
   - scenario 18's refusal check accepts wording that means "I can't delete that", such as "my current capabilities do not allow me to delete" (BF-12's run: 2 of 3 partial on that wording only), in its own commit with the reason
   - tests for the first two
+- [ ] WP-4 **Faster Phase 3 and new priorities** (docs only; its own PR into `development`; Glyn's decisions in Cowork, 27 October 2026, after P3.3-1). No code, no tests, no scenarios. Scope:
+  - **priorities:** P3.6a becomes an exit criterion, in Stage 3 after P3.6-2; `katalysis_pro`'s `add_person` and `update_person` leave P3.6-3 until after the internal pilot; P3.10-1 moves to Phase 5 as P5.0; a new Stage 1 task, P3.3-6 "Core block coverage"; an internal pilot on Katalysis's own sites once Stage 3 is merged; the phase budget recomputed
+  - **faster working practices:** fewer plan stops; questions inside a task's entry are decided with a recommendation and listed in the PR; a task runs only its own new or changed scenarios ×1 (plus a free `--fake` run), and each stage ends with a ×3 comparison task (P3.5-1, P3.2-1, P3.6-1, P3.6-2 and P3.6a keep their own ×3); one integration test per read tool is enough for a change to what it returns; PROGRESS entries at most 10 lines; BEHAVIOUR_SPEC's "Today" column updated at each stage's end; plan stops point at the plan in the repo. In `CLAUDE.md`, `.claude/commands/start-task.md`, `finish-task.md` and §6
+  - **scenario notes:** the `known_to_fail_today` notes of 05, 06 and 23 corrected (the headings bug was fixed in P3.3-1), in their own commit with the reason
 
 ### Bug-fix tasks (BF)
 Bugs found outside a phase task. Each is fixed on `development` in its own PR and, during Phase 2, synced into `integration/neuron4` (Phase 2 Branching note).
