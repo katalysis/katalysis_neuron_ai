@@ -626,6 +626,6 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
 2. The default model and provider for production, and who pays for API usage.
-3. Where EPRA's tools live: a separate package or the EPRA theme package.
+3. Where EPRA's tools live: a separate package or the EPRA theme package. **Partly decided (Glyn, on the Phase 3 roadmap, 27 October 2026):** P3.4 removes the EPRA code from core, and the EPRA package is written if and when Neuron returns to EPRA. Only which package holds it stays open.
 4. Track owners. Suggestion: Glyn on agent/upgrade, Alex on the theme and generator templates.
 5. When to approach Portland Labs.
