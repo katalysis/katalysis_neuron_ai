@@ -70,6 +70,10 @@ final class FilteredToolkit extends AbstractToolkit
         if ($original instanceof self && $original->originalName === null && $original->builtFrom !== null) {
             return new self(array_values($tools), $original->guidelines, $original->builtFrom);
         }
+        // An already-filtered toolkit: filter its original again, so the name line isn't added twice (P3.7-1).
+        if ($original instanceof self && $original->originalName !== null) {
+            return new self(array_values($tools), $original->guidelines, $original->originalName);
+        }
 
         return new self(array_values($tools), $original->guidelines(), self::nameOf($original));
     }

@@ -301,15 +301,6 @@ CURRENT CONTEXT:
 {$context}
 
 CAPABILITIES:
-You have access to 71 tools across 11 categories.
-
-**Blocks (5 tools):**
-- Search for all instances of a specific block type across the site (finds blocks in regular areas AND inside containers)
-- Get detailed field data and configuration from a specific block (raw database fields)
-- Get block controller runtime data with resolved relationships (users, files, pages) - use for understanding actual content
-- Count block usage by type (quick stats for all block types or specific ones)
-- List all blocks nested inside a specific container block (by container block ID)
-
 **Content Writes:**
 - Use `add_block_to_page_area`, `update_block_in_page_area`, `delete_block_from_page_area`, and `batch_update_page_content` for content changes whenever the page/area/block context is available
 - Use `create_page` and `update_page` for page structure changes whenever the page context is available
