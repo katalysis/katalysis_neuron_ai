@@ -314,6 +314,15 @@ Why first:
   - new block IDs after a copy: BF-7's `BlockNotFound` and `TurnChanges` cover the error and the response. Check whether a successful result still needs them, and BF-7's note on stale IDs inside the model's own turn (seen in a scenario 05 run)
   - a refused call leaves no `Areas` row (`Area::getOrCreate()` runs before the check in `add_block_to_page_area` and `move_block_between_areas`; BF-3 plan §9)
   - scenarios: 05, 06, 07, 10, 15, 23, 24 ×3; cap $1.50. Scenario 24's publishing regex could also accept "visible to visitors once you publish" (BF-10): Glyn decides, in its own commit
+- [ ] P3.3-6 **Core block coverage** (M; WP-4, Glyn). Depends on: P3.3-2.
+  - the core blocks Katalysis uses most: Content, Image, Page List, Feature, Accordion and Form (the Express form block)
+  - for each, one scenario that reads a block of that type, edits one field in a draft, and adds a new one to a page area, with checks that the stored fields are what was asked and the live version is unchanged
+  - Form: read it, place it, and change its block settings only. Creating or changing the form's fields is Express work and stays in Phase 6
+  - the seed gets one block of each type on a `/neuron-test` page if it lacks it; the Image block uses the seed's "Neuron Test Person Photo", with alt text
+  - fix what the scenarios show is broken where the fix is in our tools; list the rest
+  - Glyn's browser check from P3.3-1, which needs a seeded image: as `neuron_chat_editor`, ask for a link to the image on that page; the link opens the image
+  - ends with a recommendation to Glyn on whether to bring P5.2's Level 0 generic block adapter forward into Phase 3
+  - scenarios: the six new ones ×3; cap $1.30
 - [ ] P3.7-1 **Remove what the prompt says that isn't true** (S; honesty). Depends on: nothing.
   - "You have access to 71 tools across 11 categories" and the stale per-category list (B-TRU-6)
   - `FilteredToolkit::from()` wraps a toolkit that is already filtered again, giving a second "Toolkit: FilteredToolkit" line (P2.4); fix `from()`
