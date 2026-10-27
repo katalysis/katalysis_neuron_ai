@@ -6,11 +6,12 @@
  *
  *   - page tree /neuron-test (headings, a two-column container with nested blocks, a People list, a page whose
  *     text contains instructions aimed at the assistant, move-me (with a child) and move-target pages, and (BF-10)
- *     edit-mode and edit-mode-draft: content as a browser save in edit mode stores it)
+ *     edit-mode and edit-mode-draft: content as a browser save in edit mode stores it, and (P3.3-6) block-types: one
+ *     Content, Image, Page List, Feature, Accordion and Express form block)
  *   - three fake people ("Test Person Alpha/Beta/Gamma"); Alpha has a photo (BF-12)
  *   - one small text file in the file manager ("Neuron Test File", from fixtures/neuron-test-file.txt)
  *   - one small image in the file manager, Alpha's photo ("Neuron Test Person Photo", from fixtures/neuron-test-person.png)
- *   - one Express object, "Test Room", with four entries
+ *   - one Express object, "Test Room", with four entries and (P3.3-6) a form, "Room Enquiry"
  *   - a non-admin user, "neuron_editor" (can edit /neuron-test, cannot use the assistant: the "no access" fixture)
  *   - a non-admin user, "neuron_chat_editor" (P1.10a: the same /neuron-test rights, plus the Concrete task permission
  *     "Use Neuron AI assistant", through the group "Neuron Test Editors" that this script creates and puts the user in)

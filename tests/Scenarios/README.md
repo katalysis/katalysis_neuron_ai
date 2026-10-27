@@ -99,6 +99,7 @@ Primary. Pages are named by path. Versions: `latest` is the newest version (what
 | `unchanged: true` | The blocks are identical to the start. |
 | `has_block: {type: html, containing: ["..."]}` | A block of this type exists with this text. |
 | `has_block_unchanged: {type: content, containing: ["..."]}` | A block with this text exists and is as at the start. |
+| `has_block_field: {type: page_list, field: num, equals: "5"}` | A block of this type stores exactly this value in the field (a setting, P3.3-6). The snapshot also holds rows from tables named after the block's own (an accordion's entries) as JSON, so `has_block` finds their text. |
 
 ### `tools`: what the agent called
 
