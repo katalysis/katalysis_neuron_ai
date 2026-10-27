@@ -13,8 +13,8 @@ use Concrete\Core\Permission\Key\Key as PermissionKey;
 use Concrete\Core\User\UserInfoRepository;
 
 /**
- * P3.5-1: takes one page permission away from some users on a throwaway page, as the seed does for /neuron-test/locked,
- * and puts everything back.
+ * P3.5-1: takes one page permission away from some users on a throwaway page, and puts everything back. The users are
+ * taken out of the key's access list and excluded, since a group they belong to (Guests for View) may still be listed.
  *
  * The page gets its own copy of its parent's permissions (setPermissionsToOverride(), which shares the parent's
  * accesses), and the key's access is duplicated before the users are taken out, so no shared access is ever changed.
@@ -60,7 +60,10 @@ final class PageGrantFixture
             if ($user === null) {
                 throw new \RuntimeException("The user \"{$userName}\" does not exist. Run the seed script first.");
             }
-            $access->removeListItem(UserEntity::getOrCreate($user));
+            // Out of the list, and excluded: a group they are in (Guests, Registered Users) may still be listed.
+            $entity = UserEntity::getOrCreate($user);
+            $access->removeListItem($entity);
+            $access->addListItem($entity, false, PermissionKey::ACCESS_TYPE_EXCLUDE);
         }
         $key->getPermissionAssignmentObject()->assignPermissionAccess($access);
         $page->refreshCache();

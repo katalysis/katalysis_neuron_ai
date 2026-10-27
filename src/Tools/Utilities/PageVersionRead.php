@@ -9,6 +9,7 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\UserInfoRepository;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
 
 /**
  * Which version of a page the read tools show (BF-10; B-CTX-4). The write tools change the page's newest version
@@ -58,6 +59,8 @@ final class PageVersionRead
             if (!$page || $page->isError()) {
                 throw new \RuntimeException("Page with ID {$pageID} not found. The page may not exist or may have been deleted.");
             }
+            // P3.5-1: View Versions never stands in for View (a page can grant one without the other).
+            ObjectPermissions::deny(ObjectPermissions::viewPage($page));
             if ((new Checker($page))->canViewPageVersions()) {
                 return [$page, self::describe($page, self::NEWEST, false)];
             }

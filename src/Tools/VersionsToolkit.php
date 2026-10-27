@@ -11,6 +11,8 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Area\Area;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
+use Katalysis\NeuronAi\Tools\Support\MarkdownToolEnvelope;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
@@ -65,13 +67,14 @@ GUIDELINES;
 
     public function provide(): array
     {
-        return [
+        // P3.5-1: a login check, and {ok: false, error} for every refusal or error (MarkdownToolEnvelope).
+        return array_map(static fn (CallableTool $tool): CallableTool => $tool->wrapHandler([MarkdownToolEnvelope::class, 'wrap']), [
             $this->makeListPageVersionsTool(),
             $this->makeApprovePageVersionTool(),
             $this->makeCreatePageDraftTool(),
             $this->makeDiscardDraftVersionTool(),
             $this->makeGetVersionContentTool(),
-        ];
+        ]);
     }
 
     /**
@@ -115,11 +118,7 @@ GUIDELINES;
                     return "❌ **Error:** Page ID {$pageID} not found.";
                 }
 
-                // Check permissions
-                $permissions = new Checker($page);
-                if (!$permissions->canViewPageVersions()) {
-                    return "❌ **Error:** You don't have permission to view versions for this page.";
-                }
+                ObjectPermissions::deny(ObjectPermissions::viewPageVersions($page));
 
                 // Get version list - use the page's approved version as the base
                 $approvedPage = Page::getByID($pageID, 'ACTIVE');
@@ -234,11 +233,7 @@ GUIDELINES;
                 SystemPageGuard::refuse($page);
                 EditModeGuard::refuse($page);
 
-                // Check permissions
-                $permissions = new Checker($page);
-                if (!$permissions->canApprovePageVersions()) {
-                    return "❌ **Error:** You don't have permission to approve page versions.";
-                }
+                ObjectPermissions::deny(ObjectPermissions::approvePageVersions($page));
 
                 // Get the version object
                 $version = $page->getVersionObject();
@@ -320,11 +315,7 @@ GUIDELINES;
                 SystemPageGuard::refuse($page);
                 EditModeGuard::refuse($page);
 
-                // Check permissions
-                $permissions = new Checker($page);
-                if (!$permissions->canEditPageContents()) {
-                    return "❌ **Error:** You don't have permission to edit this page.";
-                }
+                ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
                 // Set default comments if not provided
                 if (!$comments) {
@@ -425,18 +416,19 @@ GUIDELINES;
                 SystemPageGuard::refuse($page);
                 EditModeGuard::refuse($page);
 
-                // Check permissions
-                $permissions = new Checker($page);
-                if (!$permissions->canEditPageContents() && !$permissions->canApprovePageVersions()) {
-                    return "❌ **Error:** You don't have permission to discard page versions.";
-                }
-
                 // Get the version object
                 $version = $page->getVersionObject();
-                
+
                 if (!$version) {
                     return "❌ **Error:** Could not load version {$versionID} for page {$pageID}.";
                 }
+
+                // P3.5-1 decision 4: your own draft needs Edit Contents, as in edit mode; someone else's needs Delete
+                // Versions, as in Page Versions.
+                $ownDraft = (int) $version->getVersionAuthorUserID() === (int) (new User())->getUserID();
+                ObjectPermissions::deny($ownDraft
+                    ? ObjectPermissions::editPageContents($page)
+                    : ObjectPermissions::deletePageVersions($page));
 
                 // Safety check: cannot discard approved version
                 if ($version->isApproved()) {
@@ -503,11 +495,7 @@ GUIDELINES;
                     return "❌ **Error:** Page ID {$pageID} or version {$versionID} not found.";
                 }
 
-                // Check permissions
-                $permissions = new Checker($page);
-                if (!$permissions->canViewPageVersions()) {
-                    return "❌ **Error:** You don't have permission to view this version.";
-                }
+                ObjectPermissions::deny(ObjectPermissions::viewPageVersions($page));
 
                 $version = $page->getVersionObject();
                 if (!$version) {

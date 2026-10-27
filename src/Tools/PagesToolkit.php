@@ -27,6 +27,7 @@ use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
@@ -672,10 +673,7 @@ class PagesToolkit extends AbstractToolkit
                 EditModeGuard::refuseOpenBlock($page, (int) $update['blockID']);
             }
 
-            $permissions = new Checker($page);
-            if (!$permissions->canEditPageContents()) {
-                throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}. You need edit permissions for this page.");
-            }
+            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
             // Blocks in container or area layout columns can't be remapped between versions (the remap
             // only sees top-level areas). Refuse them now, before any draft exists, so nothing is left behind.
@@ -683,6 +681,11 @@ class PagesToolkit extends AbstractToolkit
             // A block the newest version doesn't hold gets the reason and the ID to use, before any draft (BF-7).
             foreach ($updates as $update) {
                 BlockNotFound::refuseUnlessInNewestVersion($page, (string) $update['areaHandle'], (int) $update['blockID']);
+                // P3.5-1: and each block's own Edit Block permission, as update_block_in_page_area checks it.
+                $block = Block::getByID((int) $update['blockID'], $page, (string) $update['areaHandle']);
+                if ($block) {
+                    ObjectPermissions::deny(ObjectPermissions::editBlock($block));
+                }
             }
 
             // Check every item on the newest version before any draft exists (BF-3): the draft shares its blocks with
@@ -1113,10 +1116,7 @@ class PagesToolkit extends AbstractToolkit
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
 
-            $permissions = new Checker($page);
-            if (!$permissions->canEditPageContents()) {
-                throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}");
-            }
+            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
             // Neuron passes null for an input the model left out: the default is true, as the description says.
             $continueOnError ??= true;
@@ -1263,6 +1263,11 @@ class PagesToolkit extends AbstractToolkit
 
                     // Never change a block under the user's open editor (BF-7): reported with the failures.
                     EditModeGuard::refuseOpenBlock($page, (int) $blockID);
+                    // P3.5-1: nor a block whose own Edit Block permission the user lacks: reported the same way.
+                    $permissionBlock = Block::getByID((int) $blockID, $page, (string) $areaHandle);
+                    if ($permissionBlock) {
+                        ObjectPermissions::deny(ObjectPermissions::editBlock($permissionBlock));
+                    }
 
                     $planned[] = [
                         'blockID' => (int) $blockID,
@@ -1489,10 +1494,7 @@ class PagesToolkit extends AbstractToolkit
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
 
-            $permissions = new Checker($page);
-            if (!$permissions->canEditPageContents()) {
-                throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}");
-            }
+            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
             $pageToModify = $page->getVersionToModify();
 
@@ -1940,9 +1942,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Page template '{$template}' not found");
             }
 
-            if (!$checker->canAddSubCollection($pt)) {
-                throw new \RuntimeException("Permission denied: Cannot add pages of type '{$pageType}' under parent {$parentID}");
-            }
+            ObjectPermissions::deny(ObjectPermissions::addSubpage($parent, $pt));
             
             // No approved version: the page is not live until a person approves it from Page Versions (P1.13, B-WRT-3).
             $data = ['name' => $name, 'cvIsApproved' => 0];
@@ -2153,10 +2153,13 @@ class PagesToolkit extends AbstractToolkit
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
             
-            // Check permissions
-            $checker = new Checker($page);
-            if (!$checker->canEditPageContents()) {
-                throw new \RuntimeException("Permission denied: Cannot edit page {$pageID}");
+            // P3.5-1 decision 2: name, description and attributes are page properties (Edit Properties, as Concrete's
+            // Page Properties dialog); a template change is its own permission (Change Page Template).
+            if ($name !== null || $description !== null || !empty($attributes)) {
+                ObjectPermissions::deny(ObjectPermissions::editPageProperties($page));
+            }
+            if ($template !== null && trim($template) !== '') {
+                ObjectPermissions::deny(ObjectPermissions::editPageTemplate($page));
             }
 
             // Page::update() writes the page type (Pages.ptID) straight to the live page: it isn't
@@ -2274,15 +2277,8 @@ class PagesToolkit extends AbstractToolkit
             SystemPageGuard::refuse($newParent, 'new parent page');
             
             // Check permissions on both pages
-            $pageChecker = new Checker($page);
-            if (!$pageChecker->canMoveOrCopyPage()) {
-                throw new \RuntimeException("Permission denied: Cannot move page {$pageID}");
-            }
-            
-            $parentChecker = new Checker($newParent);
-            if (!$parentChecker->canAddSubpage()) {
-                throw new \RuntimeException("Permission denied: Cannot add subpage to parent {$newParentID}");
-            }
+            ObjectPermissions::deny(ObjectPermissions::moveOrCopyPage($page));
+            ObjectPermissions::deny(ObjectPermissions::addSubpage($newParent));
             
             // Move the page
             $page->move($newParent);
@@ -2320,11 +2316,7 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException('This page is pending deletion.');
             }
             
-            // Check permissions
-            $checker = new Checker($page);
-            if (!$checker->canDeletePage()) {
-                throw new \RuntimeException("Permission denied: Cannot delete page {$pageID}");
-            }
+            ObjectPermissions::deny(ObjectPermissions::deletePage($page));
 
             $user = Application::getFacadeApplication()->make(User::class);
             $command = new DeletePageCommand($page->getCollectionID(), $user->getUserID());
@@ -2489,6 +2481,8 @@ class PagesToolkit extends AbstractToolkit
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
+            // P3.5-1 decision 3: no block is added without edit mode's own permission.
+            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
             $bt = BlockType::getByHandle($blockType);
             if (!$bt) {
@@ -2516,11 +2510,10 @@ class PagesToolkit extends AbstractToolkit
 
             // A refused add leaves no Areas row (P3.3-2; BF-3 plan §9): an area made here is removed again.
             [$area, $areaIsNew] = $this->areaForWrite($page, $areaHandle);
-            $checker = new Checker($area);
-            if (!$checker->canAddBlock($bt)) {
+            $refusal = ObjectPermissions::addBlockToArea($area, $bt);
+            if ($refusal !== null) {
                 $this->removeNewArea($area, $areaIsNew);
-                throw new \RuntimeException("Permission denied: Cannot add '{$blockType}' blocks to area '{$areaHandle}' on page {$pageID}. "
-                    . 'Your account may not add this block type there; ask an editor who can, or a site administrator. Nothing was changed.');
+                ObjectPermissions::deny($refusal);
             }
 
             // The command makes its own draft from the page it is given. Give it the draft, so a
@@ -2617,6 +2610,8 @@ class PagesToolkit extends AbstractToolkit
             EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
+            // P3.5-1 decision 3: edit mode's own permission first, then the block's.
+            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
@@ -2637,10 +2632,7 @@ class PagesToolkit extends AbstractToolkit
                 $block = $fallbackBlock;
             }
 
-            $checker = new Checker($block);
-            if (!$checker->canEditBlock()) {
-                throw new \RuntimeException("Permission denied: Cannot edit block {$blockID} on page {$pageID}");
-            }
+            ObjectPermissions::deny(ObjectPermissions::editBlock($block));
 
             $body = $this->normalizeCustomBlockPayload($block->getBlockTypeHandle(), (array) ($value ?? []));
             if (in_array($block->getBlockTypeHandle(), self::EPRA_PAYLOAD_BLOCK_HANDLES, true) && !array_key_exists('slide', $body)) {
@@ -3011,16 +3003,15 @@ class PagesToolkit extends AbstractToolkit
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
 
+            // P3.5-1 decision 3: edit mode's own permission first, then the block's.
+            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
             try {
                 [$area, $block] = $this->getBlockToWorkWith($page, $areaHandle, $blockID);
             } catch (AreaNotFoundException|BlockNotFoundException $e) {
                 throw new \RuntimeException(BlockNotFound::explain($page, $areaHandle, $blockID));
             }
 
-            $checker = new Checker($block);
-            if (!$checker->canDeleteBlock()) {
-                throw new \RuntimeException("Permission denied: Cannot delete block {$blockID} on page {$pageID}");
-            }
+            ObjectPermissions::deny(ObjectPermissions::deleteBlock($block));
 
             // Delete in a draft, never in the version the page may be showing. The block stays
             // in the live version, and discarding the draft restores the page.
@@ -3109,6 +3100,8 @@ class PagesToolkit extends AbstractToolkit
             SystemPageGuard::refuseGlobalArea($page, $fromAreaHandle);
             SystemPageGuard::refuseGlobalArea($page, $toAreaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
+            // P3.5-1 decision 3: edit mode's own permission first, then the block's and the destination area's.
+            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
             try {
                 [, $block] = $this->getBlockToWorkWith($page, $fromAreaHandle, $blockID);
@@ -3116,20 +3109,16 @@ class PagesToolkit extends AbstractToolkit
                 throw new \RuntimeException(BlockNotFound::explain($page, $fromAreaHandle, $blockID));
             }
 
-            $sourceChecker = new Checker($block);
-            if (!$sourceChecker->canEditBlock()) {
-                throw new \RuntimeException("Permission denied: Cannot move block {$blockID} on page {$pageID}");
-            }
+            ObjectPermissions::deny(ObjectPermissions::editBlock($block));
 
             // Check the destination before making a draft, so a refused move leaves no draft behind.
             // (Areas belong to the page, not to a version.) An area made for the check is removed again (P3.3-2).
             $destinationBlockType = $block->getBlockTypeObject();
             [$destination, $destinationIsNew] = $this->areaForWrite($page, $toAreaHandle);
-            $destinationChecker = new Checker($destination);
-            if ($destinationBlockType && !$destinationChecker->canAddBlock($destinationBlockType)) {
+            $refusal = $destinationBlockType ? ObjectPermissions::addBlockToArea($destination, $destinationBlockType) : null;
+            if ($refusal !== null) {
                 $this->removeNewArea($destination, $destinationIsNew);
-                throw new \RuntimeException("Permission denied: Cannot move '{$block->getBlockTypeHandle()}' blocks to area '{$toAreaHandle}' on page {$pageID}. "
-                    . 'Your account may not add this block type there; ask an editor who can, or a site administrator. Nothing was changed.');
+                ObjectPermissions::deny($refusal);
             }
 
             $pageToModify = $this->getDraftOf($page);
