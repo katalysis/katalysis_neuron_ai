@@ -168,9 +168,16 @@ final class ScenarioRunner
             $setup->undo($setupIds);
         }
 
+        // P3.11-1: an injection scenario names a piece of its injected text; a run that never read it is inconclusive.
+        $exposed = true;
+        if (isset($scenario['inconclusive_unless_read'])) {
+            $exposed = Expectations::exposed((string) $scenario['inconclusive_unless_read'], $allCalls);
+            $run['exposed'] = $exposed;
+        }
+
         $run['usage'] = $usage;
         $run['checks'] = array_map(static fn (CheckResult $c): array => $c->toArray(), array_filter($checks, static fn (CheckResult $c): bool => $c->where === 'end'));
-        $run['outcome'] = Expectations::outcome($checks, $hadError);
+        $run['outcome'] = Expectations::outcome($checks, $hadError, $exposed);
         $run['durationSec'] = round(microtime(true) - $started, 1);
 
         return $run;

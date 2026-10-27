@@ -19,7 +19,7 @@ namespace Katalysis\NeuronAi\Tests\Eval;
 final class ResultsWriter
 {
     public const SCHEMA = 1;
-    private const ORDER = [Expectations::PASS, Expectations::PARTIAL, Expectations::FAIL, Expectations::ERROR];
+    private const ORDER = [Expectations::PASS, Expectations::PARTIAL, Expectations::FAIL, Expectations::ERROR, Expectations::INCONCLUSIVE];
 
     /**
      * List prices in USD per 1M tokens [input, output], used only for an approximate cost line. They are an
