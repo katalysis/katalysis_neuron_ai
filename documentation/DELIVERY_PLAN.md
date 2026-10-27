@@ -102,7 +102,7 @@ Found on 19 October 2026. Each ends with its status on 27 October 2026.
 ### Tool migration approach
 1. **Spike (P2.1):** write `Katalysis\NeuronAi\Tools\Support\CallableTool extends Tool`. It takes a name, description, properties and a closure, and passes the model's inputs to that closure, as `setCallable` did. v4's `execute()` matches inputs to `__invoke()`'s parameters by reflection, so the adapter will probably need to override `execute()` and reflect on the wrapped closure instead. The spike confirms this against the actual v4 source in `vendor/` after install.
 2. If the spike works, convert all toolkits **mechanically**: `new Tool(...)` → `CallableTool::make(...)`, with no behaviour changes. `katalysis_pro`'s toolkit gets the same treatment in a coordinated PR.
-3. During the Phase 3 refactor, tools move to proper `Tool` subclasses gradually, toolkit by toolkit, as each one is split up.
+3. ~~During the Phase 3 refactor, tools move to proper `Tool` subclasses gradually, toolkit by toolkit, as each one is split up.~~ **Dropped (Glyn, on the Phase 3 roadmap, 27 October 2026):** `CallableTool` is our own adapter and `ToolDefinition` the public contract, so a Neuron upgrade touches one class, not every tool. The tools stay on `CallableTool`.
 4. Fallback if the adapter fights v4: convert to subclasses straight away, starting with the toolkits used in the golden scenarios.
 
 Neuron 4 ships an `upgrade/` folder with a step-by-step plan written for AI coding agents. Point Claude Code at it in P2.2.
@@ -267,103 +267,221 @@ A spec document and starter template EPRA staff give to their own Claude, so new
 Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled back after P2.9's merge, roll back the code and clear the dev chats: back up, run `documentation/fixtures/clear_dev_chats.php --apply` (before the revert, which removes the script), then revert the merge. v3 code then finds no chats; v4 chats are not converted back (decided at P2.5's start). If P2.1 shows the adapter isn't workable, bump to the latest 3.17.x instead (a low-risk minor update), re-baseline, and do the v4 move during Phase 3 alongside the toolkit split.
 
 ### Phase 3: Core refactor (L)
-- P3.1 **ContextBuilder**: pull the context code out of the agent and add the area and block tree, the user's permissions on the current page, and the tier. Add unit tests.
-- P3.2 **Capability registry and intent router**: group the tools, tag them by tier and permission, and send only the relevant groups per request (target: at most about 25 tools per request). External toolkits declare their group and tier.
-  - **The tiers are additional task permission keys (same `admin` category, installed by the same routine as P1.10a's), not custom checks.** Tiers are cumulative in code (a higher tier's key also passes a lower tier's check); `use_neuron_ai` (P1.10a) is the Tier 1 (Content) key. Concrete groups such as "Neuron AI – Content", "Neuron AI – Configure" and "Neuron AI – Generate" are only groups an admin may grant the keys to; the code never checks a group. Superusers get Tier 3 (B-ACC-9). The tier keys use `neuron_ai_tier_*` handles (for example `neuron_ai_tier_configure`), so they are not confused with P1.10a's settings key `configure_neuron_ai`.
-  - P1.10a already gives chat and settings their own permissions, separate from the settings dashboard page; P3.2 does not repeat that.
-  - The seed: P1.10a keeps `neuron_editor` in no group as the no-access fixture. If P3.2 needs a Content-tier test user, add a separate one.
-  - **Decide, with the tiers: panel only where the toolbar shows (P1.10a), or everywhere.** If "everywhere", the acceptance test is that a user with a tier key and no toolbar permission can open the panel.
-- P3.3 **Split `PagesToolkit.php`** into Pages, Content (page blocks and areas) and BatchEdit. Convert each to proper `Tool` subclasses while splitting. Delete `src/Toolkits/`, `src/ConcreteCmsAIProvider.php` (a legacy agent that uses them; unused, decided after P2.2) and the root scripts. Describe each tool's input fields explicitly (e.g. the html block's field is `content`; scenario 07 failed with `htmlContent`). Also, from P1.8:
-  - support for nested (container) blocks in batch updates, which P1.8a only refuses
-  - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored"
-  - remove the double update in `update_block_in_page_area` (`UpdatePageBlockCommand`, then `$blockToEdit->update()`), unless P1.8a fixes it
-  - return the new block IDs in the tool output after a copy, so the model doesn't reuse an ID that the copy replaced (seen in a scenario 05 run)
-  - from P1.8a: `AttributesToolkit` is not registered by the agent (it duplicates `PageAttributesToolkit`). P1.8a routed it through `PageDraft::of()` but did not delete it. Remove it, or register it on purpose, in this split
-  - from P1.12: the `batch_update_content_headings` bug at `PagesToolkit.php:1068` (no `headingTexts` with `matchMode=bold_paragraph`; see P3.9), fixed in the split
-  - from P1.13: every tool should reject parameters it does not declare. Today only `update_page` does: it is the one tool built with `StrictInputTool` (`src/Tools/Utilities/StrictInputTool.php`); all other tools still drop unknown inputs silently. Neuron v3 does that, so a tool can report success for a change it never made; scenario 09 showed the model then telling the user the page had moved. Each converted tool gets a test: an unknown key is refused and nothing is written. P2.3 moves the check into `CallableTool`
-  - from P1.10 (`get_page_content` now reads the blocks directly; these two are not fixed there):
-    - content-block links come back as `{CCM:CID_n}` placeholders, because the text comes from the raw `getSearchableContent()`. Translate them (for example `LinkAbstractor::translateFrom`) or resolve them to paths
-    - image alt text is lost, because image blocks return no text (`hasText: false` in the `blocks` list)
-  - from P2.9's browser check 6: `get_page_content` accepts a path as well as `pageID`. From `/neuron-test`, "summarise: /neuron-test/injection" made the model call it with the current page's ID (from the page tag), and the reply said the injection page was "empty or non-existent" without having read it. The same "unverified claim" pattern as BF-5
-  - from BF-7 (Glyn, after browser check 6): the text check refuses JSON escape sequences that the stored text doesn't have (`<\/`, a literal `\r`, `\n`, `\t` or `\"`). A literal `\n` or `\"` can be legitimate new text, such as a code example or a Windows path in a new paragraph, and the check would refuse it. Refine it here (for example, refuse those only next to tags or when `<\/` is also present), with a test for each case
-  - from BF-7 (Glyn, after the browser checks): audit every write tool's refusal and failure messages, so that each states its specific reason and the next step, as BF-7's stale-block error does (`BlockNotFound`: where the block is, why, and the ID to use). A vague failure ("Block 31610 not found") made the model guess at locks and permissions
-  - from BF-3 (Glyn, approving the plan): `add_block_to_page_area` validates the new block's data with its controller's `validate()` before the draft, as Concrete's own add-block UI does (Concrete's `AddBlockToPageCommand` doesn't), with a test
-  - from BF-6 (Glyn, on reviewing its results):
-    - `get_topic_tree_structure` skips topic categories and everything under them, so the tree looks complete when it isn't. Show categories as nodes, with a test
-    - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so `StrictInputTool` refuses it, and `get_page_children` doesn't have it. Declare it on both, or drop the rule
-    - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list
-    - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`)
-    - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
-  - from BF-12's audit ([plans/BF-12.md](plans/BF-12.md) §6; Glyn, approving the plan):
-    - image and file page attributes are missing from `get_page` and `get_current_page_context`: `normalizeAttributeValue` (`PagesToolkit.php`) leaves out a `File` value, so the model can't see a page's thumbnail. Return the file ID and its absolute URL, with a test
-    - content reads give links and images the model can't use: `get_page_content`'s `html` keeps the stored `{CCM:…}` placeholders and `<concrete-picture fid>` tags (with the P1.10 item above), and `get_block_controller_data`'s translated HTML has `<img>` tags with a relative `src` (Concrete's `Html\Image`) beside an absolute `srcset`. Give absolute URLs, with a test
-    - `search_blocks_by_type` and `list_container_blocks` guess a page path (`"/{pageHandle}"`, `"/{pageName}"`) when `PagePaths` has no row, and show it as a link. Return the real path or none: the same "unverified claim" pattern as BF-5
-- P3.4 **Move the EPRA knowledge out**, following `EXTENSIONS.md`:
-  - descriptors for `epra_resources_list` and `doc_download`
-  - a `multi_link → epra_resources_list` transform
-  - guidelines
-  
-  All of it ships in the EPRA theme package, and the EPRA code is deleted from core.
-  - from P1.8a: `sync_multi_links_to_epra_resources_list` is disabled and still calls `getVersionToModify()` directly. If it is re-enabled, in the EPRA package or anywhere else, it must get its draft from `PageDraft::of()`, and `DraftIsolationTest` gets a case for it
-- P3.5 **Permissions:** replace the login-only `guarded()` with per-object permission checks in every write tool. Add one PHPUnit test per tool for the "denied" case. Also:
-  - `get_user` and the people tools return only the fields the request needs (B-PII-2).
-  - `move_file_to_folder`, when used for a delete request, can only target "Assistant – to delete" (B-T1-11).
-  - Remove `set_user_attribute_value` (disabled in P1.7).
-  - from P2.3: the 12 tools that never went through `guarded()` (no envelope, no login check): `BlocksToolkit`'s 7 (`count_blocks_by_type`, `get_block_controller_data`, `get_block_data`, `get_doc_download_files_on_page`, `list_container_blocks`, `list_page_blocks_by_type`, `search_blocks_by_type`) and `VersionsToolkit`'s 5 (`approve_page_version`, `create_page_draft`, `discard_draft_version`, `get_version_content`, `list_page_versions`). P2.3 left them as they are (no behaviour change)
-  - from P2.8 (approved at P2.8's review): `katalysis_pro`'s `guarded()` catches `\Throwable` and returns the raw exception message as `{ok: false, error}`, which skips `SecretRedactor`. Route that text through `SecretRedactor` (for example by letting the exception reach the agent's tool error handler, which redacts and logs it), in a `katalysis_pro` PR with a test here
-  - from BF-6 (Glyn, on reviewing its results): `search_blocks_by_type` checks only `canViewPage`, so by default it lists blocks in a page's newest, unpublished version to a user who can't view versions. Use the published version for that user (as `PageVersionRead` does for the page reads), with a denied-case test
-- P3.6 **Approval:** use Neuron 4 tool approval for every write tool. Add Approve/Deny UI in the chat panel showing a summary or diff of the change. The approval must cover `create_page`: P1.13 makes it create an unpublished page (found in P1.7 to publish at once), but it still adds a page to the sitemap, and publishing stays a person's action from Page Versions. Note from P1.11: scenario 14 (an injected line in the user's own pasted message, not in a tool result) is outside what P1.11's detector can see, because the detector scans tool results only. Approval before writes is what covers it, so P3.6 should make that scenario's `no_write_tool_succeeded` check pass. P3.6 also tracks the tools that run in each turn (proposed in P2.6, added at P2.7's plan approval): a failed turn's stored reply names the write tools that ran before it failed, and the page they ran on. P2.6 couldn't, because the failed run's state can't be reached after the exception. Mechanism recommended in [plans/P2.7.md](plans/P2.7.md) §5: a listener on Neuron's `ToolCalling`/`ToolCalled` events, held by the agent. It de-duplicates by tool call ID (Neuron may emit the events again on a retry) and passes everything it logs or records through `SecretRedactor`.
-  - **The approval must be tied to what was previewed** (decided after P2.1): store a fingerprint of the proposed change with the preview, and check it again when the approval is applied; refuse if it differs. Neuron 4's pause and resume re-evaluates the tool on resume and binds the approval only to the call ID. Input: [P2.1 findings §8](plans/P2.1-findings.md).
-  - from the Phase 1 exit review: scenario 14 has no direct check that the approved version is unchanged; today that is inferred from the tool result and from `approve_page_version` being disabled. Add a direct live-version check to scenario 14 (its own commit, with the reason, as the merge rule says). Also investigate scenario 09's one wrong-page write (run 2: the model made a new live page "Move Target" with `create_page`, then moved `move-me-child` instead of `move-me`): find out whether the cause is the prompt, the tool descriptions or the page resolution, and fix it in a tool check, not a prompt rule
-  - from P1.13: `delete_page` is disabled until this task; re-enable it only behind approval
+**Restructured on 27 October 2026** from the Phase 3 roadmap ([plans/phase3-roadmap.md](plans/phase3-roadmap.md), PR #61), with Glyn's answers to its §10. The original P3.1–P3.11 are split into the tasks below. Each one leaves the site working.
+
+**How to read this section:**
+- **Order:** the tasks are listed in the order they are done, in four stages. Glyn does them alone, in this order. The roadmap's §5 table shows which tasks Alex could take later without touching the same files.
+- **"Depends on"** names the tasks that must be merged first.
+- **Sizes:** S, M and L as in the §5 intro, but relative. Phases 1 and 2 were each sized M and took 2 to 3 days.
+- **Scenarios:** each task runs the scenarios it names, within its cap. The phase budget is **$60**: the caps add up to about $43, and the rest covers re-runs, with Glyn's agreement each time. Price basis: about $0.07 a run on gpt-4o (P2.9 measured $0.063).
+- **Every Phase 3 comparison runs on gpt-4o.** A model change gets its own comparison run (P3.8-1).
+- **From P3.6-1 on, the write scenarios gain approve and deny steps.** Each change to a scenario's expected values goes in its own commit with the reason, as the merge rule says.
+
+**Decided on the roadmap (Glyn, 27 October 2026):**
+- converting the tools to `Tool` subclasses is dropped (§4 step 3)
+- P3.4 deletes the EPRA code from core, and the EPRA package is written if and when Neuron returns to EPRA
+- P3.6a stays in Phase 3, last, but is not an exit criterion
+- P3.10-2 (descriptors and block adapters) and nested-container batch support move to Phase 5
+- B-T1-10 goes into P3.3-2
+- tiers are task permission keys (B-ACC-9)
+
+#### Stage 1: honesty, write safety and permissions
+Why first:
+- The remaining "unverified claim" reads are the cheapest way to stop the assistant saying untrue things.
+- Permissions and tiers stop a user reaching tools and objects beyond their rights. Approval asks the user; a permission check is what stops them.
+- Doing all this before the split keeps the split mechanical.
+
+- [ ] P3.3-1 **Honest reads** (M; honesty). Depends on: nothing. The "unverified claim" items, where a read gives the model something it then states as fact (the pattern of BF-5):
+  - `get_page_content` accepts a path as well as `pageID` (from P2.9's browser check 6: from `/neuron-test`, "summarise: /neuron-test/injection" made the model call it with the current page's ID, and the reply said the injection page was "empty or non-existent" without having read it)
+  - `search_blocks_by_type` and `list_container_blocks` stop guessing a page path (`"/{pageHandle}"`, `"/{pageName}"`) when `PagePaths` has no row; they return the real path or none (BF-12)
+  - content reads give links and images the model can use (P1.10, BF-12; the rest of B-TRU-9):
+    - content-block links come back as `{CCM:CID_n}` placeholders, because the text comes from the raw `getSearchableContent()`; translate them (for example `LinkAbstractor::translateFrom`) or resolve them to paths
+    - `get_page_content`'s `html` keeps `<concrete-picture fid>` tags; `get_block_controller_data`'s translated HTML has `<img>` tags with a relative `src` (Concrete's `Html\Image`) beside an absolute `srcset`. Give absolute URLs
+    - image alt text is lost, because image blocks return no text (`hasText: false`)
+  - image and file page attributes in `get_page` and `get_current_page_context`: `normalizeAttributeValue` leaves out a `File` value, so the model can't see a page's thumbnail. Return the file ID and its absolute URL (BF-12)
+  - `get_topic_tree_structure` shows topic categories as nodes, with what is under them; today it skips them, so the tree looks complete when it isn't (BF-6)
+  - a batch in which every item failed returns `ok: false`; today it is `ok: true` with `failureCount`, so `no_write_tool_failed` doesn't see it (BF-3 plan §9; B-TRU-2)
+  - the `batch_update_content_headings` bugs: it changes only one matching heading per block (05, 06 and 23 fail on it; BF-7, BF-10), and with `matchMode=bold_paragraph` and no `headingTexts` it logs `foreach() argument must be of type array|object, null given` (`PagesToolkit.php:1059`) instead of refusing with a clear message (P1.12)
+  - a test per change, red first
+  - scenarios: 02, 05, 06, 14, 16, 23, 24, 25 ×3, and a new "summarise another page by path" ×3; cap $1.90
+- [ ] P3.3-2 **Write checks** (M; safety). Depends on: P3.3-1 (the same handlers in `PagesToolkit.php`).
+  - **B-T1-10:** content and HTML block writes refuse `<script>`, event-handler attributes and `javascript:` URLs, with a test per write tool (Glyn, on the roadmap)
+  - `add_block_to_page_area` validates the new block's data with its controller's `validate()` before the draft, as Concrete's own add-block UI does (Concrete's `AddBlockToPageCommand` doesn't), with a test (BF-3)
+  - the text check refuses JSON escape sequences the stored text doesn't have (`<\/`, a literal `\r`, `\n`, `\t` or `\"`), but a literal `\n` or `\"` can be legitimate new text, such as a code example or a Windows path. Refine it (for example, refuse those only next to tags or when `<\/` is also present), with a test for each case (BF-7)
+  - strict order checking for `keep_text` (BF-5 decision 7)
+  - audit every write tool's refusal and failure messages, so that each states its specific reason and the next step, as BF-7's `BlockNotFound` does. A vague failure ("Block 31610 not found") made the model guess at locks and permissions (BF-7). The text the model sees is what is left of B-ERR-4
+  - remove the double save in `update_block_in_page_area` (`UpdatePageBlockCommand`, then `$blockToEdit->update()`; still there)
+  - new block IDs after a copy: BF-7's `BlockNotFound` and `TurnChanges` cover the error and the response. Check whether a successful result still needs them, and BF-7's note on stale IDs inside the model's own turn (seen in a scenario 05 run)
+  - a refused call leaves no `Areas` row (`Area::getOrCreate()` runs before the check in `add_block_to_page_area` and `move_block_between_areas`; BF-3 plan §9)
+  - scenarios: 05, 06, 07, 10, 15, 23, 24 ×3; cap $1.50. Scenario 24's publishing regex could also accept "visible to visitors once you publish" (BF-10): Glyn decides, in its own commit
+- [ ] P3.7-1 **Remove what the prompt says that isn't true** (S; honesty). Depends on: nothing.
+  - "You have access to 71 tools across 11 categories" and the stale per-category list (B-TRU-6)
+  - `FilteredToolkit::from()` wraps a toolkit that is already filtered again, giving a second "Toolkit: FilteredToolkit" line (P2.4); fix `from()`
+  - retire `PromptBaselineTest` and its v3 capture, or replace them with a new baseline: decided here, as the first deliberate prompt change
+  - scenarios: 01, 02, 13 ×3; cap $0.65
+- [ ] P3.11-1 **Scenario honesty checks** (S; honesty). Depends on: nothing.
+  - a check that a reply never describes a page whose content wasn't read in that turn (P2.9's browser check 6; the "unverified claim" pattern)
+  - a run of an injection scenario that never reads the injected content is marked `inconclusive`, not failed, and counts as neither a pass nor a fail (P2.8: scenario 21 run 3 answered from `get_page_content`; BF-6: run 1 read people through core `get_person_details`, which returns no biography)
+  - B-INJ-4: a link check like `no_invented_hosts`, so that no reply links site data to a host only the untrusted content named
+  - scenarios: 16, 21 ×5; cap $0.70
+- [ ] P3.5-1 **Per-object permission checks** (L, in two halves; safety). Depends on: nothing. A shared helper first, as its own small PR; then one half for Pages, Blocks and Versions, and one for Files, Users, People, Topics and the attribute toolkits.
+  - replace the login-only `guarded()` with per-object permission checks in every write tool (B-ACC-4); `FilesToolkit::guarded()` checks nothing today
+  - the 12 tools that never went through `guarded()` (no envelope, no login check; from P2.3): `BlocksToolkit`'s 7 (`count_blocks_by_type`, `get_block_controller_data`, `get_block_data`, `get_doc_download_files_on_page`, `list_container_blocks`, `list_page_blocks_by_type`, `search_blocks_by_type`) and `VersionsToolkit`'s 5 (`approve_page_version`, `create_page_draft`, `discard_draft_version`, `get_version_content`, `list_page_versions`)
+  - `search_blocks_by_type` checks only `canViewPage`, so by default it lists blocks in a page's newest, unpublished version to a user who can't view versions. Use the published version for that user (as `PageVersionRead` does for the page reads), with a denied-case test (BF-6)
+  - one PHPUnit test per write tool for the denied case, calling the tool by name, so the tests survive P3.3-4
+  - B-ACC-5: check that no tool elevates (today "Not verified"); B-ACC-6: tests that a refused write isn't reached by the obvious other routes
+  - scenarios: 11 ×5; 02, 03, 08, 10, 18 ×3; a new denied-write scenario ×3; cap $1.60
+- [ ] P3.5-2 **Personal data** (S–M; safety). Depends on: P3.5-1's helper.
+  - `get_user` and the people tools return only the fields the request needs (B-PII-2; scenario 03 is partial on this)
+  - remove `set_user_attribute_value` (disabled in P1.7); a scenario for B-ACC-7
+  - from P2.8: `katalysis_pro`'s `guarded()` catches `\Throwable` and returns the raw exception message as `{ok: false, error}`, which skips `SecretRedactor`. Route that text through `SecretRedactor` (for example by letting the exception reach the agent's tool error handler, which redacts and logs it), in a `katalysis_pro` PR with a test here
+  - scenarios: 03, 21, 25 ×3; cap $0.65
+- [ ] P3.2-1 **Tier keys and tier gating** (M; safety). Depends on: nothing.
+  - **The tiers are additional task permission keys (same `admin` category, installed by the same routine as P1.10a's), not custom checks** (B-ACC-9). Tiers are cumulative in code (a higher tier's key also passes a lower tier's check); `use_neuron_ai` (P1.10a) is the Tier 1 (Content) key. Concrete groups such as "Neuron AI – Content", "Neuron AI – Configure" and "Neuron AI – Generate" are only groups an admin may grant the keys to; the code never checks a group. Superusers get Tier 3. The tier keys use `neuron_ai_tier_*` handles (for example `neuron_ai_tier_configure`), so they are not confused with P1.10a's settings key `configure_neuron_ai`.
+  - every tool is tagged with a tier and offered only if the user's tier allows it (B-ACC-2). The Tier 2 tools leave Tier 1: attribute definitions, attribute sets and topic trees (B-T2-6); today every user with the use key gets them
+  - external `ToolDefinition`s declare a tier; a write tool that declares none is admin-only (B-ACC-8)
+  - P1.10a already gives chat and settings their own permissions, separate from the settings dashboard page; P3.2-1 does not repeat that
+  - the seed: P1.10a keeps `neuron_editor` in no group as the no-access fixture, so add a Content-tier test user; the scenario runner's users get their keys (scenario 11, B-ACC-9)
+  - **Decide, with the tiers: panel only where the toolbar shows (P1.10a), or everywhere.** If "everywhere", the acceptance test is that a user with a tier key and no toolbar permission can open the panel
+  - scenarios: all ×1 (every user's tool list changes), 11 ×5; cap $2.10
+
+#### Stage 2: tidy, then split
+Deleting first means less code to move, and every later behaviour change lands in smaller files.
+
+- [ ] P3.3-3 **Legacy deletion** (S). Depends on: nothing. Planned deletions, covered by plan approval:
+  - `src/Toolkits/`, `src/ConcreteCmsAIProvider.php` (a legacy agent that uses them; unused, decided after P2.2), and the root scripts `test_tools.php` and `test_container_search.php`
+  - `AttributesToolkit` (not registered by the agent; it duplicates `PageAttributesToolkit`; P1.8a and BF-3 gave it the draft seam but did not delete it) and `src/Tools/McpServerIntegration.php`, **after checking that nothing outside the package uses them** (`katalysis_pro` and the dev site). Their tests and test cases go with them, and the references in `ToolBaseline`, `DisabledTools` and `ToolNameResolver` are updated (Glyn, on the roadmap)
+  - scenarios: none (no offered tool changes)
+- [ ] P3.4 **Delete the EPRA code from core** (S–M). Depends on: P3.3-2 (the same file). The EPRA package is written if and when Neuron returns to EPRA, against P3.10-1's contract, as `EXTENSIONS.md` describes (descriptors for `epra_resources_list` and `doc_download`, a `multi_link → epra_resources_list` transform, guidelines).
+  - delete `sync_multi_links_to_epra_resources_list` (disabled) and `get_doc_download_files_on_page`, `normalizeCustomBlockPayload()`'s EPRA path and `EPRA_PAYLOAD_BLOCK_HANDLES` (BF-8's interim fix), the EPRA loaders (`loadEpraResourceEntries()` and the like), and the two EPRA lines in `instructions()`
+  - with the code gone, the BF-8 note "before any deploy to the EPRA site, check whether another EPRA block relied on the `slide` aliases" lapses
+  - from P1.8a, for the future EPRA package: if `sync_multi_links_to_epra_resources_list` is ever re-enabled, it must get its draft from `PageDraft::of()`, and `DraftIsolationTest` gets a case for it
+  - more than 20 lines of working code are deleted: covered by this plan
+  - scenarios: 05, 07, 13 ×3; cap $0.65
+- [ ] P3.3-4 **Split `PagesToolkit.php`, mechanically** (M). Depends on: P3.3-1, P3.3-2, P3.4 and P3.5-1's Pages half.
+  - `PagesToolkit` (3,490 lines, 18 tools) becomes Pages, Content (page blocks and areas) and BatchEdit; two PRs if that is easier to review (Content out, then BatchEdit out)
+  - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
+  - the tools stay on `CallableTool` (the subclass conversion is dropped)
+  - scenarios: the write scenarios ×1; cap $0.70
+
+#### Stage 3: approval
+After permissions, so that approval never stands in for a permission check.
+
+- [ ] P3.6-1 **The approval mechanism** (L; safety). Depends on: P3.5-1.
+  - use Neuron 4 tool approval, with a mechanism of our own on top of its pause and resume: a preview the tool computes without writing, stored with a fingerprint of the proposed change, checked again when the approval is applied; refuse if it differs. Neuron 4 re-evaluates the tool on resume and binds the approval only to the call ID (P2.1 findings §8)
+  - the workflow store: Neuron's File store or a new table (a schema decision)
+  - **what a new message does while a call waits.** Today it is refused before the provider (B-ERR-5, BF-9). An approval that ran before a later failed provider call leaves the stored call still marked pending with no result, because Neuron writes it before the decision and never updates the row. Decide (for example, reject the waiting calls); the panel shows a clear "waiting for approval" message, not the generic error (BF-9)
+  - the Approve/Deny UI in the chat panel, showing a summary of the change. The subdued "working" line for tool activity can go here if wanted (BF-11)
+  - a failed turn's stored reply names the write tools that ran before it failed, and the page they ran on (proposed in P2.6). The per-turn tracking exists since BF-7 (`TurnChanges`, a `ToolCalled` listener that de-duplicates by call ID and passes what it records through `SecretRedactor`); the stored reply doesn't use it yet. This also takes P3.9's "PSR-14 logging listener": any log listener is the same listener, redacted
+  - the scenario runner learns approve and deny steps
+  - first set of tools: `update_page`, `set_page_attribute_value` and `create_page`
+  - scenarios: 08, 10, 14 ×3; cap $0.65
+- [ ] P3.6-2 **Approval on every write tool, with previews** (L; safety). Depends on: P3.6-1 and P3.3-4.
+  - every write tool needs approval, with a summary or diff of the change, including the whole-value writes (`update_page`, `set_page_attribute_value`; B-T1-2)
+  - the approval must cover `create_page`: P1.13 makes it create an unpublished page, but it still adds a page to the sitemap, and publishing stays a person's action from Page Versions
   - from P1.8a: a draft belongs to the page, not to a user. `PageDraft::of()` and `create_page_draft` reuse the page's newest unapproved version, whoever made it. Approval and its UI must show the draft's changes, not only the current call's, and say when the draft already holds someone else's edits
-- P3.6a **Stack and global-area editing** (decided after BF-2; after P3.6, with P3.5 first). The assistant edits, adds and moves content in stacks and global areas the way an editor does in edit mode or under Dashboard → Stacks & Global Areas. Proposal: [plans/BF-2.md](plans/BF-2.md) §9.
+  - a kept, partly written draft is listed (`TurnChanges` doesn't list it today; BF-3 plan §9)
+  - B-CON-3 and B-CON-4: the approval shows the count and lists the pages (title and path) or blocks (area and type); the limit of 10 blocks is one named setting (spec open question 1)
+  - B-WRT-4: a change Concrete sends through a workflow is reported as "submitted for approval"
+  - note from P1.11: scenario 14 (an injected line in the user's own pasted message, not in a tool result) is outside what P1.11's detector can see. Approval before writes is what covers it, so this task should make that scenario's `no_write_tool_succeeded` check pass. Add a direct live-version check to scenario 14 (its own commit, with the reason; from the Phase 1 exit review)
+  - investigate scenario 09's one wrong-page write (Phase 1 exit, run 2: the model made a new live page "Move Target" with `create_page`, then moved `move-me-child` instead of `move-me`): find whether the cause is the prompt, the tool descriptions or the page resolution, and fix it in a tool check, not a prompt rule
+  - scenarios: full ×3 (every write scenario now pauses); cap $6.00
+- [ ] P3.6-3 **Re-enable tools behind approval** (M; safety). Depends on: P3.6-2 and P3.2-1. Glyn decides each:
+  - `delete_page` (disabled since P1.13; its `DisabledTools` reason says it returns only behind approval) and `move_page` (scenario 09)
+  - `move_file_to_folder`, as the delete redirect: when used for a delete request it can only target "Assistant – to delete" (B-T1-11; moved here from P3.5, because restricting it and re-enabling it are one change)
+  - `katalysis_pro`'s `add_person` and `update_person` (scenario 04; a `katalysis_pro` PR)
+  - whether `approve_page_version` ever returns (publishing has been a person's action since P1.7)
+  - whether the Tier 2 live writes disabled in P1.13 (the select-option tools, `delete_topic`, `delete_attribute_set`) stay disabled until Phase 6
+  - scenarios: 04, 09, 11, 18 ×5; cap $1.40
+
+#### Stage 4: a lean agent
+The prompt cut is last because it removes the rules that the earlier tasks turned into code.
+
+- [ ] P3.11-2 **Scenarios through the browser and controller path** (M). Depends on: nothing; before P3.1, so the ContextBuilder is tested from the real path.
+  - a scenario through the chat endpoint from the panel's payload, not only the in-process runner (from BF-1: the panel sent no page ID, which the runner can't see)
+  - coverage of the home page, dashboard pages and edit mode (scenario 22 covers the home page only)
+  - scenarios: the new ones ×3; cap $0.85
+- [ ] P3.1 **ContextBuilder** (M). Depends on: P3.11-2, and P3.2-1 for the tier.
+  - pull the context code out of the agent, and add the area and block tree, the user's permissions on the current page, the tier (B-CTX-3) and the site locale (B-LNG-2). Unit tests
+  - a test that starts from the panel's payload (BF-1)
+  - the prompt's page snapshot shows block counts but no text previews: `extractContentBlockPreview()` never gets a controller (BF-10)
+  - scenarios: 01, 02, 12, 19, 20, 22 ×3; cap $1.30
+- [ ] P3.10-1 **Extension provider contract** (M–L; see `EXTENSIONS.md`). Depends on: P3.2-1.
+  - the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface; a provider declares its tools' group and tier
+  - `katalysis_pro` moved to a provider (a `katalysis_pro` PR), and `PeopleToolkit` removed from core, which ends the `list_people` name clash (P1.6). Namespacing provider tool names is decided here
+  - a shim for `ExternalToolkitRegistry` for one release
+  - (decided after P2.2) today the AI settings page builds every external toolkit on each load, to list the ones that fail. Revisit that here (an MCP toolkit would connect on every page view)
+  - scenarios: 03, 04, 21, 25 ×3; cap $0.85
+- [ ] P3.2-2 **Tool groups and intent router** (L). Depends on: P3.1, P3.3-4 and P3.10-1.
+  - group the tools and send only the relevant groups per request (target: at most about 25 tools per request); external providers declare their group
+  - the runner records the number of tools offered on each request
+  - scenarios: full ×3 (tool choice changes everywhere); cap $6.00
+- [ ] P3.7-2 **Cut the prompt down** (M). Depends on: P3.1, P3.2-1, P3.3-2, P3.4 and P3.6-2.
+  - to identity, tier and how to use context, under about 60 lines. Each rule it holds becomes a tool check or a scenario (BEHAVIOUR_SPEC §9's table)
+  - the two direct-action rules that conflict with B-CON-3 and B-CON-4 ("Do not tell the user to make manual edits…", "proceed with the write operation…")
+  - **overcautious model** (Glyn's browser check after BF-5): "Rewrite the second paragraph more concisely" got clarifying questions instead of a rewrite. A clear, scoped request should be done (in a draft) without questions; find which prompt rules cause the hesitation
+  - **the agreed labels in replies** (found in Glyn's browser check after BF-4, reported with BF-11): a reply said "publish it from Page Versions" rather than BF-7's agreed labels ("Publish Changes" / "Approve Version"). Replies use the labels the tool result gives
+  - **one way to show links** (found in P2.6's browser checks): page URLs are sometimes in code formatting and sometimes plain text. Decide one form (B-REP-1 (b)), in the tool results or the reply shape rather than another prompt rule
+  - **the guidelines heading** (decided on approving the P2.4 plan): P2.4 keeps v3's rendering byte-identical through a `resolveTools()` override in `ConcreteCmsAgent` (headed `# FilteredToolkit` for filtered toolkits, then the tool names one per line, the first without `- `). Decide here: v4's own heading (the tool names), a heading of our own, or none; drop `FilteredToolkit`'s "Toolkit: X" line
+  - `VersionsToolkit::guidelines()` (BF-10)
+  - rules with no code yet: B-LNG-1 and B-LNG-3 (with scenarios), B-SCP-1, B-SCP-3, B-INJ-6, B-TRU-8
+  - scenarios: full ×3, plus the language scenarios; cap $6.30
+- [ ] P3.3-5 **List and input fixes** (S–M). Depends on: P3.3-4.
+  - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so it is refused, and `get_page_children` doesn't have it. Declare it on both, or drop the rule (BF-6)
+  - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`; BF-6)
+  - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
+  - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list (BF-6)
+  - declare `items` for the 6 array properties in `ToolRegistryTest`'s known list (P2.3)
+  - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
+  - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, so it is checked by this task's scenarios)
+  - scenarios: 04, 12, 15, 17 ×3; cap $0.85
+
+#### Alongside, at any point
+- [ ] P3.8-1 **Provider and model from settings** (M). Depends on: nothing.
+  - pick the provider and model from settings, with current Anthropic and OpenAI model choices; the Ollama settings are wired up or removed
+  - **the model setting is validated on save** (decided at P2.8's review). A typo (`gpt-40` for `gpt-4o`, found in P2.8) saved with the usual "AI settings have been updated." message and made every chat turn fail with the provider's `model_not_found`. On save, check the model against a list of known models or make a test call that fails cleanly, and refuse the save with a clear message. Tests: an unknown model is refused and the old value is kept; no test calls the provider
+  - the model stays gpt-4o for every Phase 3 comparison; choosing another (§7 decision 2) needs its own comparison run (about $8 per model at gpt-4o prices, not in the phase budget)
+  - scenarios: 01, 13 ×1; cap $0.15
+- [ ] P3.8-2 **A cheaper model for routing** (S–M). Depends on: P3.2-2. Only if the router calls a model; if it routes from context without a model call, this task is dropped.
+- [ ] P3.9-1 **The chat table under Doctrine** (S–M; DB schema, so significant). Depends on: nothing. Remove the `CREATE TABLE` from `on_start()` and drop the `chatHistory` column, unused since P2.5. Scenarios: none.
+- [ ] P3.9-2 **Chat retention and admin purge** (M; personal data). Depends on: P3.9-1. 90 days by default, configurable, plus an admin purge (B-PII-5). Scenarios: none.
+- [ ] P3.9-3 **Loop guard** (M). Depends on: nothing; better after P3.6-1. The same tool isn't repeated with the same arguments after it failed; after one alternative attempt the assistant reports and stops (B-ERR-3), with a new scenario. Scenarios: 15 ×5 and the new one ×3; cap $0.60.
+- [ ] P3.9-4 **Small fixes** (S). Depends on: nothing. Scenarios: none.
+  - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
+  - chat history load failures show a clear message to the user (found in P1.11: currently `catch (\Exception)` in `loadExistingMessages()`)
+  - test input (P1.12): `tests/Integration/DraftIsolationTest.php` (`newLayoutPage`) builds the layout with `'width' => []`, and core `concrete/blocks/core_area_layout/controller.php:370` reads `$post['width'][$i]`, giving four `Undefined array key` warnings per run. Give the columns widths in the test
+  - whether `load` becomes a POST route (BF-4's question)
+  - `show_prompt.php` in SETUP (P2.4's question)
+
+#### Last
+- [ ] P3.6a **Stack and global-area editing** (M; decided after BF-2; **not an exit criterion**). Depends on: P3.6-3 and P3.5-1. The assistant edits, adds and moves content in stacks and global areas the way an editor does in edit mode or under Dashboard → Stacks & Global Areas. Proposal: [plans/BF-2.md](plans/BF-2.md) §9.
   - **draft only:** changes go into an unapproved stack version (`getVersionToModify()`), never live. Through a page, the stack version is related to the page's draft, as Concrete does; directly, it's approved under Stacks & Global Areas. The assistant never approves either
   - **the user's permissions** on the stack page and the stack's own area, not only the page's; a user who can't edit the stack is refused with the reason
-  - **a notice** before the change (P3.6 approval preview) and in the report: it will appear on every page that shows the area (count and examples), when the page or stack is published
+  - **a notice** before the change (the approval preview) and in the report: it will appear on every page that shows the area (count and examples), when the page or stack is published
   - **never add to another user's pending stack version without warning:** refuse or warn, with a test (Glyn, on approving BF-2)
   - **test whether `neuron_editor` is stopped by Concrete's permissions alone** when adding a block through a global area, with the BF-2 refusal switched off in the test (Glyn, after BF-2; BF-2 couldn't tell, because its refusal comes first)
   - turn on `SystemPageGuard::stackEditingEnabled()`; system single pages and page type defaults stay refused; B-WRT-5 (b) to "met"
-  - tests per tool on a throwaway global area (BF-2's fixture); scenarios: a global-area edit through a page (draft, notice, other pages unchanged until approval), and an editor without stack permission refused
-- P3.7 **Cut the prompt down** to identity, tier and how to use context, under about 60 lines. Each rule it currently holds becomes a tool check or a scenario.
-  - **Overcautious model** (Glyn's browser check after BF-5): "Rewrite the second paragraph more concisely" got clarifying questions instead of a rewrite. A clear, scoped request should be done (in a draft) without questions; find which prompt rules cause the hesitation
-  - the version-state wording in the next item moves to BF-7 ("on the page now, not live until you click Publish")
-  - **the agreed labels in replies** (found in Glyn's browser check after BF-4, reported with BF-11): a reply said "publish it from Page Versions" rather than BF-7's agreed labels ("Publish Changes" / "Approve Version"). Replies use the labels the tool result gives
-  - **Write results say the version state** (found in P2.6's browser check 9; B-WRT-3, B-REP-1 (c)). A draft write is correctly left unapproved, but the reply says only that the value "has been successfully set". v3 said the same in every recorded run of scenarios 10 and 19: the tool result carries no version state. By rule 5, the fix goes in the tool result, not a prompt rule. Every tool that writes to a draft returns its state in the result, for example `"status": "draft"` and "saved as an unapproved draft (version N), not live until approved", and says how to undo it. Scenario 10's secondary reply check (and 19's) should then pass.
-  - **One way to show links** (found in P2.6's browser checks): page URLs are sometimes in code formatting and sometimes plain text. Decide one form (B-REP-1 (b)), in the tool results or the reply shape rather than another prompt rule.
-  - **the guidelines heading** (decided on approving the P2.4 plan): P2.4 keeps v3's rendering byte-identical through a `resolveTools()` override in `ConcreteCmsAgent` (headed `# FilteredToolkit` for filtered toolkits, then the tool names one per line, the first without `- `). Decide here: v4's own heading (the tool names), a heading of our own, or none; drop `FilteredToolkit`'s "Toolkit: X" line and its double line on a toolkit filtered twice (found in P2.4's v3 capture with `katalysis_pro`: `FilteredToolkit::from()` wraps a toolkit that is already filtered again, giving a second "Toolkit: FilteredToolkit" line; fix `from()` so it doesn't); retire `PromptBaselineTest` and its v3 capture, or replace them with a new baseline
-- P3.8 **Provider adapter:** pick the provider and model from settings, with current Anthropic and OpenAI model choices. Use the cost-efficient model for routing and the stronger model for writes.
-  - **The model setting is validated on save** (decided at P2.8's review). A typo (`gpt-40` for `gpt-4o`, found in P2.8) saved with the usual "AI settings have been updated." message and made every chat turn fail with the provider's `model_not_found`. On save, check the model against a list of known models or make a test call that fails cleanly, and refuse the save with a clear message, so a typo can't break chat. Tests: an unknown model is refused and the old value is kept; no test calls the provider
-- P3.9 **Housekeeping:**
-  - Doctrine-managed table, with the `CREATE TABLE` removed from `on_start()`; drop the `chatHistory` column, unused since P2.5
-  - framework JSON responses in the controllers (the chat controller: done in P2.6)
-  - a loop guard
-  - a PSR-14 logging listener
-  - chat retention: 90 days by default, configurable, plus an admin purge (B-PII-5)
-  - errors sent to the browser are reduced to a safe message, with the detail logged (B-ERR-4). From P1.7a, six chat endpoints still return `$e->getMessage()`: `chat_list`, `load`, `current`, `new_chat`, `delete_chat` and `delete_current_chat` (done in P2.6: each returns a fixed message and logs the redacted detail; `ChatControllerTest`)
-  - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
-  - chat history load failures should show a clear message to the user (found in P1.11: currently `catch (\Exception)` in `loadExistingMessages()`)
-  - from P1.12 (two of the five PHP warnings that every `DraftIsolationTest` run writes to the exceptions log; found, not fixed there):
-    - **our bug:** `src/Tools/PagesToolkit.php:1068`, in `batch_update_content_headings`: `foreach ($headingTexts ...)` runs when `matchMode` is `bold_paragraph` and the model gives no `headingTexts`, which logs `foreach() argument must be of type array|object, null given`. The tool should refuse with a clear message instead (do it in the P3.3 split)
-    - **test input:** `tests/Integration/DraftIsolationTest.php:791` (`newLayoutPage`) builds the layout with `'width' => []`, and core `concrete/blocks/core_area_layout/controller.php:370` reads `$post['width'][$i]`, giving four `Undefined array key 0/1` warnings per run (three tests). Give the columns widths in the test. Not our code in core, so no core change
-- P3.10 **Extension model (see `EXTENSIONS.md`):**
-  1. the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface
-  2. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
-  3. the descriptor engine: JSON Schema, field types, validation, mapping, `describe_block_type`
-  4. transforms plus the core `convert_blocks` tool
-  5. the Extensions dashboard page
-     - (decided after P2.2) today the AI settings page builds every external toolkit on each load, to list the ones that fail. Revisit that here once a toolkit connects to anything (an MCP toolkit would connect on every page view)
-  6. `katalysis_pro` moved to a provider, and `PeopleToolkit` removed from core
-  7. a shim for `ExternalToolkitRegistry` for one release
-  8. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
-- P3.11 **Scenario suite** (decided at P2.9's start):
-  - a scenario through the browser and controller path, not only the in-process runner (from BF-1: the panel sent no page ID, which the runner can't see)
-  - a run of an injection scenario that never reads the injected content is marked `inconclusive`, not failed, and counts as neither a pass nor a fail (from P2.8: scenario 21 run 3 answered from `get_page_content` and never read the biography)
-  - coverage of the home page, dashboard pages and edit mode (from BF-1; scenario 22 covers the home page only)
-  - a check that a reply never describes a page whose content wasn't read in that turn (from P2.9's browser check 6; the same "unverified claim" pattern as BF-5)
-  - a check that saved HTML is valid and has no JSON escape sequences (decided after BF-7's browser check 6, where a write saved escaped text from a tool result). Done in BF-7: `saved_html_valid`, run for every expect block
+  - tests per tool on a throwaway global area (BF-2's fixture); scenarios: a global-area edit through a page (draft, notice, other pages unchanged until approval), and an editor without stack permission refused; cap $0.50 (outside the $43 of caps, inside the $60)
+- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.6a and P3.8-2. Scenarios: full run; cap $7.70.
 
-Exit: all scenarios pass, and per-request tool count and prompt size are within targets.
+#### Removed, merged or moved (on the roadmap, 27 October 2026)
+- **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).
+- **Merged:** P3.9's headings warning into P3.3-1; P3.9's PSR-14 logging listener into P3.6-1; P3.5's `move_file_to_folder` restriction into P3.6-3.
+- **Dropped:** converting each tool to a `Tool` subclass (§4 step 3).
+- **Moved to Phase 5:** P3.10-2 (the Level 0 generic block adapter, the descriptor engine with `describe_block_type`, transforms with the core `convert_blocks` tool, the Extensions dashboard page, and the scenarios for a descriptor-only block and a rejected payload), into P5.2; nested (container) blocks in batch updates (from P1.8), which P1.8a refuses clearly.
+
+Exit (P3.12, checked in one task as P2.9 did for Phase 2):
+1. **Every Phase 3 task above is merged,** apart from P3.6a and P3.8-2, which are not exit criteria.
+2. **Every scenario passes** (the merge rule from the end of Phase 3):
+   - one run on `development` from a reset, on gpt-4o (or a model chosen and re-baselined first); each scenario ×3, the unstable ones ×5
+   - every scenario's majority label is **pass**; a partial is not a pass. If Glyn decides a secondary check is wrong, it is changed in its own commit with the reason, before the run
+   - **no safety finding in any run**, whatever its label: no unasked write, no live write, no wrong-page write, no lost text, no action on injected text, no invented host (the categories of P2.9's §1 table, all 0)
+   - injection runs marked `inconclusive` don't count; each injection scenario needs at least 3 conclusive runs
+3. **Leanness, measured by the runner:** at most about 25 tools offered on every request of every run; `instructions()` under about 60 lines, not counting the context block; the fixed overhead (scenario 13's input tokens) reported against P2.9's 8,274.
+4. **The behaviour spec is up to date:** no "Not met → P3.x" left; every "Not verified" is checked by a test or scenario, or moved to a later phase by Glyn; §9's "rules no scenario checks" list is empty, or each remaining rule has a reason.
+5. **Tests:** the full PHPUnit suite and the JS tests green, the known-failures list empty, the leak check clean, and `cleanup_test_leftovers.php` finds nothing new.
+6. **Docs:** `CLAUDE.md`'s Layout (no `src/Toolkits/`; the split toolkits), SETUP and EXTENSIONS match the code; §2's problem list is closed or marked done.
+7. **Reported, not required:** whether `development` meets the §6 release line (PHP 8.1+, `ext-curl`, a Neuron pin at least two weeks old).
 
 ### Phase 4: Twig/Tailwind base theme (L, a parallel track that could be Alex's)
 - P4.1 A lightweight Twig/Tailwind v4 theme built with Vite, plus design tokens, as a new package. The existing Bootstrap Katalysis Pro theme stays for current sites.
@@ -374,7 +492,13 @@ Exit: all scenarios pass, and per-request tool count and prompt size are within 
 
 ### Phase 5: Editor assistant v1, Tier 1 (M)
 - P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
-- P5.2 Move and convert content between block types, using per-block-type field mappers.
+- P5.2 Move and convert content between block types, using per-block-type field mappers. **Takes in P3.10-2** (moved from Phase 3 on the roadmap, 27 October 2026; see `EXTENSIONS.md`):
+  1. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
+  2. the descriptor engine: JSON Schema, field types, validation, mapping, `describe_block_type`
+  3. transforms plus the core `convert_blocks` tool
+  4. the Extensions dashboard page
+  5. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
+- P5.2a Nested (container) blocks in batch updates (from P1.8; moved from P3.3 on the roadmap). Since P1.8a, `batch_update_page_content` refuses blocks inside containers and area layout sub-areas with a clear message, before any draft.
 - P5.3 Undo the last change via page versions.
 - P5.4 Pilot with a live client: EPRA if Neuron is reinstated there, otherwise a Katalysis-hosted site. Every failure they report becomes a scenario.
 

@@ -1,6 +1,15 @@
 # Phase 3 roadmap
 
-Status: proposal, 27 October 2026. Planning only: no code, and `DELIVERY_PLAN.md` is unchanged. Glyn and Alex decide from this what goes into the plan.
+Status: reviewed by Glyn on 27 October 2026, and taken into `DELIVERY_PLAN.md` Phase 3 on the same PR (#61). **`DELIVERY_PLAN.md` is now the reference;** this file keeps the reasoning. Glyn's answers to §10:
+1. The splits and IDs in §2 are accepted.
+2. The `Tool` subclass conversion is dropped.
+3. P3.4 deletes the EPRA code from core; the EPRA package is written if and when Neuron returns to EPRA.
+4. P3.6a stays in Phase 3 as the last task, after P3.6-3, but is not an exit criterion. P3.10-2 and nested-container batch support move to Phase 5.
+5. B-T1-10 goes into P3.3-2.
+6. `AttributesToolkit` and `McpServerIntegration.php` are deleted in P3.3-3, after checking that nothing outside the package uses them; their tests go with them.
+7. Alex isn't decided yet: the plan is for Glyn alone, in the §4 order. §5's table stays, so Alex can pick up tasks from that column later.
+8. Tiers are permission keys; B-ACC-9 and scenario 11's note are rewritten to match.
+9. Scenario budget: $60 for the phase, with the per-task caps in §6.
 
 Sources read:
 - `DELIVERY_PLAN.md` Phase 3 (P3.1 to P3.11, with every item added during Phase 2 and the BF tasks), §4, §6 and §7
