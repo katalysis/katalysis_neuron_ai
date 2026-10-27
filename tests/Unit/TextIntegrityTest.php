@@ -79,13 +79,15 @@ final class TextIntegrityTest extends TestCase
         $this->assertStringContainsString('Text under the second h3 heading.', $result['message']);
     }
 
-    public function testKeepTextReportsAReorder(): void
+    public function testKeepTextRefusesAReorderThatScopedTextReports(): void
     {
         $after = '<p>Text under the first h3 heading.</p><h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p>'
             . '<h3>Seed Heading Three A</h3><h3>Seed Heading Three B</h3><p>Text under the second h3 heading.</p>';
 
-        $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'keep_text');
+        // Since P3.3-2 (BF-5 decision 7) keep_text refuses a reorder; scoped_text saves it and reports it.
+        $this->assertFalse(TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'keep_text')['ok']);
 
+        $result = TextIntegrity::evaluate(['content' => self::SEED], ['content' => $after], 'scoped_text', ['content']);
         $this->assertTrue($result['ok'], $result['message']);
         $this->assertTrue($result['fields']['content']['orderChanged']);
     }
