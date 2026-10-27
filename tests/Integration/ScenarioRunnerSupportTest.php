@@ -21,7 +21,7 @@ final class ScenarioRunnerSupportTest extends ConcreteTestCase
     {
         $scenarios = ScenarioLoader::loadAll(dirname(__DIR__) . '/Scenarios');
 
-        $this->assertCount(24, $scenarios);
+        $this->assertCount(25, $scenarios);
         // Scenario 22 starts on the home page, whose path is "/" (BF-1).
         $this->assertSame('/', $scenarios['22-home-page-context']['current_page']);
         foreach ($scenarios as $id => $scenario) {
