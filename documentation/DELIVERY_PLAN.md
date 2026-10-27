@@ -407,7 +407,6 @@ After permissions, so that approval never stands in for a permission check.
 - [ ] P3.6-3 **Re-enable tools behind approval** (M; safety). Depends on: P3.6-2 and P3.2-1. Glyn decides each:
   - `delete_page` (disabled since P1.13; its `DisabledTools` reason says it returns only behind approval) and `move_page` (scenario 09)
   - `move_file_to_folder`, as the delete redirect: when used for a delete request it can only target "Assistant – to delete" (B-T1-11; moved here from P3.5, because restricting it and re-enabling it are one change)
-  - `katalysis_pro`'s `add_person` and `update_person` (scenario 04; a `katalysis_pro` PR)
   - whether `approve_page_version` ever returns (publishing has been a person's action since P1.7)
   - whether the Tier 2 live writes disabled in P1.13 (the select-option tools, `delete_topic`, `delete_attribute_set`) stay disabled until Phase 6
   - scenarios: 04, 09, 11, 18 ×5; cap $1.40
@@ -470,6 +469,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
 - **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).
 - **Merged:** P3.9's headings warning into P3.3-1; P3.9's PSR-14 logging listener into P3.6-1; P3.5's `move_file_to_folder` restriction into P3.6-3.
 - **Dropped:** converting each tool to a `Tool` subclass (§4 step 3).
+- **Moved to after the internal pilot (WP-4, Glyn):** re-enabling `katalysis_pro`'s `add_person` and `update_person` behind approval (was in P3.6-3; scenario 04; a `katalysis_pro` PR), with P3.10-1.
 - **Moved to Phase 5:** P3.10-2 (the Level 0 generic block adapter, the descriptor engine with `describe_block_type`, transforms with the core `convert_blocks` tool, the Extensions dashboard page, and the scenarios for a descriptor-only block and a rejected payload), into P5.2; nested (container) blocks in batch updates (from P1.8), which P1.8a refuses clearly.
 
 Exit (P3.12, checked in one task as P2.9 did for Phase 2):
