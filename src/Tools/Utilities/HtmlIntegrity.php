@@ -46,6 +46,51 @@ final class HtmlIntegrity
     }
 
     /**
+     * The introduced escape sequences that look copied from an encoded tool result (P3.3-2): "<\/" always; the others
+     * only next to markup (after ">" or before "<", with spaces or other escapes between), inside a tag, or when "<\/"
+     * is introduced too. A literal "\n" or "\"" in text can be the author's: a Windows path, a code example.
+     * introducedEscapes() stays strict for the scenarios' saved_html_valid check.
+     *
+     * @return list<string>
+     */
+    public static function copiedEscapes(string $value, string $stored = ''): array
+    {
+        $introduced = self::introducedEscapes($value, $stored);
+        if ($introduced === [] || in_array('<\/', $introduced, true)) {
+            return $introduced;
+        }
+
+        $copied = [];
+        foreach ($introduced as $sequence) {
+            if (self::countNearMarkup($value, $sequence) > self::countNearMarkup($stored, $sequence)) {
+                $copied[] = $sequence;
+            }
+        }
+
+        return $copied;
+    }
+
+    private static function countNearMarkup(string $html, string $sequence): int
+    {
+        $count = 0;
+        $offset = 0;
+        $glue = '(?:[ \t]|\\\\[rnt])*';
+        while (($position = strpos($html, $sequence, $offset)) !== false) {
+            $offset = $position + strlen($sequence);
+            $before = substr($html, 0, $position);
+            $after = substr($html, $offset);
+            $insideTag = strrpos($before, '<') !== false && strrpos($before, '<') > (int) strrpos($before, '>');
+            if ($insideTag
+                || preg_match('/>' . $glue . '$/', $before) === 1
+                || preg_match('/^' . $glue . '</', $after) === 1) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
      * Why the HTML is not well-formed (an element not closed, a closing tag with nothing open), or null. Void elements
      * and self-closing tags need no closing tag.
      */
