@@ -352,7 +352,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - `src/Toolkits/`, `src/ConcreteCmsAIProvider.php` (a legacy agent that uses them; unused, decided after P2.2), and the root scripts `test_tools.php` and `test_container_search.php`
   - `AttributesToolkit` (not registered by the agent; it duplicates `PageAttributesToolkit`; P1.8a and BF-3 gave it the draft seam but did not delete it) and `src/Tools/McpServerIntegration.php`, **after checking that nothing outside the package uses them** (`katalysis_pro` and the dev site). Their tests and test cases go with them, and the references in `ToolBaseline`, `DisabledTools` and `ToolNameResolver` are updated (Glyn, on the roadmap)
   - scenarios: none (no offered tool changes)
-- [ ] P3.4 **Delete the EPRA code from core** (S–M). Depends on: P3.3-2 (the same file). The EPRA package is written if and when Neuron returns to EPRA, against P3.10-1's contract, as `EXTENSIONS.md` describes (descriptors for `epra_resources_list` and `doc_download`, a `multi_link → epra_resources_list` transform, guidelines).
+- [ ] P3.4 **Delete the EPRA code from core** (S–M). Depends on: P3.3-2 (the same file). The EPRA package is written if and when Neuron returns to EPRA, against P5.0's contract (was P3.10-1), as `EXTENSIONS.md` describes (descriptors for `epra_resources_list` and `doc_download`, a `multi_link → epra_resources_list` transform, guidelines).
   - delete `sync_multi_links_to_epra_resources_list` (disabled) and `get_doc_download_files_on_page`, `normalizeCustomBlockPayload()`'s EPRA path and `EPRA_PAYLOAD_BLOCK_HANDLES` (BF-8's interim fix), the EPRA loaders (`loadEpraResourceEntries()` and the like), and the two EPRA lines in `instructions()`
   - with the code gone, the BF-8 note "before any deploy to the EPRA site, check whether another EPRA block relied on the `slide` aliases" lapses
   - from P1.8a, for the future EPRA package: if `sync_multi_links_to_epra_resources_list` is ever re-enabled, it must get its draft from `PageDraft::of()`, and `DraftIsolationTest` gets a case for it
@@ -424,14 +424,8 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - a test that starts from the panel's payload (BF-1)
   - the prompt's page snapshot shows block counts but no text previews: `extractContentBlockPreview()` never gets a controller (BF-10)
   - scenarios: 01, 02, 12, 19, 20, 22 ×3; cap $1.30
-- [ ] P3.10-1 **Extension provider contract** (M–L; see `EXTENSIONS.md`). Depends on: P3.2-1.
-  - the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface; a provider declares its tools' group and tier
-  - `katalysis_pro` moved to a provider (a `katalysis_pro` PR), and `PeopleToolkit` removed from core, which ends the `list_people` name clash (P1.6). Namespacing provider tool names is decided here
-  - a shim for `ExternalToolkitRegistry` for one release
-  - (decided after P2.2) today the AI settings page builds every external toolkit on each load, to list the ones that fail. Revisit that here (an MCP toolkit would connect on every page view)
-  - scenarios: 03, 04, 21, 25 ×3; cap $0.85
-- [ ] P3.2-2 **Tool groups and intent router** (L). Depends on: P3.1, P3.3-4, P3.3-5 and P3.10-1.
-  - group the tools and send only the relevant groups per request (at most 25 tools per request); external providers declare their group
+- [ ] P3.2-2 **Tool groups and intent router** (L). Depends on: P3.1, P3.3-4 and P3.3-5.
+  - group the tools and send only the relevant groups per request (at most 25 tools per request). The router treats all external tools (today `katalysis_pro`'s, through `ExternalToolkitRegistry`) as one group; providers declaring their own group comes with P5.0 (WP-4)
   - the runner records the number of tools offered on each request
   - scenarios: full ×3 (tool choice changes everywhere); cap $6.00
 - [ ] P3.7-2 **Cut the prompt down** (M). Depends on: P3.1, P3.2-1, P3.3-2, P3.3-5 (the `onlyVisible` rule), P3.4 and P3.6-2.
@@ -469,7 +463,8 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
 - **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).
 - **Merged:** P3.9's headings warning into P3.3-1; P3.9's PSR-14 logging listener into P3.6-1; P3.5's `move_file_to_folder` restriction into P3.6-3.
 - **Dropped:** converting each tool to a `Tool` subclass (§4 step 3).
-- **Moved to after the internal pilot (WP-4, Glyn):** re-enabling `katalysis_pro`'s `add_person` and `update_person` behind approval (was in P3.6-3; scenario 04; a `katalysis_pro` PR), with P3.10-1.
+- **Moved to after the internal pilot (WP-4, Glyn):** re-enabling `katalysis_pro`'s `add_person` and `update_person` behind approval (was in P3.6-3; scenario 04; a `katalysis_pro` PR), with P5.0.
+- **Moved to Phase 5 (WP-4, Glyn):** P3.10-1, the extension provider contract, as P5.0 before P5.2. P3.2-2 no longer depends on it.
 - **Moved to Phase 5:** P3.10-2 (the Level 0 generic block adapter, the descriptor engine with `describe_block_type`, transforms with the core `convert_blocks` tool, the Extensions dashboard page, and the scenarios for a descriptor-only block and a rejected payload), into P5.2; nested (container) blocks in batch updates (from P1.8), which P1.8a refuses clearly.
 
 Exit (P3.12, checked in one task as P2.9 did for Phase 2):
@@ -493,6 +488,13 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
 - P4.5 Document the theme's structure as the target the generator writes into.
 
 ### Phase 5: Editor assistant v1, Tier 1 (M)
+- P5.0 **Extension provider contract** (M–L; see `EXTENSIONS.md`; was P3.10-1, moved from Phase 3 by WP-4, Glyn, 27 October 2026). Before P5.2. Until then `katalysis_pro`'s tools keep working through `ExternalToolkitRegistry` as now.
+  - the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface; a provider declares its tools' group and tier
+  - `katalysis_pro` moved to a provider (a `katalysis_pro` PR), and `PeopleToolkit` removed from core, which ends the `list_people` name clash (P1.6). Namespacing provider tool names is decided here
+  - a shim for `ExternalToolkitRegistry` for one release
+  - (decided after P2.2) today the AI settings page builds every external toolkit on each load, to list the ones that fail. Revisit that here (an MCP toolkit would connect on every page view)
+  - re-enabling `katalysis_pro`'s `add_person` and `update_person` behind approval (from P3.6-3, after the internal pilot; WP-4)
+  - scenarios: 03, 04, 21, 25 ×3; cap $0.85 (Phase 5's budget, not Phase 3's)
 - P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
 - P5.2 Move and convert content between block types, using per-block-type field mappers. **Takes in P3.10-2** (moved from Phase 3 on the roadmap, 27 October 2026; see `EXTENSIONS.md`):
   1. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
