@@ -518,7 +518,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   - scenarios: 03, 04, 21, 25 ×3; cap $0.85 (Phase 5's budget, not Phase 3's)
 - P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
 - P5.2 Move and convert content between block types, using per-block-type field mappers. **Takes in P3.10-2** (moved from Phase 3 on the roadmap, 27 October 2026; see `EXTENSIONS.md`):
-  1. the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing
+  1. ~~the Level 0 generic block adapter (export metadata, child tables, `save()`), replacing the alias guessing~~ moved to Phase 3 as P3.3-7 (Glyn, 27 October 2026, on P3.3-6's recommendation); the items below build on it
   2. the descriptor engine: JSON Schema, field types, validation, mapping, `describe_block_type`
   3. transforms plus the core `convert_blocks` tool
   4. the Extensions dashboard page
