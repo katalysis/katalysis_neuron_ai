@@ -143,7 +143,17 @@ class BlocksToolkit extends AbstractToolkit
 
                 $rows = $qb->execute()->fetchAllAssociative();
                 if (empty($rows)) {
-                    return "No '{$bt->getBlockTypeHandle()}' blocks found on page {$pageID}. {$versionInfo['summary']}";
+                    // P3.3-6 (scenario 32): asked for "form" on a page with an Express form block, the model concluded
+                    // there was no form. Say which block types the page does have.
+                    $present = $db->fetchAllAssociative(
+                        'SELECT bt.btHandle, bt.btName, COUNT(*) AS n FROM CollectionVersionBlocks cvb JOIN Blocks b ON b.bID = cvb.bID'
+                        . ' JOIN BlockTypes bt ON bt.btID = b.btID WHERE cvb.cID = ? AND cvb.cvID = ? GROUP BY bt.btHandle, bt.btName ORDER BY bt.btHandle',
+                        [(int) $pageID, (int) $page->getVersionID()]
+                    );
+                    $types = array_map(static fn (array $r): string => "`{$r['btHandle']}` ({$r['btName']}, {$r['n']})", $present);
+
+                    return "No '{$bt->getBlockTypeHandle()}' blocks found on page {$pageID}. {$versionInfo['summary']}"
+                        . ($types === [] ? '' : "\nBlock types on this page: " . implode(', ', $types) . '. Use one of these handles if it is the block the user means.');
                 }
 
                 $byBlock = [];

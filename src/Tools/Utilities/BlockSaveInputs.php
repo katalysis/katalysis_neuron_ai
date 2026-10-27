@@ -96,7 +96,7 @@ final class BlockSaveInputs
                     $value['accordionBlockData'] = self::accordionJson($bID);
                 }
 
-                return $value;
+                return self::accordionAsJson($value);
             default:
                 return $value;
         }
@@ -114,8 +114,25 @@ final class BlockSaveInputs
         return match ($handle) {
             'feature' => self::withLink($value, 'link', false),
             'image' => self::withLink($value, 'imageLink', true),
+            'accordion' => self::accordionAsJson($value),
             default => $value,
         };
+    }
+
+    /**
+     * Models send the entries as an array as often as a JSON string (scenario 31); save() takes only the string.
+     *
+     * @param array<string, mixed> $value
+     *
+     * @return array<string, mixed>
+     */
+    private static function accordionAsJson(array $value): array
+    {
+        if (is_array($value['accordionBlockData'] ?? null)) {
+            $value['accordionBlockData'] = (string) json_encode(array_values($value['accordionBlockData']), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+
+        return $value;
     }
 
     /**

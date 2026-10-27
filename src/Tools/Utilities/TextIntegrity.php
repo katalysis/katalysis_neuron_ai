@@ -103,7 +103,12 @@ final class TextIntegrity
         $fail = static fn (string $message): array => ['ok' => false, 'message' => $message, 'watchedFields' => $watched, 'fields' => []];
 
         if ($mode === 'scoped_text' && $listed === []) {
-            return $fail('scoped_text mode requires textFields: the fields whose text may change. Nothing was changed.');
+            if ($replaced !== []) {
+                return $fail('scoped_text mode requires textFields: the fields whose text may change. Nothing was changed.');
+            }
+            // P3.3-6 (scenario 29): scoped_text naming no field changes no text, which is keep_text, the stricter mode.
+            // Refusing it made a model give up on a plain settings change and report it as done.
+            return self::evaluate($before, $proposed, self::DEFAULT_MODE);
         }
         if ($mode !== 'scoped_text' && $replaced !== []) {
             return $fail('replacedText is used only with changeMode "scoped_text". Nothing was changed.');
