@@ -139,6 +139,47 @@ final class CoreBlockWritesTest extends ConcreteTestCase
         $this->assertTrue(ToolKind::succeeded($added), $added);
     }
 
+    // ---- found by scenarios 29, 31 and 32 (P3.3-6's paid runs) ----------------------------------------------
+
+    public function testAPageListSettingChangeInScopedTextWithNoTextFieldsIsSaved(): void
+    {
+        $parent = (int) Page::getByPath('/neuron-test')->getCollectionID();
+        [$cID, $bID] = $this->pageWith('page_list', ['num' => 3, 'orderBy' => 'display_asc', 'cParentID' => $parent, 'pageListTitle' => 'Test pages']);
+
+        // Scenario 29: the model sent this, was refused ("scoped_text mode requires textFields"), and said it was done.
+        $output = $this->update($cID, $bID, ['num' => 5], 'scoped_text', [], []);
+
+        $this->assertTrue(ToolKind::succeeded($output), $output);
+        $this->assertSame('5', (string) $this->newestRow($cID, 'page_list', 'btPageList')['num']);
+    }
+
+    public function testAccordionEntriesSentAsAnArrayAreSaved(): void
+    {
+        $entries = [['title' => 'How do I join?', 'description' => '<p>Ask at the front desk.</p>'], ['title' => 'Can I renew online?', 'description' => '<p>Yes, from your account page.</p>']];
+        [$cID, $bID] = $this->pageWith('accordion', ['initialState' => 'closed', 'itemHeadingFormat' => 'h4', 'accordionBlockData' => json_encode($entries)]);
+
+        // Scenario 31: an array, not a JSON string. The update was refused (its replacedText "not found") and the add threw.
+        $changed = $entries;
+        $changed[1]['title'] = 'Can I renew by phone?';
+        $output = $this->update($cID, $bID, ['accordionBlockData' => $changed], 'scoped_text', ['accordionBlockData'], ['Can I renew online?']);
+        $this->assertTrue(ToolKind::succeeded($output), $output);
+        $this->assertSame(['How do I join?', 'Can I renew by phone?'], $this->accordionTitles((int) json_decode($output, true)['blockID']));
+
+        $added = $this->add($cID, 'accordion', ['accordionBlockData' => [['title' => 'Where do I park?', 'description' => '<p>Behind the library.</p>']]]);
+        $this->assertTrue(ToolKind::succeeded($added), $added);
+        $this->assertSame(['Where do I park?'], $this->accordionTitles((int) json_decode($added, true)['blockID']));
+    }
+
+    public function testAskingForFormBlocksNamesTheExpressFormBlockThePageHas(): void
+    {
+        [$cID] = $this->pageWith('express_form', ['exFormID' => $this->roomFormID(), 'submitLabel' => 'Send']);
+
+        // Scenario 32: "No 'form' blocks found", and the model told the user there was no form on the page.
+        $output = ThrowawayPages::runTool(new BlocksToolkit(), 'list_page_blocks_by_type', ['pageID' => $cID, 'blockTypeHandle' => 'form']);
+
+        $this->assertStringContainsString('`express_form`', $output);
+    }
+
     // ---- helpers ---------------------------------------------------------------------------------------------
 
     /**
