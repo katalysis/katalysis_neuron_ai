@@ -472,7 +472,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `show_prompt.php` in SETUP (P2.4's question)
 
 #### Last
-- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: full run (×3, the unstable ones ×5, about 143 runs by then); cap $10.10 (was $7.70, for a smaller suite). If no task merged after P3.S4, P3.S4's run is the exit run (WP-4).
+- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: full run (×3, the unstable ones ×5, about 143 runs by then); cap $10.10 (was $7.70, for a smaller suite). **If nothing merges after P3.S4, P3.S4's run is the exit run and P3.12 doesn't repeat it** (Glyn, after WP-4); the cap is for a run only when something merged after P3.S4.
 
 #### Removed, merged or moved (on the roadmap, 27 October 2026)
 - **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).
