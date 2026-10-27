@@ -11,7 +11,6 @@ use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Entity\Page\Container;
 use Concrete\Core\File\File;
-use Concrete\Core\Http\Request;
 use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Template as PageTemplate;
@@ -49,6 +48,8 @@ final class HonestReadsTest extends ConcreteTestCase
 
     private ?TopicTree $tree = null;
 
+    private bool $startedSession = false;
+
     /** @var list<array<string, mixed>> PagePaths rows this test removed */
     private array $removedPaths = [];
 
@@ -61,7 +62,11 @@ final class HonestReadsTest extends ConcreteTestCase
     protected function tearDown(): void
     {
         ThrowawayPages::actAs('superuser');
-        Request::getInstance()->query->remove('pageID');
+        if ($this->startedSession) {
+            session_destroy();
+            $this->startedSession = false;
+        }
+        unset($_SESSION['katalysis_neuron_ai_page_context']);
         foreach ($this->removedPaths as $row) {
             $this->db()->insert('PagePaths', $row);
         }
@@ -240,7 +245,12 @@ final class HonestReadsTest extends ConcreteTestCase
         $this->assertSame(self::PHOTO_TITLE, $read['attributes']['thumbnail']['title']);
         $this->assertMatchesRegularExpression('~^https?://[^/]+/~', (string) $read['attributes']['thumbnail']['url']);
 
-        Request::getInstance()->query->set('pageID', $cID);
+        // The page the user is on, as the chat endpoint passes it (as NewestVersionReadTest does).
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            @session_start(['use_cookies' => 0, 'use_only_cookies' => 0, 'cache_limiter' => '', 'save_path' => sys_get_temp_dir()]);
+            $this->startedSession = true;
+        }
+        $_SESSION['katalysis_neuron_ai_page_context'] = ['id' => $cID];
         $context = $this->json($this->tool(new PagesToolkit(), 'get_current_page_context', []));
         $this->assertSame($cID, (int) $context['page']['id']);
         $this->assertSame($fID, (int) $context['attributes']['thumbnail']['fileID']);

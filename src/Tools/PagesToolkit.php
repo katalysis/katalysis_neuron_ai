@@ -3583,6 +3583,19 @@ class PagesToolkit extends AbstractToolkit
             ];
         }
 
+        // An image or file attribute (P3.3-1, BF-12). The File entity has getTitle() only through __call, so the test
+        // below left it out, and the model couldn't see a page's thumbnail.
+        if ($value instanceof FileEntity) {
+            $version = $value->getApprovedVersion();
+            if (!$version) {
+                return ['fileID' => (int) $value->getFileID(), 'missing' => true];
+            }
+            $url = AbsoluteUrl::forFile((int) $value->getFileID());
+            $file = ['fileID' => (int) $value->getFileID(), 'title' => (string) $version->getTitle(), 'url' => $url];
+
+            return $url === null ? $file + ['urlNote' => AbsoluteUrl::NOTE] : $file;
+        }
+
         if (is_object($value) && method_exists($value, 'getFileID') && method_exists($value, 'getTitle')) {
             return [
                 'id' => $value->getFileID(),
