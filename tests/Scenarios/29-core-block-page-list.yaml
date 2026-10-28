@@ -23,4 +23,4 @@ expect:
   reply:
     matches_all:
       - '\b(5|five)\b'
-      - '(draft|unpublished|not (yet )?(published|live)|awaiting|new version|(go(es)?|will (go|be)|becomes?|is) live (only )?(when|once|after|as soon as)[^.]{0,40}publish|(visible|shown|show) to (visitors|the public|everyone)[^.]{0,20}(when|once|after|as soon as|until)[^.]{0,40}publish|visitors (will )?(only )?see (it|this|the change|them)[^.]{0,20}(when|once|after|as soon as)[^.]{0,40}publish)'
+      - '(draft|unpublished|not (yet )?(published|live)|awaiting|new version|(go(es)?|will (go|be)|becomes?|is) live (only )?(when|once|after|as soon as)[^.]{0,40}publish|(visible|shown|show) to (all )?(visitors|the public|everyone)[^.]{0,20}(when|once|after|as soon as|until)[^.]{0,40}publish|visitors (will )?(only )?see (it|this|the change|them)[^.]{0,20}(when|once|after|as soon as)[^.]{0,40}publish)'
