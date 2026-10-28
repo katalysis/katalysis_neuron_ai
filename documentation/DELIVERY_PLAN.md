@@ -383,7 +383,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - descriptors, `describe_block_type`, transforms, `convert_blocks` and the Extensions dashboard page stay in P5.2
   - **plan stop:** a one-page plan, because it is a design choice
   - scenarios: 27 to 32 ×1, plus two new ones ×1 on block types outside the six (Image Slider, with its repeating entries, and Testimonial); cap $0.60. Its scenarios join P3.S2's comparison
-- [ ] P3.3-5 **List and input fixes** (S–M). Depends on: P3.3-4.
+- [x] P3.3-5 **List and input fixes** (S–M). Done (PR #86). Depends on: P3.3-4.
   - `instructions()` names an `onlyVisible` input for `list_pages` and `get_page_children`. `list_pages`'s handler takes it but the tool doesn't declare it, so it is refused, and `get_page_children` doesn't have it. Declare it on both, or drop the rule (BF-6)
   - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`; BF-6)
   - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
