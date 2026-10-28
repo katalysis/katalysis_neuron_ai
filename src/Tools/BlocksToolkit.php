@@ -675,7 +675,7 @@ class BlocksToolkit extends AbstractToolkit
                 return ' → (no such file)';
             }
 
-            return ObjectPermissions::viewFileInFileManager($file) === null
+            return ObjectPermissions::viewFile($file) === null
                 ? ' → ' . $version->getTitle() . ' (' . $version->getFileName() . ')'
                 : ' → (a file you can\'t view)';
         }

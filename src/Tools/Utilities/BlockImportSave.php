@@ -316,7 +316,7 @@ final class BlockImportSave
                     if (!$file) {
                         self::refuseIf("{$label} refers to file {$id}, which doesn't exist. Nothing was changed. Find the file with list_files.");
                     }
-                    $denied = ObjectPermissions::viewFileInFileManager($file);
+                    $denied = ObjectPermissions::viewFile($file);
                     break;
                 case BlockFields::PAGE_TYPE:
                     $denied = null;

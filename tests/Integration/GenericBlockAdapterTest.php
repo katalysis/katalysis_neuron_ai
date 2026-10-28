@@ -202,15 +202,16 @@ final class GenericBlockAdapterTest extends ConcreteTestCase
      */
     public function testAnEditorCanUseAFileTheyMaySeeOnTheSite(): void
     {
-        [$cID] = $this->pageWith('testimonial', ['fID' => $this->photoID(), 'name' => 'Pat Reader', 'paragraph' => 'A friendly library.']);
+        // neuron_editor may edit the blocks of a throwaway page, but not add one (WriteChecksTest), so: give it a photo.
+        [$cID, $bID] = $this->pageWith('testimonial', ['name' => 'Pat Reader', 'paragraph' => 'A friendly library.']);
         ThrowawayPages::actAs('neuron_editor');
 
-        $output = ThrowawayPages::runTool(new ContentToolkit(), 'add_block_to_page_area', [
-            'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'testimonial',
-            'value' => ['fID' => $this->photoID(), 'name' => 'Sam Reader', 'paragraph' => 'I help on Saturdays.'],
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', [
+            'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['fID' => $this->photoID()],
         ]);
 
         $this->assertTrue(ToolKind::succeeded($output), $output);
+        $this->assertSame($this->photoID(), (int) $this->row('btTestimonial', (int) json_decode($output, true)['blockID'])['fID']);
     }
 
     // ---- What Level 0 can't describe is refused --------------------------------------------------------------
