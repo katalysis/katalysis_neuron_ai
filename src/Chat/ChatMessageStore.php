@@ -222,11 +222,14 @@ final class ChatMessageStore implements MessageStoreInterface
      * notice (P1.11) belongs to the turn's final reply. Not part of Neuron's store contract: called after a turn has
      * ended, never while one runs. Neuron does not send metadata to the provider.
      *
-     * @param array<string, string> $more further metadata values to put on the same message
+     * P3.6-1: a value may be a JSON-encodable array (the turn's "Changed" line, TurnChanges::META_KEY).
+     *
+     * @param string|array<string, mixed> $value
+     * @param array<string, string|array<string, mixed>> $more further metadata values to put on the same message
      *
      * @return bool whether a message was flagged
      */
-    public function flagLastAssistantMessage(string $threadId, string $key, string $value, array $more = []): bool
+    public function flagLastAssistantMessage(string $threadId, string $key, string|array $value, array $more = []): bool
     {
         $chatId = $this->chatId($threadId);
         $last = $this->db->fetchAssociative('SELECT id, role, type, meta FROM ' . self::TABLE . ' WHERE chatId = ? ORDER BY id DESC LIMIT 1', [$chatId]);
@@ -256,17 +259,23 @@ final class ChatMessageStore implements MessageStoreInterface
     /**
      * What the chat panel shows (BF-11): the transcript with only the person's messages and the final replies. The
      * model's notes on its tool calls and the tool results are left out, as in the live reply. The same rule as the
-     * chat list's count: a tool result has the user role but isn't the person's.
+     * chat list's count: a tool result has the user role but isn't the person's. A reply flagged hidden (the model's
+     * answer to calls a new message rejected, P3.6-1) is left out too.
      */
     public function conversationJson(string $threadId): string
     {
         $shown = array_filter(
             $this->loadAll($threadId),
             static fn (Message $m): bool => ($m instanceof UserMessage && !$m instanceof ToolResultMessage)
-                || ($m instanceof AssistantMessage && !$m instanceof ToolCallMessage)
+                || ($m instanceof AssistantMessage && !$m instanceof ToolCallMessage && !self::isHidden($m))
         );
 
         return (string) json_encode(array_values(array_map(static fn (Message $m): array => $m->jsonSerialize(), $shown)), JSON_THROW_ON_ERROR);
+    }
+
+    private static function isHidden(Message $message): bool
+    {
+        return ($message->jsonSerialize()['__meta'][\Katalysis\NeuronAi\ConcreteCmsAgent::HIDDEN_META_KEY] ?? null) === '1';
     }
 
     /**

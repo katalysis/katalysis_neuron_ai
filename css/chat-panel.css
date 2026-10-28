@@ -148,6 +148,67 @@
     border-radius: 4px;
 }
 
+/* P3.6-1: what a turn changed, under its reply. */
+.neuron-chat-changes {
+    margin: 4px 0 0 0;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #2f4f2f;
+    background: #eef6ee;
+    border-left: 3px solid #5a9a5a;
+    border-radius: 4px;
+}
+
+/* P3.6-1: a call waiting for the user's approval, with its Approve and Deny buttons. */
+.neuron-approval-card {
+    margin: 8px 0;
+    padding: 10px 12px;
+    font-size: 13px;
+    background: #f4f7fb;
+    border: 1px solid #c9d6e8;
+    border-radius: 6px;
+}
+
+.neuron-approval-card ul {
+    margin: 6px 0 0 18px;
+    padding: 0;
+}
+
+.neuron-approval-note {
+    margin-top: 6px;
+    color: #555;
+}
+
+.neuron-approval-actions {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+}
+
+.neuron-approval-actions button {
+    padding: 4px 14px;
+    border-radius: 4px;
+    border: 1px solid #8aa2c4;
+    background: #fff;
+    cursor: pointer;
+}
+
+.neuron-approval-actions .neuron-approval-approve {
+    background: #2b6cb0;
+    border-color: #2b6cb0;
+    color: #fff;
+}
+
+.neuron-approval-actions button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.neuron-approval-status {
+    margin-top: 8px;
+    font-weight: 600;
+}
+
 /* BF-7: a notice about the page (reloading, or "save or cancel your edit"), under the conversation. */
 .neuron-chat-page-notice {
     margin: 8px 0;

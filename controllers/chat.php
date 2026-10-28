@@ -9,6 +9,7 @@ use Concrete\Core\Page\Page;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Access\ChatAccess;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
+use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
 use Katalysis\NeuronAi\PageContextResolver;
@@ -132,6 +133,8 @@ class Chat extends AbstractController
                         ->findOneBy(['sessionId' => session_id()]);
 
                     if ($chat) {
+                        // A call waiting for approval is not approved, and its run ends with the messages (P3.6-1).
+                        $this->makeAgent()->setChatId($chat->getId())->discardRun();
                         // Clear the chat's messages; the store also resets the chat list's columns.
                         $this->messageStore()->clear(ChatMessageStore::threadFor($chat->getId()));
                     }
@@ -162,14 +165,7 @@ class Chat extends AbstractController
             // handle(): it stores the fixed error reply and returns it.
             $response = $agent->handleUserMessage($message);
 
-            return $this->json([
-                'success' => true,
-                'response' => $response,
-                // The fixed notice text when a tool result held text addressed to the assistant, else null (P1.11).
-                'notice' => $agent->getTurnNotice(),
-                // The pages and blocks the turn changed, also when it failed: the panel reloads the page it is on (BF-7).
-                'changes' => $agent->getTurnChanges(),
-                'timestamp' => time(),
+            return $this->json($this->turnBody($agent, $response) + [
                 'history_count' => count($agent->getChatHistory()->getMessages())
             ]);
         } catch (\Throwable $e) {
@@ -180,6 +176,84 @@ class Chat extends AbstractController
         }
     }
     
+    /**
+     * The user's Approve or Deny on one call waiting for approval (P3.6-1, plans/P3.6-1.md §5): POST
+     * {callId, decision: approve|deny, reason?, pageContext?, openBlockIDs?} with the panel's token. Only a call of
+     * this session's chat, which the user started, can be decided, and only while it waits: otherwise 409, with the
+     * cards still open. Typed text never approves anything; only this endpoint does.
+     */
+    public function decide()
+    {
+        if ($refusal = $this->refuseIfNotAllowed(true)) {
+            return $refusal;
+        }
+
+        try {
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+
+            $data = $this->body();
+            $callId = $data['callId'] ?? null;
+            $decision = $data['decision'] ?? null;
+            $reason = $data['reason'] ?? null;
+            if (!is_string($callId) || $callId === '' || strlen($callId) > 64 || !in_array($decision, ['approve', 'deny'], true)
+                || ($reason !== null && !is_string($reason))) {
+                return $this->json(['success' => false, 'error' => 'callId and decision (approve or deny) are required'], 400);
+            }
+
+            $u = new \Concrete\Core\User\User();
+            $chat = $this->entityManager()->getRepository(ChatEntity::class)->findOneBy([
+                'sessionId' => session_id(),
+                'createdBy' => $u->isRegistered() ? $u->getUserID() : 0,
+            ]);
+            if (!$chat) {
+                return $this->json(['success' => false, 'error' => 'There is no chat waiting for this decision.', 'code' => 'not_waiting'], 404);
+            }
+
+            $agent = $this->makeAgent()->setChatId($chat->getId());
+            $agent->setRuntimePageContext($this->extractFrontendPageContext($data));
+            $agent->setOpenEditorBlocks($this->extractOpenBlockIDs($data));
+
+            $result = $agent->decide($callId, $decision === 'approve', $reason);
+            if (!$result['recorded']) {
+                return $this->json([
+                    'success' => false,
+                    'error' => 'This is no longer waiting for a decision.',
+                    'code' => 'not_waiting',
+                    'approvals' => $agent->getApprovalCards(),
+                ], 409);
+            }
+
+            return $this->json($this->turnBody($agent, $result['reply']));
+        } catch (\Throwable $e) {
+            return $this->failed('Neuron AI approval error', 'Unable to record the decision at the moment.', $e);
+        }
+    }
+
+    /**
+     * What the panel gets after a turn or a decision. $response null: another call in the batch still waits.
+     *
+     * @return array<string, mixed>
+     */
+    private function turnBody(ConcreteCmsAgent $agent, ?string $response): array
+    {
+        return [
+            'success' => true,
+            'response' => $response,
+            // The fixed notice text when a tool result held text addressed to the assistant, else null (P1.11).
+            'notice' => $agent->getTurnNotice(),
+            // The pages and blocks the turn changed, also when it failed: the panel reloads the page it is on (BF-7).
+            'changes' => $agent->getTurnChanges(),
+            // P3.6-1: the turn's "Changed: …" line, the calls waiting for a decision, and those this request settled.
+            'changesLine' => $agent->getTurnChangesLine(),
+            'awaitingApproval' => $agent->isAwaitingApproval(),
+            'approvals' => $agent->getApprovalCards(),
+            'settledApprovals' => $agent->getSettledApprovalCards(),
+            'timestamp' => time(),
+        ];
+    }
+
     /**
      * Get or create a chat ID for the current session
      * 
@@ -299,7 +373,18 @@ class Chat extends AbstractController
     {
         $json = $this->messageStore()->conversationJson(ChatMessageStore::threadFor($chatId));
 
-        return InjectionNotice::annotateHistoryJson(PageContextTag::stripFromHistoryJson($json));
+        // P3.6-1: each reply's stored "Changed: …" line too.
+        return TurnChanges::annotateHistoryJson(InjectionNotice::annotateHistoryJson(PageContextTag::stripFromHistoryJson($json)));
+    }
+
+    /**
+     * The chat's calls not yet sent on, for the panel's cards (P3.6-1).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function approvalCards(int $chatId): array
+    {
+        return \Katalysis\NeuronAi\Approval\ApprovalService::make()->openCards($chatId);
     }
 
     /**
@@ -411,7 +496,8 @@ class Chat extends AbstractController
                     'createdDate' => $chat->getCreatedDate() ? $chat->getCreatedDate()->format('c') : null,
                     'updatedDate' => $chat->getUpdatedDate() ? $chat->getUpdatedDate()->format('c') : null,
                     'userMessageCount' => $chat->getUserMessageCount(),
-                    'location' => $chat->getLocation()
+                    'location' => $chat->getLocation(),
+                    'approvals' => $this->approvalCards($chat->getId()),
                 ]
             ]);
         } catch (\Throwable $e) {
@@ -478,6 +564,8 @@ class Chat extends AbstractController
                     'updatedDate' => $chat->getUpdatedDate() ? $chat->getUpdatedDate()->format('c') : null,
                     'userMessageCount' => $chat->getUserMessageCount(),
                     'location' => $chat->getLocation(),
+                    // P3.6-1: the calls still waiting for a decision, so a reload shows their cards.
+                    'approvals' => $this->approvalCards($chat->getId()),
                 ],
                 'sessionId' => $sessionId,
             ]);
@@ -543,7 +631,8 @@ class Chat extends AbstractController
                 return $this->json(['success' => false, 'error' => 'Chat not found or access denied'], 404);
             }
 
-            // Its message rows go with it (ON DELETE CASCADE, P2.5).
+            // Its message rows go with it (ON DELETE CASCADE, P2.5), and its approval rows (P3.6-1); its run is ended.
+            $this->makeAgent()->setChatId($chat->getId())->discardRun();
             $entityManager->remove($chat);
             $entityManager->flush();
 
@@ -584,6 +673,7 @@ class Chat extends AbstractController
                 ]);
 
             if ($chat) {
+                $this->makeAgent()->setChatId($chat->getId())->discardRun();
                 $entityManager->remove($chat);
                 $entityManager->flush();
             }

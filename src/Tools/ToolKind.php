@@ -41,6 +41,10 @@ final class ToolKind
         if ($text === '' || preg_match('/^Error executing tool/i', $text) === 1) {
             return false;
         }
+        // P3.6-1: a call the user didn't approve never ran; Neuron puts this text in place of its result.
+        if (str_starts_with($text, 'TOOL NOT EXECUTED')) {
+            return false;
+        }
 
         $data = json_decode($text, true);
         if (is_array($data)) {

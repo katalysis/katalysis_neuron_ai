@@ -3,6 +3,8 @@
 namespace Katalysis\NeuronAi;
 
 use NeuronAI\Agent\Agent;
+use NeuronAI\Agent\AgentState;
+use NeuronAI\Agent\Interrupt\ApprovalRequest;
 use NeuronAI\Agent\Nodes\ChatNode;
 use NeuronAI\Agent\Nodes\ToolNode;
 use NeuronAI\Chat\History\HistoryTrimmer;
@@ -15,6 +17,10 @@ use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\SystemMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
+use NeuronAI\Workflow\Persistence\DatabasePersistence;
+use NeuronAI\Workflow\Workflow;
+use Katalysis\NeuronAi\Approval\ApprovalLogListener;
+use Katalysis\NeuronAi\Approval\ApprovalService;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
@@ -56,10 +62,35 @@ class ConcreteCmsAgent extends Agent
     /** What handle() returns, and stores, when a turn fails. The scenario runner recognises it. */
     public const ERROR_REPLY = 'I ran into an error processing that request. Please try again.';
 
+    /** What handle() and decide() return while a call waits for the user's approval (P3.6-1). Not stored. */
+    public const AWAITING_REPLY = 'This needs your approval before anything is changed.';
+
+    /** Neuron's run state, so a turn paused for approval survives between requests (P3.6-1). */
+    public const WORKFLOW_TABLE = 'KatalysisNeuronAiWorkflowStore';
+
+    /** Metadata key on a reply the panel doesn't show: the model's answer to calls a new message rejected (P3.6-1). */
+    public const HIDDEN_META_KEY = 'katalysis_hidden';
+
+    /** The short reasons the "Changed: …" line gives for a call that wasn't run. */
+    private const REFUSAL_PHRASES = [
+        ApprovalService::DENIED => 'denied',
+        ApprovalService::STALE => 'the page changed since the preview',
+        ApprovalService::NOT_APPROVED => 'not approved',
+    ];
+
     private ?array $runtimePageContext = null;
     private ?ToolResultScanner $toolResultScanner = null;
     private ?ExternalToolkitBuild $externalToolkits = null;
     private TurnChanges $turnChanges;
+    private ApprovalLogListener $log;
+
+    /** The chat this agent is bound to (setChatId()), for the approval rows. */
+    private ?int $chatId = null;
+    private ?ApprovalService $approvals = null;
+    private bool $awaitingApproval = false;
+
+    /** @var list<string> the calls whose decision the last request settled (decide(), or a new message) */
+    private array $settledCallIds = [];
 
     /** @var list<int> blocks the user has an editor open on, on the current page (BF-7) */
     private array $openEditorBlockIDs = [];
@@ -95,17 +126,64 @@ class ConcreteCmsAgent extends Agent
         // The pages and blocks each turn changes, for the panel (BF-7).
         $this->turnChanges = new TurnChanges();
         $this->subscribe(ToolCalled::class, $this->turnChanges);
+
+        // Every tool call and approval decision, redacted, in Concrete's log (P3.6-1).
+        $this->log = new ApprovalLogListener();
+        $this->subscribe(ToolCalled::class, $this->log);
     }
 
     /**
      * The pages and blocks the last turn changed (TurnChanges), also after a failed turn. The chat endpoint returns
      * them, and the panel reloads the page when it is one of them (BF-7).
      *
-     * @return list<array{pageID: int, path: string, name: string, tools: list<string>, blockIDs: list<int>, replacedBlockIDs: array<string, int>}>
+     * @return list<array{pageID: int, path: string, name: string, tools: list<string>, blockIDs: list<int>, replacedBlockIDs: array<string, int>, versionID: int, isNewPage: bool, kind: string}>
      */
     public function getTurnChanges(): array
     {
         return $this->turnChanges->all();
+    }
+
+    /**
+     * The last turn's "Changed: …" line (TurnChanges::line()), or null when it called no write tool. Stored on the
+     * turn's reply too, so a reload shows it (P3.6-1).
+     */
+    public function getTurnChangesLine(): ?string
+    {
+        return $this->turnChanges->line();
+    }
+
+    /**
+     * Whether the last turn (or decision) ended paused, waiting for the user to approve or deny a call (P3.6-1).
+     */
+    public function isAwaitingApproval(): bool
+    {
+        return $this->awaitingApproval;
+    }
+
+    /**
+     * The approval cards of the calls not yet sent to Neuron: waiting, or decided while another call in the batch
+     * waits. [] without a chat.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getApprovalCards(): array
+    {
+        return $this->chatId === null ? [] : $this->approvals()->openCards($this->chatId);
+    }
+
+    /**
+     * The cards of the calls the last request settled: the batch a decision sent, or the calls a new message rejected.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getSettledApprovalCards(): array
+    {
+        return $this->chatId === null ? [] : $this->approvals()->cards($this->chatId, $this->settledCallIds);
+    }
+
+    private function approvals(): ApprovalService
+    {
+        return $this->approvals ??= ApprovalService::make();
     }
 
     /**
@@ -159,7 +237,8 @@ class ConcreteCmsAgent extends Agent
         $tools = TierGate::apply($tools, NeuronPermissions::tier(), $this->externalToolkits->tiers() + ToolTiers::all());
 
         // Last, so every tool the model can call is covered: results are scanned for text addressed to the assistant (P1.11).
-        return $this->toolResultScanner()->wrap($tools);
+        // Then the gated tools wait for the user's approval (P3.6-1), on the very instances Neuron runs.
+        return ApprovalService::gate($this->toolResultScanner()->wrap($tools));
     }
 
     /**
@@ -267,12 +346,18 @@ class ConcreteCmsAgent extends Agent
      * "chat-<id>" (P2.5). Neuron 4's chat() refuses to run without a thread, so a chat is bound before every turn. With
      * null nothing is bound. Neuron binds an agent's thread once: binding another chat later throws, so use one agent
      * per request. Whether the user may use this chat is the caller's check.
+     *
+     * The run's state is kept in the database (WORKFLOW_TABLE), so a turn paused for approval resumes in a later
+     * request (P3.6-1). Neuron deletes a run's rows when it completes.
      */
     public function setChatId(?int $chatId): self
     {
         if ($chatId !== null) {
-            $this->setMessageStore(new ChatMessageStore(\Concrete\Core\Support\Facade\Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class)));
+            $db = \Concrete\Core\Support\Facade\Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class);
+            $this->setMessageStore(new ChatMessageStore($db));
             $this->setThreadId(ChatMessageStore::threadFor($chatId));
+            $this->setPersistence(new DatabasePersistence($db->getWrappedConnection(), self::WORKFLOW_TABLE));
+            $this->chatId = $chatId;
         }
 
         return $this;
@@ -654,11 +739,18 @@ INST);
     {
         $this->toolResultScanner()->reset();
         $this->turnChanges->reset();
+        $this->awaitingApproval = false;
+        $this->settledCallIds = [];
     }
 
     public function handle(string $message): string
     {
         $this->startTurn();
+
+        // P3.6-1: a new message while calls wait for approval: they are not approved, and their run ends first. Its
+        // reply is stored but not shown, and the new turn's "Changed" line is its own.
+        $this->settleWaitingCalls();
+        $this->turnChanges->reset();
 
         // Send message and get response using Neuron AI's built-in chat method
         $userMessage = new UserMessage($message);
@@ -679,11 +771,7 @@ INST);
         EditModeGuard::setOpenBlocks(is_numeric($pageID) ? (int) $pageID : null, $this->openEditorBlockIDs);
 
         try {
-            $response = $this->chat($userMessage)->getMessage();
-
-            $this->saveTurnNotice();
-
-            return $response->getContent();
+            return $this->endSegment($this->chat($userMessage));
         } catch (\Throwable $e) {
             // A provider error body can quote part of the API key (B-SEC-1), so redact before logging.
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
@@ -693,6 +781,165 @@ INST);
             return self::ERROR_REPLY;
         } finally {
             EditModeGuard::clearOpenBlocks();
+        }
+    }
+
+    /**
+     * The user's Approve or Deny on one waiting call (P3.6-1), from the panel's buttons or the scenario runner. Only a
+     * call still waiting can be decided: the first decision wins. Once every call in the batch is decided, the batch
+     * goes to Neuron at once (ApprovalService::claimDecided() checks every approved call's page first) and the turn
+     * goes on.
+     *
+     * @return array{recorded: bool, reply: ?string} recorded false: the call was no longer waiting. reply null: another
+     *     call in the batch still waits; otherwise the turn's reply (AWAITING_REPLY when it paused again)
+     */
+    public function decide(string $callId, bool $approve, ?string $reason = null): array
+    {
+        $this->startTurn();
+        if ($this->chatId === null) {
+            return ['recorded' => false, 'reply' => null];
+        }
+
+        $userId = ApprovalService::currentUserId();
+        if (!$this->approvals()->decide($this->chatId, $callId, $approve, $reason, $userId)) {
+            return ['recorded' => false, 'reply' => null];
+        }
+        $this->settledCallIds = [$callId];
+        foreach ($this->approvals()->cards($this->chatId, [$callId]) as $card) {
+            $this->log->decided($this->chatId, $card['tool'], $callId, $card['status'], $userId);
+        }
+
+        $decisions = $this->approvals()->claimDecided($this->chatId);
+        if ($decisions === null) {
+            // Another call in the batch still waits: nothing runs until every call is decided.
+            $this->awaitingApproval = true;
+
+            return ['recorded' => true, 'reply' => null];
+        }
+        $this->settledCallIds = array_keys($decisions);
+        $this->noteRefusals($decisions);
+
+        $pageID = $this->runtimePageContext['id'] ?? null;
+        EditModeGuard::setOpenBlocks(is_numeric($pageID) ? (int) $pageID : null, $this->openEditorBlockIDs);
+        try {
+            if ($this->pendingApprovals() === []) {
+                // The run is gone (abandoned, or its chat cleared): nothing can run.
+                $this->approvals()->markNotApproved($this->chatId, array_keys($decisions));
+
+                return ['recorded' => true, 'reply' => self::ERROR_REPLY];
+            }
+
+            return ['recorded' => true, 'reply' => $this->endSegment($this->submitApprovalDecisions($decisions)->run())];
+        } catch (\Throwable $e) {
+            \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
+
+            $this->storeFailedTurn(null);
+
+            return ['recorded' => true, 'reply' => self::ERROR_REPLY];
+        } finally {
+            EditModeGuard::clearOpenBlocks();
+        }
+    }
+
+    /**
+     * Ends the chat's run whatever it waits for, and marks its waiting calls not approved: for clearing or deleting a
+     * chat (P3.6-1). Never throws.
+     */
+    public function discardRun(): void
+    {
+        if ($this->chatId === null) {
+            return;
+        }
+
+        try {
+            $this->approvals()->claimAllAsNotApproved($this->chatId, ApprovalService::currentUserId());
+            // Workflow's own verb: Agent::abandon() refuses while a call waits, which is what this ends.
+            Workflow::abandon();
+        } catch (\Throwable $e) {
+            \Concrete\Core\Support\Facade\Log::warning('Katalysis Neuron AI: could not end the chat\'s run: ' . SecretRedactor::redact($e->getMessage()));
+        }
+    }
+
+    /**
+     * What a segment of a turn ended with. Paused for approval: the waiting calls are recorded with their previews
+     * and AWAITING_REPLY is returned (nothing is stored for it). Otherwise the reply, with the turn's notice and
+     * "Changed" line stored on it.
+     */
+    private function endSegment(AgentState $state): string
+    {
+        if ($state->isInterrupted() && $state->getInterruptRequest() instanceof ApprovalRequest) {
+            $this->awaitingApproval = true;
+            if ($this->chatId !== null) {
+                $this->approvals()->record($this->chatId, $this->pendingApprovals(), ApprovalService::currentUserId());
+            }
+
+            return self::AWAITING_REPLY;
+        }
+
+        $this->awaitingApproval = false;
+        $this->saveTurnNotice();
+        $this->saveTurnChanges();
+
+        return (string) $state->getMessage()?->getContent();
+    }
+
+    /**
+     * A new message while calls wait (B-ERR-5, plans/P3.6-1.md §3): every call not yet sent to Neuron is not approved,
+     * and the run they paused is sent the rejections, so the model hears it and the chat's order stays one it accepts.
+     * The model's reply to that is stored but hidden from the panel. Should the model ask for another gated call at
+     * once, that is rejected the same way, up to three times. Never throws: a failure is logged, and the turn goes on
+     * to the order check, which refuses it at no cost.
+     */
+    private function settleWaitingCalls(): void
+    {
+        if ($this->chatId === null) {
+            return;
+        }
+
+        try {
+            $userId = ApprovalService::currentUserId();
+            for ($round = 0; $round < 3; $round++) {
+                $decisions = $this->approvals()->claimAllAsNotApproved($this->chatId, $userId);
+                $waiting = $this->pendingApprovals();
+                foreach ($waiting as $action) {
+                    $decisions[$action->id] ??= ['reject', ApprovalService::NEW_MESSAGE_REASON];
+                }
+                $this->settledCallIds = array_values(array_unique([...$this->settledCallIds, ...array_map('strval', array_keys($decisions))]));
+                foreach ($this->approvals()->cards($this->chatId, array_map('strval', array_keys($decisions))) as $card) {
+                    $this->log->decided($this->chatId, $card['tool'], $card['callId'], $card['status'], $userId);
+                }
+                if ($waiting === []) {
+                    return;
+                }
+
+                $state = $this->submitApprovalDecisions($decisions)->run();
+                if ($state->isInterrupted() && $state->getInterruptRequest() instanceof ApprovalRequest) {
+                    $this->approvals()->record($this->chatId, $this->pendingApprovals(), $userId);
+                    continue;
+                }
+                $this->flagLastReply(self::HIDDEN_META_KEY, '1');
+
+                return;
+            }
+        } catch (\Throwable $e) {
+            \Concrete\Core\Support\Facade\Log::warning(
+                'Katalysis Neuron AI: could not settle the calls waiting for approval: ' . SecretRedactor::redact($e->getMessage())
+            );
+        }
+    }
+
+    /**
+     * Puts the calls a decision rejected (denied or stale) in the turn's record, for the "Changed" line.
+     *
+     * @param array<string, string|array{0: string, 1: string}> $decisions
+     */
+    private function noteRefusals(array $decisions): void
+    {
+        foreach ($this->approvals()->cards((int) $this->chatId, array_map('strval', array_keys($decisions))) as $card) {
+            if (isset(self::REFUSAL_PHRASES[$card['status']])) {
+                $target = $card['target'] . ($card['path'] !== '' ? ' (' . $card['path'] . ')' : '');
+                $this->turnChanges->refuse($card['tool'], $target, self::REFUSAL_PHRASES[$card['status']]);
+            }
         }
     }
 
@@ -730,16 +977,23 @@ INST);
      * placeholder reply, which has no row: the error reply is stored in its place, directly, since adding it to the view
      * would put two replies in a row.
      */
-    private function storeFailedTurn(UserMessage $userMessage): void
+    private function storeFailedTurn(?UserMessage $userMessage): void
     {
         try {
             if ($this->getThreadId() === null) {
                 return;
             }
 
+            // P3.6-1: the run's state is kept in the database now; a failed run is ended, not left for the next turn.
+            try {
+                Workflow::abandon();
+            } catch (\Throwable) {
+                // Nothing to end, or Neuron still holds it: the next turn's start replaces a failed run anyway.
+            }
+
             $history = $this->getChatHistory();
             $stored = array_map(static fn (Message $m): string => $m->getId(), $history->getMessages());
-            if (!in_array($userMessage->getId(), $stored, true)) {
+            if ($userMessage !== null && !in_array($userMessage->getId(), $stored, true)) {
                 $history->addMessage($userMessage);
             }
 
@@ -754,6 +1008,8 @@ INST);
 
             // The turn read flagged content before it failed, so the recovery message carries the flag too.
             $this->saveTurnNotice();
+            // And what it changed before the error (P3.6-1).
+            $this->saveTurnChanges(true);
         } catch (\Throwable $historyError) {
             \Concrete\Core\Support\Facade\Log::warning(
                 'Failed to store the failed turn: ' . SecretRedactor::redact($historyError->getMessage())
@@ -784,6 +1040,36 @@ INST);
         } catch (\Throwable $e) {
             \Concrete\Core\Support\Facade\Log::warning(
                 'Katalysis Neuron AI: could not store the injection notice: ' . SecretRedactor::redact($e->getMessage())
+            );
+        }
+    }
+
+    /**
+     * Stores the turn's "Changed: …" line on its final reply (TurnChanges::META_KEY), so a reload shows it (P3.6-1).
+     * After a failed turn the line starts "Before the error: ". Never throws.
+     */
+    private function saveTurnChanges(bool $failed = false): void
+    {
+        $line = $this->turnChanges->line($failed);
+        if ($line !== null) {
+            $this->flagLastReply(TurnChanges::META_KEY, ['line' => $line]);
+        }
+    }
+
+    /**
+     * @param string|array<string, mixed> $value
+     */
+    private function flagLastReply(string $key, string|array $value): void
+    {
+        try {
+            $store = $this->resolveMessageStore();
+            $thread = $this->getThreadId();
+            if ($store instanceof ChatMessageStore && $thread !== null) {
+                $store->flagLastAssistantMessage($thread, $key, $value);
+            }
+        } catch (\Throwable $e) {
+            \Concrete\Core\Support\Facade\Log::warning(
+                'Katalysis Neuron AI: could not store the reply\'s ' . $key . ': ' . SecretRedactor::redact($e->getMessage())
             );
         }
     }
