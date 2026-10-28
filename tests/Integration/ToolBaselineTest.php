@@ -105,6 +105,12 @@ final class ToolBaselineTest extends ConcreteTestCase
             $this->assertContains($key, $names);
             $this->assertNotSame('', trim($reason));
         }
+        // BF-16: a tool disabled since the capture is still defined, and is now in DisabledTools.
+        foreach (ToolBaseline::DISABLED_SINCE as $key => $reason) {
+            $this->assertContains($key, $names);
+            $this->assertNotSame('', trim($reason));
+            $this->assertContains(substr($key, (int) strpos($key, '::') + 2), DisabledTools::names());
+        }
     }
 
     public function testTheCoreToolkitsAreOfferedAsOnNeuron3(): void
@@ -112,12 +118,13 @@ final class ToolBaselineTest extends ConcreteTestCase
         $registered = array_slice(ToolBaseline::coreToolkits(), 0, -1);
         $offered = DisabledTools::apply(ToolNameResolver::resolve($registered, [], static function (): void {}), static function (): void {});
 
-        $this->assertSame($this->baseline()['offered'], ToolBaseline::offered($offered));
+        // The capture, without the tools disabled on purpose since (ToolBaseline::DISABLED_SINCE).
+        $this->assertSame(ToolBaseline::capturedOffered($this->baseline()['offered']), ToolBaseline::offered($offered));
     }
 
     public function testTheAgentOffersTheSameCoreTools(): void
     {
         // The agent's real list: name resolution, disabled tools, then the result scanner's wrapping.
-        $this->assertSame($this->baseline()['offered'], ToolBaseline::offered((new ConcreteCmsAgent())->getTools()));
+        $this->assertSame(ToolBaseline::capturedOffered($this->baseline()['offered']), ToolBaseline::offered((new ConcreteCmsAgent())->getTools()));
     }
 }
