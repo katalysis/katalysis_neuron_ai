@@ -15,6 +15,8 @@
  *   - a non-admin user, "neuron_editor" (can edit /neuron-test, cannot use the assistant: the "no access" fixture)
  *   - a non-admin user, "neuron_chat_editor" (P1.10a: the same /neuron-test rights, plus the Concrete task permission
  *     "Use Neuron AI assistant", through the group "Neuron Test Editors" that this script creates and puts the user in)
+ *   - a non-admin user, "neuron_content_editor" (P3.2-1: the same rights and the same group as neuron_chat_editor, so
+ *     Tier 1 (Content); the scenarios run as this user, and Glyn's browser checks use neuron_chat_editor)
  *
  * Run it from httpdocs/ with Concrete's own runner. Options after "--" are passed to this script:
  *
@@ -111,6 +113,9 @@ $seedStatus = (function () use ($args, $output) {
     $chatUserName = 'neuron_chat_editor';
     $chatUserEmail = 'neuron_chat_editor@neuron-test.invalid';
     $chatUserPassword = 'NeuronChatEditorDev#1'; // dev-only throwaway; documented in SETUP.md
+    $contentUserName = 'neuron_content_editor';
+    $contentUserEmail = 'neuron_content_editor@neuron-test.invalid';
+    $contentUserPassword = 'NeuronContentEditorDev#1'; // dev-only throwaway; documented in SETUP.md
     $settingsPagePath = '/dashboard/system/ai/neuron_ai'; // only for the clean-up of the old P1.10 grant
     $groupName = 'Neuron Test Editors';
     $groupMarker = $pageMarker; // the group's description; reset only touches a group with this name AND description
@@ -255,6 +260,9 @@ $seedStatus = (function () use ($args, $output) {
     $findChatUser = function () use ($lookupUser, $chatUserName) {
         return $lookupUser($chatUserName)[0];
     };
+    $findContentUser = function () use ($lookupUser, $contentUserName) {
+        return $lookupUser($contentUserName)[0];
+    };
     // [?Group, bool found by its stored ID]
     $lookupGroup = function () use ($groupName, &$record) {
         $id = (int) ($record['group'] ?? 0);
@@ -346,7 +354,7 @@ $seedStatus = (function () use ($args, $output) {
     };
     // Writes the IDs of what this script owns. An ID that is already stored and still exists is kept (so a plain run
     // changes nothing); content found by its marker is adopted; anything else is left out.
-    $storeRecord = function () use ($app, $db, &$record, $inspectRoot, $lookupUser, $lookupGroup, $lookupExpress, $findPersonIDs, $findFileIDs, $findPhotoIDs, $hasPeople, $userName, $userEmail, $chatUserName, $chatUserEmail, $groupMarker, $expressName) {
+    $storeRecord = function () use ($app, $db, &$record, $inspectRoot, $lookupUser, $lookupGroup, $lookupExpress, $findPersonIDs, $findFileIDs, $findPhotoIDs, $hasPeople, $userName, $userEmail, $chatUserName, $chatUserEmail, $contentUserName, $contentUserEmail, $groupMarker, $expressName) {
         // A lookup made before the content was created may be cached as "not found".
         $app->make('cache/request')->flush();
         $data = ['version' => 1];
@@ -355,7 +363,7 @@ $seedStatus = (function () use ($args, $output) {
             $data['rootPage'] = (int) $root['page']->getCollectionID();
         }
         $data['users'] = [];
-        foreach ([$userName => $userEmail, $chatUserName => $chatUserEmail] as $name => $email) {
+        foreach ([$userName => $userEmail, $chatUserName => $chatUserEmail, $contentUserName => $contentUserEmail] as $name => $email) {
             [$info, $stored] = $lookupUser($name);
             if ($info && ($stored || $info->getUserEmail() === $email)) {
                 $data['users'][$name] = (int) $info->getUserID();
@@ -588,6 +596,12 @@ $seedStatus = (function () use ($args, $output) {
 
             return 1;
         }
+        [$contentUser, $contentUserStored] = $lookupUser($contentUserName);
+        if ($contentUser && !$contentUserStored && $contentUser->getUserEmail() !== $contentUserEmail) {
+            $output->writeln('<error>User ' . $contentUserName . ' exists but was not created by this script. Nothing was deleted.</error>');
+
+            return 1;
+        }
         [$group, $groupStored] = $lookupGroup();
         if ($group && !$groupStored && $group->getGroupDescription() !== $groupMarker) {
             $output->writeln('<error>Group ' . $groupName . ' exists but was not created by this script. Nothing was deleted.</error>');
@@ -622,6 +636,9 @@ $seedStatus = (function () use ($args, $output) {
         }
         if ($chatUser && $chatUserStored && $chatUser->getUserEmail() !== $chatUserEmail) {
             $output->writeln('  user ' . $chatUserName . ': email differs from the seed text; discarded');
+        }
+        if ($contentUser && $contentUserStored && $contentUser->getUserEmail() !== $contentUserEmail) {
+            $output->writeln('  user ' . $contentUserName . ': email differs from the seed text; discarded');
         }
         if ($group && $groupStored && $group->getGroupDescription() !== $groupMarker) {
             $output->writeln('  group ' . $groupName . ': description differs from the seed text; discarded');
@@ -675,7 +692,8 @@ $seedStatus = (function () use ($args, $output) {
         // the page and the user leaves them behind. Remember the ones that belong only to this fixture.
         $editorEntityID = $entityIDOf($user);
         $chatEntityID = $entityIDOf($chatUser);
-        $fixtureEntityIDs = array_values(array_filter([$editorEntityID, $chatEntityID]));
+        $contentEntityID = $entityIDOf($contentUser);
+        $fixtureEntityIDs = array_values(array_filter([$editorEntityID, $chatEntityID, $contentEntityID]));
         $entityMarks = implode(',', array_fill(0, max(1, count($fixtureEntityIDs)), '?'));
         $fixtureAccessIDs = [];
         $fixtureAreaAccessIDs = [];
@@ -812,6 +830,10 @@ $seedStatus = (function () use ($args, $output) {
             $chatUser->delete();
             $output->writeln('  deleted user ' . $chatUserName);
         }
+        if ($contentUser) {
+            $contentUser->delete();
+            $output->writeln('  deleted user ' . $contentUserName);
+        }
         // Remove the permission rows remembered above, unless something else still uses them.
         foreach ($fixtureAccessIDs as $paID) {
             $inUse = (int) $db->fetchOne('SELECT COUNT(*) FROM PagePermissionAssignments WHERE paID = ?', [$paID])
@@ -876,16 +898,31 @@ $seedStatus = (function () use ($args, $output) {
         $output->writeln('user ' . $chatUserName . ': created (password in SETUP.md)');
     }
 
+    $contentUser = $findContentUser();
+    if ($contentUser) {
+        $output->writeln('user ' . $contentUserName . ': already exists, left alone');
+    } else {
+        $contentUser = $app->make(RegistrationServiceInterface::class)->create([
+            'uName' => $contentUserName,
+            'uEmail' => $contentUserEmail,
+            'uPassword' => $contentUserPassword,
+            'uIsValidated' => 1,
+        ]);
+        $output->writeln('user ' . $contentUserName . ': created (password in SETUP.md)');
+    }
+
     // The old P1.10 settings-page grant, if this site still has it (dev-only clean-up, see the header).
     $removeLegacySettingsGrant();
 
-    // Panel access, through Concrete's task permission "Use Neuron AI assistant": the group "Neuron Test Editors" holds
-    // the chat user and is added to the permission's access list (additive: nobody else's access changes).
+    // Panel access, through Concrete's task permission "Use Neuron AI assistant" (Tier 1, P3.2-1): the group "Neuron
+    // Test Editors" holds the chat user and the content user and is added to the permission's access list (additive:
+    // nobody else's access changes).
+    $assistantUsers = [$chatUserName => $chatUser, $contentUserName => $contentUser];
     [$group, $groupStored] = $lookupGroup();
     if ($group && !$groupStored && $group->getGroupDescription() !== $groupMarker) {
-        $output->writeln('<comment>group ' . $groupName . ': a group with this name exists without the marker, so ' . $chatUserName . ' has no panel access.</comment>');
+        $output->writeln('<comment>group ' . $groupName . ': a group with this name exists without the marker, so ' . implode(' and ', array_keys($assistantUsers)) . ' have no panel access.</comment>');
     } elseif (!PermissionKey::getByHandle($useKeyHandle)) {
-        $output->writeln('<comment>task permission "' . $useKeyHandle . '" not found (run c5:package:update katalysis_neuron_ai): ' . $chatUserName . ' has no panel access.</comment>');
+        $output->writeln('<comment>task permission "' . $useKeyHandle . '" not found (run c5:package:update katalysis_neuron_ai): ' . implode(' and ', array_keys($assistantUsers)) . ' have no panel access.</comment>');
     } else {
         if ($group) {
             $output->writeln('group ' . $groupName . ': already exists, left alone');
@@ -893,11 +930,13 @@ $seedStatus = (function () use ($args, $output) {
             $group = Group::add($groupName, $groupMarker);
             $output->writeln('group ' . $groupName . ': created');
         }
-        if ((int) $db->fetchOne('SELECT COUNT(*) FROM UserGroups WHERE uID = ? AND gID = ?', [$chatUser->getUserID(), $group->getGroupID()]) > 0) {
-            $output->writeln('group ' . $groupName . ': ' . $chatUserName . ' is already a member');
-        } else {
-            $chatUser->getUserObject()->enterGroup($group);
-            $output->writeln('group ' . $groupName . ': ' . $chatUserName . ' added');
+        foreach ($assistantUsers as $assistantUserName => $assistantUser) {
+            if ((int) $db->fetchOne('SELECT COUNT(*) FROM UserGroups WHERE uID = ? AND gID = ?', [$assistantUser->getUserID(), $group->getGroupID()]) > 0) {
+                $output->writeln('group ' . $groupName . ': ' . $assistantUserName . ' is already a member');
+            } else {
+                $assistantUser->getUserObject()->enterGroup($group);
+                $output->writeln('group ' . $groupName . ': ' . $assistantUserName . ' added');
+            }
         }
         [$useKey, $useAccess] = $writableUseAccess();
         $groupEntity = GroupEntity::getOrCreate($group);
@@ -1047,7 +1086,7 @@ $seedStatus = (function () use ($args, $output) {
 
     // Pages added after P0.6 for the P1.2 scenarios. Each is created only if it is missing, so a site seeded by the
     // earlier version of this script gets them without a reset. They all sit under /neuron-test, so --reset removes them.
-    $ensureScenarioPages = function (Page $root) use ($pagePath, $addPage, $contentType, $output, $findPhotoIDs, $findExpress, $grantKey, $user, $chatUser) {
+    $ensureScenarioPages = function (Page $root) use ($pagePath, $addPage, $contentType, $output, $findPhotoIDs, $findExpress, $grantKey, $user, $chatUser, $contentUser) {
         $missing = function (string $path) {
             $page = Page::getByPath($path);
 
@@ -1149,7 +1188,7 @@ $seedStatus = (function () use ($args, $output) {
             }
             $blockTypesMain = Area::getOrCreate($blockTypes, 'Main');
             $blockTypesMain->overridePagePermissions();
-            foreach ([$user, $chatUser] as $fixtureUser) {
+            foreach ([$user, $chatUser, $contentUser] as $fixtureUser) {
                 $grantKey($blockTypesMain, 'add_block_to_area', UserEntity::getOrCreate($fixtureUser));
             }
             $output->writeln('page ' . $pagePath . '/block-types: created');
@@ -1169,7 +1208,7 @@ $seedStatus = (function () use ($args, $output) {
             $editKey = PermissionKey::getByHandle('edit_page_contents');
             $editKey->setPermissionObject($locked);
             $editAccess = $editKey->getPermissionAccessObject()->duplicate();
-            foreach ([$user, $chatUser] as $fixtureUser) {
+            foreach ([$user, $chatUser, $contentUser] as $fixtureUser) {
                 $editAccess->removeListItem(UserEntity::getOrCreate($fixtureUser));
             }
             $editKey->getPermissionAssignmentObject()->assignPermissionAccess($editAccess);
@@ -1193,11 +1232,14 @@ $seedStatus = (function () use ($args, $output) {
             $output->writeln('pages ' . $pagePath . ': already exist, left alone');
         }
         $ensureScenarioPages($existingRoot);
-        // A site seeded before neuron_chat_editor existed: give that user the same rights, once.
-        if (!$hasPageGrant($existingRoot, $chatUser)) {
-            $existingHeadings = Page::getByPath($pagePath . '/headings');
-            $grantFixtureUser($existingRoot, ($existingHeadings && !$existingHeadings->isError()) ? $existingHeadings : null, $chatUser);
-            $output->writeln('pages ' . $pagePath . ': ' . $chatUserName . ' granted the same rights as ' . $userName);
+        // A site seeded before neuron_chat_editor (or neuron_content_editor, P3.2-1) existed: give that user the same
+        // rights, once. The /block-types grant and /locked's exclusion come only with a fresh tree: run --reset.
+        foreach ([$chatUserName => $chatUser, $contentUserName => $contentUser] as $laterUserName => $laterUser) {
+            if (!$hasPageGrant($existingRoot, $laterUser)) {
+                $existingHeadings = Page::getByPath($pagePath . '/headings');
+                $grantFixtureUser($existingRoot, ($existingHeadings && !$existingHeadings->isError()) ? $existingHeadings : null, $laterUser);
+                $output->writeln('pages ' . $pagePath . ': ' . $laterUserName . ' granted the same rights as ' . $userName . ' (run --reset for /block-types and /locked)');
+            }
         }
         $storeRecord();
 
@@ -1207,7 +1249,7 @@ $seedStatus = (function () use ($args, $output) {
     // The parent page goes first, and gets the users' rights, so the child pages inherit them.
     $root = $addPage($home, 'Neuron Test', 'neuron-test', $pageMarker);
     $root->setPermissionsToOverride();
-    foreach ([$user, $chatUser] as $fixtureUser) {
+    foreach ([$user, $chatUser, $contentUser] as $fixtureUser) {
         foreach ($fixturePageKeys as $pkHandle) {
             $grantKey($root, $pkHandle, UserEntity::getOrCreate($fixtureUser));
         }
@@ -1238,7 +1280,7 @@ $seedStatus = (function () use ($args, $output) {
     // plus an add-block entry for each fixture user (all block types). No other page or area is changed.
     $headingsMain = Area::getOrCreate($headings, 'Main');
     $headingsMain->overridePagePermissions();
-    foreach ([$user, $chatUser] as $fixtureUser) {
+    foreach ([$user, $chatUser, $contentUser] as $fixtureUser) {
         $grantKey($headingsMain, 'add_block_to_area', UserEntity::getOrCreate($fixtureUser));
     }
 

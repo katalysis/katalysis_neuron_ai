@@ -22,6 +22,7 @@ use Katalysis\NeuronAi\Extension\Tier;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\TaskKeyFixture;
 use Katalysis\NeuronAi\Tests\Support\ToolBaseline;
+use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\ToolTiers;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 
@@ -161,6 +162,9 @@ final class TierAccessTest extends ConcreteTestCase
     {
         $core = [];
         foreach (ToolBaseline::coreToolkits() as $toolkit) {
+            if ($toolkit instanceof AttributesToolkit) {
+                continue; // not registered by the agent (P1.8a); deleted in P3.3-3
+            }
             foreach ($toolkit->tools() as $tool) {
                 $core[] = $tool->getName();
             }
@@ -218,6 +222,7 @@ final class TierAccessTest extends ConcreteTestCase
         $this->assertSame([$this->administratorsEntityID()], $this->listedEntities(NeuronPermissions::TIER_CONFIGURE_HANDLE), 'Default: Administrators configure.');
         $this->assertFalse($this->hasAssignment(NeuronPermissions::TIER_GENERATE_HANDLE), 'Default: nobody but the super user generates.');
 
+        $this->actAs('guest');
         $admin = $this->fixture->createUser('admin');
         $this->fixture->addToGroup($admin, Group::getByID(ADMIN_GROUP_ID));
         $this->actAs($admin);
@@ -237,8 +242,13 @@ final class TierAccessTest extends ConcreteTestCase
         return $this->app()->make(Connection::class);
     }
 
+    /**
+     * Throwaway users and groups are created as the guest: Concrete records who created a user or group, and a user
+     * set with setCustomRequestUser() is not one Doctrine can persist that record against.
+     */
     private function userHolding(string $handle, string $label): UserInfo
     {
+        $this->actAs('guest');
         $user = $this->fixture->createUser($label);
         $group = $this->fixture->createGroup();
         $this->fixture->addToGroup($user, $group);

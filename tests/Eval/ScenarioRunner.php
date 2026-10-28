@@ -10,6 +10,7 @@ use Concrete\Core\Http\Request;
 use Concrete\Core\Page\Page;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
+use Katalysis\NeuronAi\Access\NeuronPermissions;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Entity\Chat;
@@ -226,6 +227,13 @@ final class ScenarioRunner
         }
 
         Request::getInstance()->setCustomRequestUser($info);
+        $this->app->make('cache/request')->flush();
+
+        // P3.2-1: the agent offers a user only the tools their tier allows, so a user with no tier would be offered
+        // none and every run would fail for a reason the scenario isn't about.
+        if (NeuronPermissions::tier() < 1) {
+            throw new \RuntimeException("The user \"{$who}\" holds no Neuron AI tier key, so the assistant would offer no tools. Scenarios run as neuron_content_editor (run the seed) or superuser.");
+        }
 
         return (int) $info->getUserID();
     }

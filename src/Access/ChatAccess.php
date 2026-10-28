@@ -16,7 +16,8 @@ use Concrete\Core\Validation\CSRF\Token;
  * hidden is never the only thing standing between a user and the endpoints.
  *
  * Access is Concrete's own task permission "Use Neuron AI assistant" (see NeuronPermissions),
- * set under Dashboard > System & Settings > Permissions & Access > Tasks. P3.2 adds tier keys.
+ * set under Dashboard > System & Settings > Permissions & Access > Tasks, or a higher tier's key (P3.2-1). The panel
+ * is sent only where Concrete shows the user the toolbar, not everywhere (Glyn, on P3.2-1).
  */
 final class ChatAccess
 {
@@ -33,13 +34,13 @@ final class ChatAccess
     public const TOKEN_ERROR_CODE = 'invalid_token';
 
     /**
-     * A registered user who has the "Use Neuron AI assistant" task permission (the super user always
-     * does). Registered users only, deliberately: guests never get the assistant, even if an admin
-     * grants the permission to the Guest group.
+     * A registered user with a tier: the "Use Neuron AI assistant" task permission or a higher tier's key (P3.2-1;
+     * tiers are cumulative), and the super user always. Registered users only, deliberately: guests never get the
+     * assistant, even if an admin grants the permission to the Guest group.
      */
     public static function canUse(): bool
     {
-        return NeuronPermissions::userHas(NeuronPermissions::USE_HANDLE);
+        return NeuronPermissions::tier() >= 1;
     }
 
     /**

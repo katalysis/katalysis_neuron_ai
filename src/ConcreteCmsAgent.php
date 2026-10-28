@@ -37,6 +37,9 @@ use Katalysis\NeuronAi\Security\ToolResultScanner;
 use Katalysis\NeuronAi\Tools\DisabledTools;
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\ToolNameResolver;
+use Katalysis\NeuronAi\Tools\ToolTiers;
+use Katalysis\NeuronAi\Access\NeuronPermissions;
+use Katalysis\NeuronAi\Access\TierGate;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use NeuronAI\Agent\Observability\ToolCalled;
@@ -140,9 +143,14 @@ class ConcreteCmsAgent extends Agent
 
         // On a name clash the external tool wins; then the disabled-tools list is applied to everything.
         $tools = ToolNameResolver::resolve($this->coreToolkits(), $this->externalToolkits->toolkits());
+        $tools = DisabledTools::apply($tools);
+
+        // P3.2-1 (B-ACC-2): only the tools the user's tier allows. An external tool keeps its own tier on a clash, as
+        // it keeps its name.
+        $tools = TierGate::apply($tools, NeuronPermissions::tier(), $this->externalToolkits->tiers() + ToolTiers::all());
 
         // Last, so every tool the model can call is covered: results are scanned for text addressed to the assistant (P1.11).
-        return $this->toolResultScanner()->wrap(DisabledTools::apply($tools));
+        return $this->toolResultScanner()->wrap($tools);
     }
 
     /**

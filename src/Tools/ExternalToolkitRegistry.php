@@ -6,8 +6,10 @@ namespace Katalysis\NeuronAi\Tools;
 
 use Concrete\Core\Support\Facade\Log;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Extension\Tier;
 use Katalysis\NeuronAi\Extension\ToolDefinition;
 use Katalysis\NeuronAi\Security\SecretRedactor;
+use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 
 class ExternalToolkitRegistry
@@ -70,11 +72,14 @@ class ExternalToolkitRegistry
 
         $toolkits = [];
         $skipped = [];
+        $tiers = [];
 
         foreach (self::$factories as $key => $factory) {
             if (is_array($factory) && isset($factory['definitions'])) {
                 try {
-                    $toolkits[] = self::buildDefinitions($factory, $isRegistered);
+                    [$toolkits[], $built] = self::buildDefinitions($factory, $isRegistered);
+                    // Between two packages the first registered keeps a tool name (ToolNameResolver), and its tier.
+                    $tiers += $built;
                 } catch (\Throwable $e) {
                     $skipped[] = self::skip($logger, (string) $key, $factory['label'], $e);
                 }
@@ -105,14 +110,30 @@ class ExternalToolkitRegistry
                 }
 
                 try {
-                    $toolkits[] = FilteredToolkit::built($toolkit, $toolkit->tools());
+                    $tools = $toolkit->tools();
+                    $toolkits[] = FilteredToolkit::built($toolkit, $tools);
+                    // A Neuron toolkit can't declare a tier: the defaults apply to each of its tools (B-ACC-8).
+                    foreach ($tools as $tool) {
+                        if ($tool instanceof ToolInterface) {
+                            $tiers[$tool->getName()] ??= self::defaultTier($tool->getName(), false);
+                        }
+                    }
                 } catch (\Throwable $e) {
                     $skipped[] = self::skip($logger, (string) $key, $toolkit::class, $e);
                 }
             }
         }
 
-        return new ExternalToolkitBuild($toolkits, $skipped);
+        return new ExternalToolkitBuild($toolkits, $skipped, $tiers);
+    }
+
+    /**
+     * P3.2-1 (B-ACC-8): the tier of an external tool that declares none. A read is Tier 1. A write needs the Tier 3 key
+     * (admin-only, Glyn on approving the plan); a tool counts as a write if it says so or its name does (ToolKind).
+     */
+    public static function defaultTier(string $toolName, bool $declaredWrite): Tier
+    {
+        return $declaredWrite || ToolKind::isWrite($toolName) ? Tier::GENERATE : Tier::CONTENT;
     }
 
     public static function getExternalToolkits(): array
@@ -121,12 +142,14 @@ class ExternalToolkitRegistry
     }
 
     /**
-     * One provider's ToolDefinitions as a toolkit headed by its label, each tool behind the login check.
+     * One provider's ToolDefinitions as a toolkit headed by its label, each tool behind the login check, and each
+     * tool's tier (declared, or the default).
      *
      * @param array{definitions: callable(): array, guidelines: ?string, label: string} $provider
      * @param callable(): bool $isRegistered
+     * @return array{FilteredToolkit, array<string, Tier>}
      */
-    private static function buildDefinitions(array $provider, callable $isRegistered): FilteredToolkit
+    private static function buildDefinitions(array $provider, callable $isRegistered): array
     {
         $definitions = ($provider['definitions'])();
         if (!is_array($definitions)) {
@@ -134,6 +157,7 @@ class ExternalToolkitRegistry
         }
 
         $tools = [];
+        $tiers = [];
         foreach ($definitions as $definition) {
             if (!$definition instanceof ToolDefinition) {
                 throw new \UnexpectedValueException(sprintf(
@@ -143,7 +167,8 @@ class ExternalToolkitRegistry
                 ));
             }
 
-            $tools[] = $definition->toNeuronTool()->wrapHandler(
+            $tiers[$definition->name()] = $definition->declaredTier() ?? self::defaultTier($definition->name(), $definition->isWrite());
+            $tools[] =$definition->toNeuronTool()->wrapHandler(
                 static fn (\Closure $handler): \Closure => static function (mixed ...$in) use ($handler, $isRegistered): mixed {
                     if (!$isRegistered()) {
                         throw new \RuntimeException('Authentication required: Please log in to use this tool.');
@@ -160,7 +185,7 @@ class ExternalToolkitRegistry
             );
         }
 
-        return new FilteredToolkit($tools, $provider['guidelines'], null, $provider['label']);
+        return [new FilteredToolkit($tools, $provider['guidelines'], null, $provider['label']), $tiers];
     }
 
     /**
