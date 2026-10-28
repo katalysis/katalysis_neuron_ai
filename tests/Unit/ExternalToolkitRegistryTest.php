@@ -262,6 +262,50 @@ final class ExternalToolkitRegistryTest extends TestCase
         $this->assertStringContainsString($named, $build->skipped()[0]['reason']);
     }
 
+    /**
+     * P3.5-2 (B-SEC-1, from P2.8): katalysis_pro's guarded() returns a caught exception's raw message as
+     * {ok: false, error}, which never passed SecretRedactor. The core's wrapper redacts every external result.
+     */
+    public function testAnExternalToolsErrorResultIsRedacted(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('leaky_package', static fn (): array => [
+            ToolDefinition::make('get_leak', 'Leaks.')->handler(static fn (array $in): array => [
+                'ok' => false,
+                'error' => 'HTTP 401: Incorrect API key provided: sk-proj-abcdefghijklmnop',
+                'nested' => ['detail' => 'Bearer abcdefghijklmnopqrstuvwxyz'],
+            ]),
+        ]);
+        $tool = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true)->toolkits()[0]->tools()[0];
+
+        $tool->setInputs([]);
+        $tool->execute();
+        $result = (string) $tool->getResult();
+
+        $this->assertStringNotContainsString('sk-proj-abcdefghijklmnop', $result);
+        $this->assertStringNotContainsString('abcdefghijklmnopqrstuvwxyz', $result);
+        $this->assertStringContainsString('[redacted]', $result);
+        $this->assertStringContainsString('Incorrect API key provided', $result, 'the rest of the message stays');
+    }
+
+    public function testAnExternalToolsExceptionIsRedacted(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('throwing_package', static fn (): array => [
+            ToolDefinition::make('get_throw', 'Throws.')->handler(static function (array $in): array {
+                throw new \RuntimeException('provider said: sk-proj-abcdefghijklmnop is invalid');
+            }),
+        ]);
+        $tool = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true)->toolkits()[0]->tools()[0];
+
+        $tool->setInputs([]);
+        try {
+            $tool->execute();
+            $this->fail('the exception was swallowed');
+        } catch (\RuntimeException $e) {
+            $this->assertStringNotContainsString('sk-proj-abcdefghijklmnop', $e->getMessage());
+            $this->assertStringContainsString('is invalid', $e->getMessage());
+        }
+    }
+
     public function testADefinitionToolRunsOnlyForARegisteredUser(): void
     {
         $registered = false;
