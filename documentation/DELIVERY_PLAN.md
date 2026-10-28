@@ -372,7 +372,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - more than 20 lines of working code are deleted: covered by this plan
   - scenarios: `--fake` of 05, 07, 13; none new or changed, so no paid run. Compared ×3 in P3.S2
 - [x] P3.3-4 **Split `PagesToolkit.php`, mechanically** (M). Done (PR #84). Depends on: P3.3-1, P3.3-2, P3.4 and P3.5-1's Pages half.
-  - `PagesToolkit` (3,490 lines, 18 tools) becomes Pages, Content (page blocks and areas) and BatchEdit; two PRs if that is easier to review (Content out, then BatchEdit out)
+  - `PagesToolkit` (3,061 lines, 17 tools at the split) becomes Pages, Content (page blocks and areas) and BatchEdit; two PRs if that is easier to review (Content out, then BatchEdit out)
   - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
   - the tools stay on `CallableTool` (the subclass conversion is dropped)
   - scenarios: `--fake` of the write scenarios; none new or changed, so no paid run. Compared ×3 in P3.S2
