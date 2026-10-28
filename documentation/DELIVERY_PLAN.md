@@ -685,7 +685,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - the `DisabledToolsTest` list change (approved), in its own commit with the reason
   - the fix goes in Phase 6's entry
   - no paid scenario runs; a free `--fake` run only
-- [ ] BF-17 **Block writes refuse unknown fields** (small; its own PR into `development`; no plan stop; P3.S1's regression, Glyn; before Stage 2). Found in P3.S1: scenario 30 went pass → fail because `add_block_to_page_area` dropped field names the Feature block doesn't have (`description`, `heading`, `content`; its fields are `title` and `paragraph`) and reported success; 07's one failed run was the same (`html` on an HTML block). Only the Express form block refused unknown inputs. Scope:
+- [x] BF-17 **Block writes refuse unknown fields** (small; Done (PR #80); its own PR into `development`; no plan stop; P3.S1's regression, Glyn; before Stage 2). Found in P3.S1: scenario 30 went pass → fail because `add_block_to_page_area` dropped field names the Feature block doesn't have (`description`, `heading`, `content`; its fields are `title` and `paragraph`) and reported success; 07's one failed run was the same (`html` on an HTML block). Only the Express form block refused unknown inputs. Scope:
   - `add_block_to_page_area`, `update_block_in_page_area` and `batch_update_page_content` refuse a field the block type doesn't have, before any draft, and the message names the block type's real fields
   - a red-first test per tool
   - scenarios: `--fake` of 07 and 27–32, then 30 and 07 ×3; cap $0.50
