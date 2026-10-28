@@ -358,10 +358,8 @@ class PeopleToolkit extends AbstractToolkit
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException('Permission denied: Only super users can update people');
-            }
+            // P3.5-1: katalysis_pro's own gate for people (its Dashboard page), not super user only.
+            \Katalysis\NeuronAi\Access\ObjectPermissions::deny(\Katalysis\NeuronAi\Access\ObjectPermissions::viewDashboardPage('/dashboard/katalysis_pro/katalysis_people', 'change a person\'s specialisms or topics'));
 
             // Verify person exists
             $person = Person::getByID($person_id);
@@ -450,10 +448,8 @@ class PeopleToolkit extends AbstractToolkit
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException('Permission denied: Only super users can update people');
-            }
+            // P3.5-1: katalysis_pro's own gate for people (its Dashboard page), not super user only.
+            \Katalysis\NeuronAi\Access\ObjectPermissions::deny(\Katalysis\NeuronAi\Access\ObjectPermissions::viewDashboardPage('/dashboard/katalysis_pro/katalysis_people', 'change a person\'s specialisms or topics'));
 
             // Verify person exists
             $person = Person::getByID($person_id);

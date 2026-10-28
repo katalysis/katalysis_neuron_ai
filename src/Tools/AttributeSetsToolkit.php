@@ -11,6 +11,7 @@ use Concrete\Core\Attribute\Category\CategoryService;
 use Concrete\Core\Attribute\Set as AttributeSet;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
@@ -25,6 +26,9 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class AttributeSetsToolkit extends AbstractToolkit
 {
+    /** P3.5-1: the Dashboard page Concrete manages attribute sets on; access to it is the permission these tools check. */
+    private const SETS_PAGE = '/dashboard/system/attributes/sets';
+
     public function guidelines(): ?string
     {
         return "Use these tools to manage attribute sets in Concrete CMS. Attribute sets organize attributes into logical groups in the CMS interface. You can list existing sets, create new sets, delete sets (attributes are not deleted, just ungrouped), add attributes to sets, and remove attributes from sets. All tools support three categories: 'collection' (for pages), 'user' (for user attributes), and 'file' (for file attributes). The category parameter defaults to 'collection'. When working with sets, you can identify them by their handle (lowercase with underscores).";
@@ -132,14 +136,12 @@ class AttributeSetsToolkit extends AbstractToolkit
             ?string $category = 'collection'
         ): array {
             if (empty($handle) || empty($name)) {
-                throw new \RuntimeException('Both handle and name are required');
+                throw new \RuntimeException('create_attribute_set needs handle and name. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can create attribute sets");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for attribute sets, not super user only.
+            ObjectPermissions::deny(ObjectPermissions::viewDashboardPage(self::SETS_PAGE, 'create an attribute set'));
 
             // Get category service
             $app = Application::getFacadeApplication();
@@ -147,7 +149,7 @@ class AttributeSetsToolkit extends AbstractToolkit
             $categoryEntity = $categoryService->getByHandle($category);
             
             if (!$categoryEntity) {
-                throw new \RuntimeException("Category '{$category}' not found");
+                throw new \RuntimeException("There is no attribute category '{$category}': use 'collection' (pages), 'user' or 'file'. Nothing was changed.");
             }
 
             // Create the set
@@ -194,14 +196,12 @@ class AttributeSetsToolkit extends AbstractToolkit
             ?string $category = 'collection'
         ): array {
             if (empty($handle)) {
-                throw new \RuntimeException('Set handle is required');
+                throw new \RuntimeException('This tool needs handle: the set\'s handle, from list_attribute_sets. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can delete attribute sets");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for attribute sets, not super user only.
+            ObjectPermissions::deny(ObjectPermissions::viewDashboardPage(self::SETS_PAGE, 'delete an attribute set'));
 
             // Get category service
             $app = Application::getFacadeApplication();
@@ -209,13 +209,13 @@ class AttributeSetsToolkit extends AbstractToolkit
             $categoryEntity = $categoryService->getByHandle($category);
             
             if (!$categoryEntity) {
-                throw new \RuntimeException("Category '{$category}' not found");
+                throw new \RuntimeException("There is no attribute category '{$category}': use 'collection' (pages), 'user' or 'file'. Nothing was changed.");
             }
 
             // Get the set
             $set = AttributeSet::getByHandle($handle);
             if (!$set) {
-                throw new \RuntimeException("Attribute set '{$handle}' not found");
+                throw new \RuntimeException("There is no attribute set '{$handle}'. list_attribute_sets lists them. Nothing was changed.");
             }
 
             $setName = $set->getAttributeSetName();
@@ -266,14 +266,12 @@ class AttributeSetsToolkit extends AbstractToolkit
             ?string $category = 'collection'
         ): array {
             if (empty($attribute_handle) || empty($set_handle)) {
-                throw new \RuntimeException('Both attribute_handle and set_handle are required');
+                throw new \RuntimeException('add_attribute_to_set needs attribute_handle and set_handle. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can modify attribute sets");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for attribute sets, not super user only.
+            ObjectPermissions::deny(ObjectPermissions::viewDashboardPage(self::SETS_PAGE, 'change an attribute set'));
 
             // Get attribute key based on category
             $ak = null;
@@ -298,7 +296,7 @@ class AttributeSetsToolkit extends AbstractToolkit
             // Get the set
             $set = AttributeSet::getByHandle($set_handle);
             if (!$set) {
-                throw new \RuntimeException("Attribute set '{$set_handle}' not found");
+                throw new \RuntimeException("There is no attribute set '{$set_handle}'. list_attribute_sets lists them. Nothing was changed.");
             }
 
             // Add attribute to set
@@ -348,14 +346,12 @@ class AttributeSetsToolkit extends AbstractToolkit
             ?string $category = 'collection'
         ): array {
             if (empty($attribute_handle)) {
-                throw new \RuntimeException('attribute_handle is required');
+                throw new \RuntimeException('remove_attribute_from_set needs attribute_handle. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can modify attribute sets");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for attribute sets, not super user only.
+            ObjectPermissions::deny(ObjectPermissions::viewDashboardPage(self::SETS_PAGE, 'change an attribute set'));
 
             // Get attribute key based on category
             $ak = null;

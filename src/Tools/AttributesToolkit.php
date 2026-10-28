@@ -251,11 +251,8 @@ class AttributesToolkit extends AbstractToolkit
                 throw new \RuntimeException("handle, name, and type are required");
             }
 
-            // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can create attributes");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for page attributes, as in PageAttributesToolkit.
+            \Katalysis\NeuronAi\Access\ObjectPermissions::deny(\Katalysis\NeuronAi\Access\ObjectPermissions::viewDashboardPage('/dashboard/pages/attributes', 'create a page attribute'));
 
             // Validate handle format
             if (!preg_match('/^[a-z][a-z0-9_]*$/', $handle)) {
@@ -373,11 +370,8 @@ class AttributesToolkit extends AbstractToolkit
                 throw new \RuntimeException("Options array is required and must contain at least one option");
             }
 
-            // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can update attributes");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for page attributes, as in PageAttributesToolkit.
+            \Katalysis\NeuronAi\Access\ObjectPermissions::deny(\Katalysis\NeuronAi\Access\ObjectPermissions::viewDashboardPage('/dashboard/pages/attributes', 'change the options of a page attribute'));
 
             // Get the attribute
             $ak = PageAttributeKey::getByHandle($handle);
