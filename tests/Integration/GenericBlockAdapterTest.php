@@ -77,6 +77,36 @@ final class GenericBlockAdapterTest extends ConcreteTestCase
         $this->assertSame(['First slide', 'Renamed slide'], array_column($this->slides((int) json_decode($output, true)['blockID']), 'title'));
     }
 
+    /**
+     * P3.6-2: scenario 36's first pass named the slide's field bare, as "title". Only the slides' table has a title
+     * column (the slider itself has none), so it means that table.
+     */
+    public function testTextFieldsMayNameARowColumnBareWhenOnlyOneRowTableHasIt(): void
+    {
+        [$cID, $bID] = $this->pageWithSlider();
+        [$first, $second] = $this->slideIDs($bID);
+
+        $output = $this->update($cID, $bID, ['btImageSliderEntries' => [['id' => $first], ['id' => $second, 'title' => 'Renamed slide']]], 'scoped_text', ['title'], ['Second slide']);
+
+        $this->assertTrue(ToolKind::succeeded($output), $output);
+        $this->assertSame(['First slide', 'Renamed slide'], array_column($this->slides((int) json_decode($output, true)['blockID']), 'title'));
+    }
+
+    public function testATextFieldThatNamesNothingIsRefusedWithTheFormsThatWork(): void
+    {
+        [$cID, $bID] = $this->pageWithSlider();
+        [$first, $second] = $this->slideIDs($bID);
+        $versions = $this->versionCount($cID);
+
+        $output = $this->update($cID, $bID, ['btImageSliderEntries' => [['id' => $first], ['id' => $second, 'title' => 'Renamed slide']]], 'scoped_text', ['heading'], ['Second slide']);
+
+        $this->assertFalse(ToolKind::succeeded($output), $output);
+        $this->assertStringContainsString("'heading' is not a field of this block", $output);
+        $this->assertStringContainsString('btImageSliderEntries', $output);
+        $this->assertStringContainsString('btImageSliderEntries[1].title', $output);
+        $this->assertSame($versions, $this->versionCount($cID), 'nothing was changed');
+    }
+
     public function testASliderSettingChangeKeepsItsSlides(): void
     {
         [$cID, $bID] = $this->pageWithSlider();

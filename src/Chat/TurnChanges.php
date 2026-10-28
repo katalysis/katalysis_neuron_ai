@@ -7,6 +7,8 @@ namespace Katalysis\NeuronAi\Chat;
 use Concrete\Core\Page\Page;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\ToolKind;
+use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
+use Katalysis\NeuronAi\Tools\Utilities\WorkflowOutcome;
 use NeuronAI\Agent\Observability\ToolCalled;
 use NeuronAI\Tools\ToolCall;
 use NeuronAI\Tools\ToolOutput;
@@ -47,6 +49,12 @@ final class TurnChanges
     /** @var list<array{tool: string, target: string, reason: string}> */
     private array $refused = [];
 
+    /** @var list<string> P3.6-2: partly written drafts (or pages) failed calls kept (DraftCleanup), as labels */
+    private array $kept = [];
+
+    /** @var list<string> P3.6-2: changes Concrete sent through a workflow, as labels (B-WRT-4) */
+    private array $submitted = [];
+
     /** Whether the turn called a write tool at all, so "Nothing was changed" is only said after one. */
     private bool $attempted = false;
 
@@ -72,12 +80,22 @@ final class TurnChanges
         if (!ToolKind::succeeded($result)) {
             $this->seen[$key] = true;
             $this->refuse($name, self::object($call->getInputs()), 'failed');
+            // P3.6-2: a failed call may have kept a partly written draft (BF-3); it is listed, not hidden.
+            foreach (DraftCleanup::takeKept() as $kept) {
+                $this->kept[] = $this->keptLabel($kept);
+            }
 
             return;
         }
         $data = json_decode($result instanceof ToolOutput ? $result->getText() : $result, true);
         $pageID = is_array($data) ? (int) ($data['versionState']['pageID'] ?? 0) : 0;
         $this->seen[$key] = true;
+        if (is_array($data) && ($data['workflow'] ?? null) === WorkflowOutcome::SUBMITTED) {
+            // P3.6-2 (B-WRT-4): Concrete sent the change through a workflow; it hasn't happened yet.
+            $this->submitted[] = SecretRedactor::redact((string) ($data['workflowSummary'] ?? $name));
+
+            return;
+        }
         if ($pageID <= 0) {
             // Any other write (a file, a topic, a version, a user, …): recorded by what it names (P3.6-1).
             $this->recordOther($name, $call->getInputs());
@@ -163,8 +181,14 @@ final class TurnChanges
         }
 
         $line = $changed === []
-            ? 'Nothing was changed.'
+            ? ($this->submitted === [] && $this->kept === [] ? 'Nothing was changed.' : '')
             : ($failed ? 'Before the error: changed ' : 'Changed: ') . implode('; ', $changed) . '.';
+        if ($this->submitted !== []) {
+            $line .= ' Submitted for approval: ' . implode('; ', $this->submitted) . '.';
+        }
+        if ($this->kept !== []) {
+            $line .= ' Kept, partly written: ' . implode('; ', $this->kept) . '.';
+        }
         if ($this->refused !== []) {
             $line .= ' Not done: ' . implode('; ', array_map(
                 static fn (array $r): string => $r['tool'] . ($r['target'] !== '' ? ' on ' . $r['target'] : '') . ' (' . $r['reason'] . ')',
@@ -172,7 +196,7 @@ final class TurnChanges
             )) . '.';
         }
 
-        return $line;
+        return trim($line);
     }
 
     public function reset(): void
@@ -181,7 +205,20 @@ final class TurnChanges
         $this->pages = [];
         $this->others = [];
         $this->refused = [];
+        $this->kept = [];
+        $this->submitted = [];
         $this->attempted = false;
+        // Kept drafts from before this turn (a tool run outside a turn) are not this turn's.
+        DraftCleanup::takeKept();
+    }
+
+    /** "Name (path), unpublished version N", or for a page create_page made and kept, "the new page Name (path)". */
+    private function keptLabel(array $kept): string
+    {
+        $entry = $this->newEntry((int) $kept['cID']);
+        $label = ($entry['name'] !== '' ? $entry['name'] : 'page ' . $kept['cID']) . ($entry['path'] !== '' ? ' (' . $entry['path'] . ')' : '');
+
+        return $kept['kind'] === 'page' ? 'the new page ' . $label : $label . ', unpublished version ' . (int) $kept['cvID'];
     }
 
     /**

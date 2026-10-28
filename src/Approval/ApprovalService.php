@@ -8,6 +8,7 @@ use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Security\SecretRedactor;
+use Katalysis\NeuronAi\Tools\ToolKind;
 use NeuronAI\Agent\Interrupt\Action;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -35,13 +36,26 @@ final class ApprovalService
     public const DENIED = 'denied';
     public const STALE = 'stale';
     public const NOT_APPROVED = 'not_approved';
+    /** P3.6-2: never put to the user, because the call's own checks would refuse it (CallCheck). */
+    public const REFUSED = 'refused';
 
-    /** The gated tools and the fixed reason each policy returns. */
+    /**
+     * Before a rejection reason: the rest is the tool's own refusal, which ApprovalToolNode gives the model as the call's
+     * result, word for word, instead of Neuron's "the user rejected this action".
+     */
+    public const REFUSED_PREFIX = "\u{1}refused-by-check\u{1}";
+
+    /**
+     * The fixed reason the policy returns for the page tools (P3.6-1). Since P3.6-2 every write tool is gated
+     * (ToolKind::isWrite()); the others return DEFAULT_REASON.
+     */
     public const POLICIES = [
         'update_page' => 'Changes a page: the user approves the change first.',
         'set_page_attribute_value' => 'Changes a page attribute: the user approves the change first.',
         'create_page' => 'Creates a page: the user approves it first.',
     ];
+
+    public const DEFAULT_REASON = 'Changes the site: the user approves the change first.';
 
     /** What the model is told for each kind of rejection. */
     public const DENY_REASON = 'The user chose Deny.';
@@ -55,6 +69,7 @@ final class ApprovalService
         self::DENIED => 'Denied',
         self::STALE => 'Not done: the page changed since you saw the preview.',
         self::NOT_APPROVED => "Not approved: you sent a new message, so this wasn't done.",
+        self::REFUSED => 'Not asked: this would be refused: ',
     ];
 
     private const TABLE = 'KatalysisNeuronAiApprovals';
@@ -81,8 +96,8 @@ final class ApprovalService
         foreach ($items as $item) {
             $tools = $item instanceof ToolkitInterface ? $item->tools() : [$item];
             foreach ($tools as $tool) {
-                if ($tool instanceof ToolInterface && isset(self::POLICIES[$tool->getName()])) {
-                    $reason = self::POLICIES[$tool->getName()];
+                if ($tool instanceof ToolInterface && self::isGated($tool->getName())) {
+                    $reason = self::reason($tool->getName());
                     $tool->withApprovalPolicy(static fn (): string => $reason);
                 }
             }
@@ -91,9 +106,20 @@ final class ApprovalService
         return $items;
     }
 
+    /**
+     * P3.6-2: every write waits for approval, external tools included (B-ACC-8). ToolKind treats any tool that doesn't
+     * start with a read word as a write, so a new tool is gated until someone says otherwise; ApprovalRegistryTest checks
+     * this against the hand-kept classification.
+     */
     public static function isGated(string $tool): bool
     {
-        return isset(self::POLICIES[$tool]);
+        return ToolKind::isWrite($tool);
+    }
+
+    /** The fixed reason a gated tool's policy returns. */
+    public static function reason(string $tool): string
+    {
+        return self::POLICIES[$tool] ?? self::DEFAULT_REASON;
     }
 
     public static function currentUserId(): int
@@ -113,9 +139,11 @@ final class ApprovalService
     {
         foreach ($actions as $action) {
             $preview = ChangePreview::of($action->name, $action->inputs);
+            // P3.6-2: a call its own checks would refuse is decided at once, with that refusal (CallCheck).
+            $refused = $preview['refusal'] ?? null;
             $this->db->executeStatement(
-                'INSERT INTO ' . self::TABLE . ' (chatId, callId, toolName, inputs, preview, fingerprint, status, requestedBy, requestedAt)'
-                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id',
+                'INSERT INTO ' . self::TABLE . ' (chatId, callId, toolName, inputs, preview, fingerprint, status, note, requestedBy, requestedAt, decidedBy, decidedAt)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id',
                 [
                     $chatId,
                     $action->id,
@@ -123,9 +151,12 @@ final class ApprovalService
                     SecretRedactor::redact((string) json_encode($action->inputs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR)),
                     (string) json_encode($preview['entry'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR),
                     $preview['fingerprint'],
-                    self::PENDING,
+                    $refused === null ? self::PENDING : self::REFUSED,
+                    $refused === null ? null : SecretRedactor::redact($refused),
                     $userId,
                     date('Y-m-d H:i:s'),
+                    $refused === null ? null : 0,
+                    $refused === null ? null : date('Y-m-d H:i:s'),
                 ]
             );
         }
@@ -169,7 +200,7 @@ final class ApprovalService
      * What the panel shows for one call: the change entry and the decision, all text written here.
      *
      * @param array<string, mixed> $row
-     * @return array{callId: string, tool: string, action: string, target: string, path: string, details: list<string>, note: string, status: string, statusText: string}
+     * @return array{callId: string, tool: string, action: string, target: string, path: string, details: list<string>, note: string, warnings: list<string>, status: string, statusText: string}
      */
     public static function card(array $row): array
     {
@@ -185,8 +216,11 @@ final class ApprovalService
             'path' => (string) ($entry['path'] ?? ''),
             'details' => array_values(array_map('strval', (array) ($entry['details'] ?? []))),
             'note' => (string) ($entry['note'] ?? ''),
+            'warnings' => array_values(array_map('strval', (array) ($entry['warnings'] ?? []))),
             'status' => $status,
-            'statusText' => self::STATUS_TEXT[$status] ?? '',
+            'statusText' => $status === self::REFUSED
+                ? self::STATUS_TEXT[self::REFUSED] . self::refusalText((string) ($row['note'] ?? ''))
+                : (self::STATUS_TEXT[$status] ?? ''),
         ];
     }
 
@@ -326,8 +360,19 @@ final class ApprovalService
         return $statuses;
     }
 
+    /** The tool's refusal for the card: without the wrapper the model gets, shortened. */
+    private static function refusalText(string $refusal): string
+    {
+        $text = (string) preg_replace(['/^Error executing tool:\s*/', '/\.\s*Please try a different approach or ask for clarification\.$/'], ['', '.'], trim($refusal));
+
+        return mb_strlen($text) > 300 ? mb_substr($text, 0, 300) . '…' : $text;
+    }
+
     private static function rejectionFor(array $row): string
     {
+        if ($row['status'] === self::REFUSED) {
+            return self::REFUSED_PREFIX . (string) $row['note'];
+        }
         $note = trim((string) ($row['note'] ?? ''));
 
         return $note === '' ? self::DENY_REASON : 'The user chose Deny and said: ' . $note;

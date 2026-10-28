@@ -170,27 +170,62 @@ final class BlockImportSave
      * 36) is its table, whose rows the check compares as one field.
      *
      * @param list<string>|null $textFields
+     * @param list<string> $checked the fields the text check compares for this block (its before and after records)
      *
      * @return list<string>|null
      */
-    public static function textFields(BlockFields $fields, ?array $textFields): ?array
+    public static function textFields(BlockFields $fields, ?array $textFields, array $checked = []): ?array
     {
         if ($textFields === null) {
             return null;
         }
         $named = [];
         foreach ($textFields as $field) {
-            $field = (string) $field;
-            foreach ($fields->childTables() as $table) {
-                if (preg_match('/^' . preg_quote($table, '/') . '(\[\d+\])?(\..+)?$/', $field) === 1) {
-                    $field = $table;
-                    break;
-                }
-            }
-            $named[] = $field;
+            $named[] = self::textField($fields, (string) $field, $checked);
         }
 
         return array_values(array_unique($named));
+    }
+
+    /**
+     * One textFields name, as the text check knows it: a block field, or a row table (a row, a row's field, or since
+     * P3.6-2 a row column named bare, when only one row table has it and the block itself doesn't). Anything else is
+     * refused, naming the forms that work (scenario 36: "title" for a slide's title).
+     *
+     * @throws \RuntimeException when the name matches nothing; nothing has been changed
+     */
+    private static function textField(BlockFields $fields, string $field, array $checked): string
+    {
+        $tables = $fields->childTables();
+        foreach ($tables as $table) {
+            if (preg_match('/^' . preg_quote($table, '/') . '(\[\d+\])?(\..+)?$/', $field) === 1) {
+                return $table;
+            }
+        }
+        // The block's own fields: its columns, and the fields the text check compares (an adapter's, such as the
+        // accordion's accordionBlockData).
+        $own = array_values(array_unique([...array_keys($fields->columns()), ...array_diff($checked, $tables)]));
+        if (in_array($field, $own, true)) {
+            return $field;
+        }
+
+        $having = array_values(array_filter($tables, static fn (string $t): bool => array_key_exists($field, $fields->columns($t))));
+        if (count($having) === 1) {
+            return $having[0];
+        }
+
+        $rowForms = array_map(static function (string $t) use ($fields): string {
+            $columns = array_keys($fields->columns($t));
+            $example = in_array('title', $columns, true) ? 'title' : ($columns[0] ?? 'field');
+
+            return "'{$t}' (all its rows) or one row's field, such as '{$t}[1].{$example}'";
+        }, $tables);
+
+        throw new \RuntimeException(
+            "textFields: '{$field}' is not a field of this block" . (count($having) > 1 ? ' alone (more than one row table has it)' : '')
+            . '. Name a field of the block (' . implode(', ', $own) . ')' . ($rowForms !== [] ? ', or its rows: ' . implode('; ', $rowForms) : '')
+            . '. Nothing was changed.'
+        );
     }
 
     /**

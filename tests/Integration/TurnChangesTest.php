@@ -11,6 +11,7 @@ use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
+use Katalysis\NeuronAi\Tests\Support\ApproveAll;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use NeuronAI\Agent\Observability\ToolCalled;
@@ -109,7 +110,7 @@ final class TurnChangesTest extends ConcreteTestCase
             $this->editBlock($cID, $b1),
             new AssistantMessage('Done.')
         ));
-        $this->assertSame('Done.', $agent->handleUserMessage('Make the first paragraph a heading.'));
+        $this->assertSame('Done.', ApproveAll::turn($agent, 'Make the first paragraph a heading.'));
 
         $changes = $agent->getTurnChanges();
         $this->assertCount(1, $changes, 'one page, and the read is not a change');
@@ -133,7 +134,7 @@ final class TurnChangesTest extends ConcreteTestCase
             self::call('update_block_in_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => '<p>Invented text.</p>']]),
             new AssistantMessage('It was refused.')
         ));
-        $agent->handleUserMessage('Rewrite it.');
+        ApproveAll::turn($agent, 'Rewrite it.');
 
         $this->assertSame([], $agent->getTurnChanges());
     }
@@ -146,7 +147,7 @@ final class TurnChangesTest extends ConcreteTestCase
         $provider = new FakeAIProvider($this->editBlock($cID, $b1), new AssistantMessage('Done.'), new AssistantMessage('Hello.'));
         $agent = $this->agent($provider);
 
-        $agent->handleUserMessage('Change it.');
+        ApproveAll::turn($agent, 'Change it.');
         $this->assertCount(1, $agent->getTurnChanges());
         $agent->handleUserMessage('Hello.');
         $this->assertSame([], $agent->getTurnChanges());
@@ -169,7 +170,7 @@ final class TurnChangesTest extends ConcreteTestCase
         };
         $agent = $this->agent($provider);
 
-        $this->assertSame(ConcreteCmsAgent::ERROR_REPLY, $agent->handleUserMessage('Change it.'));
+        $this->assertSame(ConcreteCmsAgent::ERROR_REPLY, ApproveAll::turn($agent, 'Change it.'));
 
         $changes = $agent->getTurnChanges();
         $this->assertCount(1, $changes, 'the write happened before the failure, so the panel must still learn of it');

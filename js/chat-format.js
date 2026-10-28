@@ -285,6 +285,16 @@
         }
         el.appendChild(title);
 
+        // P3.6-2: what the user must know before deciding (someone else's draft, more blocks than the limit), first.
+        const warnings = Array.isArray(card.warnings) ? card.warnings.filter((w) => typeof w === 'string' && w !== '') : [];
+        for (const warning of warnings) {
+            const w = doc.createElement('div');
+            w.className = 'neuron-approval-warning';
+            w.setAttribute('role', 'note');
+            w.textContent = warning;
+            el.appendChild(w);
+        }
+
         const details = Array.isArray(card.details) ? card.details.filter((d) => typeof d === 'string') : [];
         if (details.length > 0) {
             const list = doc.createElement('ul');
@@ -325,6 +335,50 @@
         return { card: el, buttons };
     }
 
+    /**
+     * P3.6-2: above two or more waiting cards from one response, "Approve all" and "Deny all" (each records the same
+     * decision on every card; the cards still show in full), and, when they change more than one page, the pages
+     * (B-CON-3): "{n} pages: title (path); …". Returns the two buttons, for the panel to wire.
+     */
+    function renderBatchHeader(container, cards, doc) {
+        doc = doc || container.ownerDocument || document;
+        const waiting = (Array.isArray(cards) ? cards : []).filter((c) => c && c.status === 'pending');
+        const el = doc.createElement('div');
+        el.className = 'neuron-approval-batch';
+        el.setAttribute('role', 'group');
+
+        const pages = [];
+        for (const card of waiting) {
+            const path = typeof card.path === 'string' ? card.path : '';
+            const target = typeof card.target === 'string' ? card.target : '';
+            const label = target + (path !== '' ? ' (' + path + ')' : '');
+            if (path !== '' && !pages.includes(label)) {
+                pages.push(label);
+            }
+        }
+        const summary = doc.createElement('div');
+        summary.className = 'neuron-approval-batch-summary';
+        summary.textContent = waiting.length + ' changes wait for your decision'
+            + (pages.length > 1 ? ', on ' + pages.length + ' pages: ' + pages.join('; ') : '') + '.';
+        el.appendChild(summary);
+
+        const actions = doc.createElement('div');
+        actions.className = 'neuron-approval-actions';
+        const button = (label, decision) => {
+            const b = doc.createElement('button');
+            b.setAttribute('type', 'button');
+            b.className = 'neuron-approval-' + decision;
+            b.textContent = label;
+            actions.appendChild(b);
+            return b;
+        };
+        const buttons = { approve: button('Approve all', 'approve'), deny: button('Deny all', 'deny') };
+        el.appendChild(actions);
+        container.appendChild(el);
+
+        return { header: el, buttons };
+    }
+
     /** The decided state at the foot of a card: the server's status text. */
     function approvalStatus(doc, statusText) {
         const status = doc.createElement('div');
@@ -347,5 +401,5 @@
         return el;
     }
 
-    return { parse, safeHref, renderInto, renderApprovalCard, approvalStatus, renderChangesLine };
+    return { parse, safeHref, renderInto, renderApprovalCard, renderBatchHeader, approvalStatus, renderChangesLine };
 });

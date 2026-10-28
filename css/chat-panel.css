@@ -204,6 +204,26 @@
     cursor: default;
 }
 
+/* P3.6-2: what to know before deciding: someone else's draft, more blocks than the limit. */
+.neuron-approval-warning {
+    margin-top: 6px;
+    padding: 4px 8px;
+    color: #5c4a00;
+    background: #fff6d6;
+    border-left: 3px solid #e0a800;
+    border-radius: 3px;
+}
+
+/* P3.6-2: "Approve all" and "Deny all" above two or more cards. */
+.neuron-approval-batch {
+    margin: 8px 0 0 0;
+    padding: 8px 12px;
+    font-size: 13px;
+    background: #eef3fa;
+    border: 1px dashed #8aa2c4;
+    border-radius: 6px;
+}
+
 .neuron-approval-status {
     margin-top: 8px;
     font-weight: 600;

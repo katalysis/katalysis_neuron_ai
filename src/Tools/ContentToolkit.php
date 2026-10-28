@@ -18,6 +18,7 @@ use Katalysis\NeuronAi\Tools\Utilities\BlockImportSave;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
+use Katalysis\NeuronAi\Tools\Utilities\DryRunReached;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
@@ -279,8 +280,14 @@ class ContentToolkit extends AbstractToolkit
             }
 
             // Added to the draft, so a second write in this request adds to the same draft (see PageDraft::of()), in
-            // import mode, as AddBlockToPageCommand adds it but with the save mode it can't pass (P3.3-7).
-            $draft = $this->getDraftOf($page);
+            // import mode, as AddBlockToPageCommand adds it but with the save mode it can't pass (P3.3-7). An approval
+            // check's dry run stops here (P3.6-2): an area made for the check goes.
+            try {
+                $draft = $this->getDraftOf($page);
+            } catch (DryRunReached $e) {
+                $this->removeNewArea($area, $areaIsNew);
+                throw $e;
+            }
             $block = BlockImportSave::add($draft, $area, $bt, $fields, $prepared);
 
             return $this->serializeBlock($block, true) + DraftState::of($draft);
@@ -366,6 +373,8 @@ class ContentToolkit extends AbstractToolkit
             EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
+            // P3.6-2: a block an earlier call in this request copied into the draft is changed in its copy.
+            $blockID = PageDraft::followCopies($page, $areaHandle, (int) $blockID);
             // P3.5-1 decision 3: edit mode's own permission first, then the block's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
@@ -403,7 +412,7 @@ class ContentToolkit extends AbstractToolkit
             $fields = BlockFields::ofController($handle, $controller);
             $prepared = BlockImportSave::prepareUpdate($fields, (int) $block->getBlockID(), $beforeRecord, $body);
             $body = $prepared['value'];
-            $textPolicy = TextIntegrity::evaluate($prepared['checkBefore'], $prepared['checkAfter'], $mode, BlockImportSave::textFields($fields, $textFields), $replacedText);
+            $textPolicy = TextIntegrity::evaluate($prepared['checkBefore'], $prepared['checkAfter'], $mode, BlockImportSave::textFields($fields, $textFields, array_keys($prepared['checkBefore'] + $prepared['checkAfter'])), $replacedText);
             if (!$textPolicy['ok']) {
                 throw new \RuntimeException($textPolicy['message']);
             }
@@ -481,6 +490,8 @@ class ContentToolkit extends AbstractToolkit
             EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
+            // P3.6-2: a block an earlier call in this request copied into the draft is removed in its copy.
+            $blockID = PageDraft::followCopies($page, $areaHandle, (int) $blockID);
 
             // P3.5-1 decision 3: edit mode's own permission first, then the block's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
@@ -579,6 +590,8 @@ class ContentToolkit extends AbstractToolkit
             SystemPageGuard::refuseGlobalArea($page, $fromAreaHandle);
             SystemPageGuard::refuseGlobalArea($page, $toAreaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
+            // P3.6-2: a block an earlier call in this request copied into the draft is moved as its copy.
+            $blockID = PageDraft::followCopies($page, $fromAreaHandle, (int) $blockID);
             // P3.5-1 decision 3: edit mode's own permission first, then the block's and the destination area's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
@@ -600,7 +613,13 @@ class ContentToolkit extends AbstractToolkit
                 ObjectPermissions::deny($refusal);
             }
 
-            $pageToModify = $this->getDraftOf($page);
+            // An approval check's dry run stops here (P3.6-2): an area made for the check goes.
+            try {
+                $pageToModify = $this->getDraftOf($page);
+            } catch (DryRunReached $e) {
+                $this->removeNewArea($destination, $destinationIsNew);
+                throw $e;
+            }
             $destinationArea = Area::getOrCreate($pageToModify, $toAreaHandle);
 
             $editableBlock = $this->getBlockToEdit($pageToModify, Area::getOrCreate($pageToModify, $fromAreaHandle), $fromAreaHandle, $blockID);

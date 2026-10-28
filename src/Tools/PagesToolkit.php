@@ -27,6 +27,7 @@ use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\PermittedWindow;
@@ -34,6 +35,9 @@ use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
+use Katalysis\NeuronAi\Tools\Utilities\WorkflowOutcome;
+use Concrete\Core\Workflow\Progress\Response as WorkflowResponse;
+use Concrete\Core\Workflow\Request\MovePageRequest;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
@@ -198,13 +202,10 @@ class PagesToolkit extends AbstractToolkit
                     // Use path-based filtering to find all descendants
                     $parent = Page::getByID($resolvedParentID);
                     if ($parent && !$parent->isError()) {
-                        $parentPathPrefix = $parent->getCollectionPath();
-                        // Ensure path ends with / for proper prefix matching
-                        if ($parentPathPrefix !== '/' && !str_ends_with($parentPathPrefix, '/')) {
-                            $parentPathPrefix .= '/';
-                        }
-                        // Use LIKE pattern to match all pages under this path
-                        $list->filterByPath($parentPathPrefix . '%');
+                        // P3.6-2: Concrete's filterByPath() matches "<path>/%" itself. Given "/parent/%" it matched
+                        // only grandchildren (scenario 09's wrong-page write). The home page's path is empty, so its
+                        // descendants are every page under "/".
+                        $list->filterByPath(rtrim((string) $parent->getCollectionPath(), '/'));
                     }
                 } else {
                     // Only direct children (original behavior)
@@ -519,7 +520,13 @@ class PagesToolkit extends AbstractToolkit
             }
 
             ObjectPermissions::deny(ObjectPermissions::addSubpage($parent, $pt));
-            
+
+            // P3.6-2: a page already at this path is refused. Concrete would quietly add "-1" and make a second page
+            // (scenario 09's wrong-page write).
+            if ($refusal = self::duplicatePathRefusal($parent, $name)) {
+                throw new \RuntimeException($refusal);
+            }
+
             // No approved version: the page is not live until a person approves it from Page Versions (P1.13, B-WRT-3).
             $data = ['name' => $name, 'cvIsApproved' => 0];
             if ($description) {
@@ -539,6 +546,8 @@ class PagesToolkit extends AbstractToolkit
                 $attributeMap = $attributeValueMapFactory->createFromRequestData($category, $attributes);
             }
 
+            // P3.6-2: an approval check's dry run stops here, with every check above done (CallCheck).
+            PageDraft::stopIfDryRun();
             $page = $parent->add($pt, $data, $pageTemplate);
             // If the call fails from here on, the page it made is deleted under DraftCleanup's rule (BF-3).
             DraftCleanup::createdPage($page);
@@ -558,6 +567,39 @@ class PagesToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * create_page's refusal of a page whose path already exists under $parent, or null. Public for its approval check
+     * (ChangePreview), so the card says it with the tool's own words.
+     */
+    public static function duplicatePathRefusal(Page $parent, string $name): ?string
+    {
+        $existing = self::childWithPathOf($parent, $name);
+
+        return $existing === null ? null : "A page '{$existing->getCollectionName()}' already exists at {$existing->getCollectionPath()} (ID "
+            . "{$existing->getCollectionID()}), so nothing was created. Use that page.";
+    }
+
+    /**
+     * The child of $parent that has the path a new page named $name would get (Concrete's own handle rule, Page::add()),
+     * compared ignoring case, or null. Trashed pages are not children.
+     */
+    private static function childWithPathOf(Page $parent, string $name): ?Page
+    {
+        $handle = Application::getFacadeApplication()->make('helper/text')->urlify($name);
+        $handle = str_replace('-', (string) \Concrete\Core\Support\Facade\Config::get('concrete.seo.page_path_separator'), $handle);
+        if ($handle === '') {
+            return null;
+        }
+        $path = rtrim((string) $parent->getCollectionPath(), '/') . '/' . $handle;
+        $cID = Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class)->fetchOne(
+            'SELECT cID FROM PagePaths WHERE LOWER(cPath) = LOWER(?) AND ppIsCanonical = 1',
+            [$path]
+        );
+        $page = $cID === false ? null : Page::getByID((int) $cID);
+
+        return $page && !$page->isError() && !$page->isInTrash() ? $page : null;
     }
 
     /**
@@ -805,10 +847,18 @@ class PagesToolkit extends AbstractToolkit
             ObjectPermissions::deny(ObjectPermissions::moveOrCopyPage($page));
             ObjectPermissions::deny(ObjectPermissions::addSubpage($newParent));
             
-            // Move the page
-            $page->move($newParent);
-            
-            return $this->serializePage($page);
+            // P3.6-2 (B-WRT-4): through Concrete's move request, as the sitemap moves a page, so a workflow on the
+            // page's Move permission applies. The page has moved only if the request ran at once.
+            $summary = 'move ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . ') under ' . $newParent->getCollectionName();
+            $request = new MovePageRequest();
+            $request->setRequestedPage($page);
+            $request->setRequestedTargetPage($newParent);
+            $request->setSaveOldPagePath(false);
+            $request->setRequesterUserID((int) Application::getFacadeApplication()->make(User::class)->getUserID());
+            $done = $request->trigger() instanceof WorkflowResponse;
+            $moved = Page::getByID((int) $page->getCollectionID());
+
+            return $this->serializePage($moved) + WorkflowOutcome::of($done, $summary);
         }));
 
         return $tool;
@@ -845,13 +895,15 @@ class PagesToolkit extends AbstractToolkit
 
             $user = Application::getFacadeApplication()->make(User::class);
             $command = new DeletePageCommand($page->getCollectionID(), $user->getUserID());
-            Application::getFacadeApplication()->executeCommand($command);
-            
+            // P3.6-2 (B-WRT-4): the command triggers Concrete's delete request; with a workflow it only waits.
+            $done = Application::getFacadeApplication()->executeCommand($command) instanceof WorkflowResponse;
+            $summary = 'delete ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . ')';
+
             return [
                 'id' => $pageID,
                 'object' => 'pages',
-                'deleted' => true
-            ];
+                'deleted' => $done,
+            ] + WorkflowOutcome::of($done, $summary);
         }));
 
         return $tool;

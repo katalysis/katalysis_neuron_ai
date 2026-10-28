@@ -226,6 +226,11 @@ final class ScenarioRunner
                 }
             }
         }
+        if ($agent->isAwaitingApproval()) {
+            // P3.6-2: still waiting after MAX_APPROVAL_ROUNDS pauses. The run is ended, as clearing the chat ends it, so
+            // it isn't left in the workflow store when the chat is deleted; the turn's reply stays the waiting one.
+            $agent->discardRun();
+        }
 
         $statuses = ApprovalService::make()->statuses($chatId, array_column($approvals, 'callId'));
         foreach ($approvals as $i => $approval) {

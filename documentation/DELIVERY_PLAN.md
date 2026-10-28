@@ -410,7 +410,7 @@ After permissions, so that approval never stands in for a permission check.
   - the scenario runner learns approve and deny steps
   - first set of tools: `update_page`, `set_page_attribute_value` and `create_page`
   - scenarios (keeps its own ×3 before merge, WP-4): 08, 10, 14 ×3; cap $0.65
-- [ ] P3.6-2 **Approval on every write tool, with previews** (L; safety). Depends on: P3.6-1 and P3.3-4.
+- [x] P3.6-2 **Approval on every write tool, with previews** (L; safety; Done (PR #92)). Depends on: P3.6-1 and P3.3-4.
   - every write tool needs approval, with a summary or diff of the change, including the whole-value writes (`update_page`, `set_page_attribute_value`; B-T1-2)
   - the approval must cover `create_page`: P1.13 makes it create an unpublished page, but it still adds a page to the sitemap, and publishing stays a person's action from Page Versions
   - from P1.8a: a draft belongs to the page, not to a user. `PageDraft::of()` and `create_page_draft` reuse the page's newest unapproved version, whoever made it. Approval and its UI must show the draft's changes, not only the current call's, and say when the draft already holds someone else's edits
@@ -474,7 +474,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
 - [ ] P3.8-2 **A cheaper model for routing** (S–M). Depends on: P3.2-2. Only if the router calls a model; if it routes from context without a model call, this task is dropped.
 - [ ] P3.9-1 **The chat table under Doctrine** (S–M; DB schema, so it stops for a plan). Depends on: nothing. Remove the `CREATE TABLE` from `on_start()` and drop the `chatHistory` column, unused since P2.5. Scenarios: none.
 - [ ] P3.9-2 **Chat retention and admin purge** (M; personal data). Depends on: P3.9-1. 90 days by default, configurable, plus an admin purge (B-PII-5). Scenarios: none.
-- [ ] P3.9-3 **Loop guard** (M). Depends on: nothing; better after P3.6-1. The same tool isn't repeated with the same arguments after it failed; after one alternative attempt the assistant reports and stops (B-ERR-3), with a new scenario. Scenarios: the new one ×1, and `--fake` of 15; cap $0.10. Compared in the next stage comparison.
+- [ ] P3.9-3 **Loop guard** (M). Depends on: nothing; better after P3.6-1. The same tool isn't repeated with the same arguments after it failed; after one alternative attempt the assistant reports and stops (B-ERR-3), with a new scenario. Scenarios: the new one ×1, and `--fake` of 15; cap $0.10. Compared in the next stage comparison. Also (found in P3.6-2): in scenario 35 the model asked for `create_page` three times after each call was denied, despite Neuron's "do not attempt this tool again". Scope (Glyn): after the user denies a call, the same tool is refused for the rest of that turn, whatever its inputs, with a message telling the model the user declined and to ask the user what they want instead.
 - [ ] P3.9-4 **Small fixes** (S). Depends on: nothing. Scenarios: none.
   - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
   - chat history load failures show a clear message to the user (found in P1.11: currently `catch (\Exception)` in `loadExistingMessages()`)
@@ -709,6 +709,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - `list_pages` names the parent page (path and title) in its result, so the model can't take a child for the home page (scenario 15's wrong-place write); red-first test
   - `batch_update_content_headings`' description says it changes heading levels only, and that renaming a heading's text uses `update_block_in_page_area` (scenario 24); recorded in `ToolBaseline` as deliberate
   - scenarios: `--fake` of 15, 24 and 29; P3.S3 compares them
+- [ ] BF-21 **`add_attribute_to_set` without `category`** (small; Tier 2; after the internal pilot starts; Glyn, after P3.6-2). Found in P3.6-2: `add_attribute_to_set` fails with "Invalid category ''" when `category` is omitted, because Neuron passes null for an omitted input and the tool doesn't fall back to its default (`collection`).
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.

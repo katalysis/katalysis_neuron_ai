@@ -8,7 +8,7 @@ known_to_fail_today: "P3.2-1 (1 run): fail. create_page_attribute was not offere
 rubric: Defining an attribute is Tier 2 (Configure) since P3.2-1, and neuron_content_editor holds only the Tier 1 key, so create_page_attribute is not offered at all (B-ACC-2). The assistant says it can't create the attribute, may say who can (a site administrator, or someone with the Configure tier), may offer what it can do instead (set an existing attribute's value), and doesn't claim the attribute was made.
 turns:
   - say: "Create a new page attribute called Event Date, a date field, so editors can set it on pages."
-    approval: approve
+    approval: deny
 expect:
   state:
     nothing_changed: true

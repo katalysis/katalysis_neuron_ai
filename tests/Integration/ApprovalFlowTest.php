@@ -15,6 +15,7 @@ use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
+use Katalysis\NeuronAi\Tests\Support\ApproveAll;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use NeuronAI\Chat\Messages\AssistantMessage;
@@ -168,7 +169,11 @@ final class ApprovalFlowTest extends ConcreteTestCase
                         continue;
                     }
                     $found[$tool->getName()] = true;
-                    $this->assertSame(ApprovalService::POLICIES[$tool->getName()], $decision, "pass {$pass}: {$tool->getName()}");
+                    // P3.6-2: every write is gated; the page tools keep their own reasons.
+                    $this->assertSame(ApprovalService::reason($tool->getName()), $decision, "pass {$pass}: {$tool->getName()}");
+                    if (!isset(self::VALID_INPUTS[$tool->getName()])) {
+                        continue;
+                    }
                     // With a call's inputs bound and on a clone, as Neuron asks on every pass and on resume. (Neuron
                     // never gates a call whose inputs it rejected: such a call is refused without running.)
                     $clone = clone $tool;
@@ -402,11 +407,102 @@ final class ApprovalFlowTest extends ConcreteTestCase
         };
         $chatId = $this->newChat();
 
-        $this->assertSame(ConcreteCmsAgent::ERROR_REPLY, $this->agent($chatId, $provider)->handleUserMessage('Make it a heading.'));
+        $this->assertSame(ConcreteCmsAgent::ERROR_REPLY, ApproveAll::turn($this->agent($chatId, $provider), 'Make it a heading.'));
 
         $history = json_decode(TurnChanges::annotateHistoryJson((new ChatMessageStore($this->db()))->conversationJson(ChatMessageStore::threadFor($chatId))), true);
         $last = end($history);
         $this->assertStringStartsWith('Before the error: changed Approval failed turn', (string) ($last['changes'] ?? ''));
         $this->assertSame(0, $this->runRows($chatId), 'the failed run is ended');
+    }
+
+    public function testAFailedApprovedBatchDoesNotStopTheNextTurn(): void
+    {
+        // P3.6-2 (B-ERR-5): the call was stored before the pause; when its turn fails after it ran, the next message
+        // must still get an answer.
+        $page = $this->pages->create('Approval failed batch');
+        $cID = (int) $page->getCollectionID();
+        $chatId = $this->newChat();
+        $call = self::call('update_page', ['pageID' => $cID, 'description' => 'Written, then the provider failed']);
+        $this->agent($chatId, new FakeAIProvider(self::calls($call)))->handleUserMessage('Set it.');
+
+        $failing = new class () extends FakeAIProvider {
+            public function chat(Message ...$messages): ProviderResponse
+            {
+                throw new \RuntimeException('The provider went away.');
+            }
+        };
+        $this->assertSame(['recorded' => true, 'reply' => ConcreteCmsAgent::ERROR_REPLY], $this->agent($chatId, $failing)->decide((string) $call->getCallId(), true));
+        $this->assertSame('Written, then the provider failed', (string) self::newest($cID)->getCollectionDescription());
+
+        $this->assertSame('Still here.', $this->agent($chatId, new FakeAIProvider(new AssistantMessage('Still here.')))->handleUserMessage('Hello?'));
+        $this->assertSame(0, $this->runRows($chatId));
+    }
+
+    public function testTwoApprovedUpdatesToOneBlockInOneResponseAreBothApplied(): void
+    {
+        // P3.6-2 (C): both calls name the block's live ID. The first copies it into the draft; the second follows the
+        // copy instead of being refused as "not in the newest version".
+        $page = $this->pages->create('Approval same block');
+        $cID = (int) $page->getCollectionID();
+        [$b1] = $this->pages->blockIDs($cID);
+        $chatId = $this->newChat();
+        $first = self::call('update_block_in_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => '<p>Block one original text. Added A.</p>']]);
+        $second = self::call('update_block_in_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => '<p>Block one original text. Added A. Added B.</p>']]);
+
+        $this->agent($chatId, new FakeAIProvider(self::calls($first, $second)))->handleUserMessage('Add two sentences.');
+        $this->agent($chatId, new FakeAIProvider())->decide((string) $first->getCallId(), true);
+        $provider = new FakeAIProvider(new AssistantMessage('Both added.'));
+        $this->assertSame(['recorded' => true, 'reply' => 'Both added.'], $this->agent($chatId, $provider)->decide((string) $second->getCallId(), true));
+
+        $this->assertStringNotContainsString('Error executing tool', self::sentResults($provider), 'neither call was refused');
+        [$copy] = $this->pages->blockIDs($cID);
+        $this->assertNotSame($b1, $copy, 'changed in a draft copy');
+        $this->assertSame('<p>Block one original text. Added A. Added B.</p>', trim((string) $this->db()->fetchOne('SELECT content FROM btContentLocal WHERE bID = ?', [$copy])));
+        $this->assertSame('<p>Block one original text.</p>', trim((string) $this->db()->fetchOne('SELECT content FROM btContentLocal WHERE bID = ?', [$b1])), 'the live block is unchanged');
+        $this->assertSame(2, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM CollectionVersions WHERE cID = ?', [$cID]), 'one draft');
+    }
+
+    public function testACallItsOwnChecksWouldRefuseIsNotPutToTheUser(): void
+    {
+        // P3.6-2 (A): scenario 29's made-up ID. The block isn't on the page, so the call is refused at once, in the
+        // tool's own words, and the turn goes on: no click, and the model can retry with the right ID.
+        $page = $this->pages->create('Approval refused');
+        $cID = (int) $page->getCollectionID();
+        $chatId = $this->newChat();
+        $call = self::call('delete_block_from_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => 999999999]);
+        $provider = new FakeAIProvider(self::calls($call), new AssistantMessage('That block is not there.'));
+
+        $agent = $this->agent($chatId, $provider);
+        $this->assertSame('That block is not there.', $agent->handleUserMessage('Delete it.'));
+        $this->assertFalse($agent->isAwaitingApproval());
+
+        $this->assertSame([$call->getCallId() => ApprovalService::REFUSED], $this->statuses($chatId));
+        $results = self::sentResults($provider);
+        $this->assertStringStartsWith('Error executing tool: Block 999999999 not found', trim($results), 'the tool\'s own words');
+        $this->assertStringNotContainsString('TOOL NOT EXECUTED', $results);
+        $cards = $agent->getSettledApprovalCards();
+        $this->assertSame(ApprovalService::REFUSED, $cards[0]['status']);
+        $this->assertStringStartsWith('Not asked: this would be refused: Block 999999999 not found', $cards[0]['statusText']);
+        $this->assertStringContainsString('Not done: delete_block_from_page_area', (string) $agent->getTurnChangesLine());
+        $this->assertSame(0, $this->runRows($chatId));
+    }
+
+    public function testInAMixedBatchOnlyTheCallThatCanSucceedIsPutToTheUser(): void
+    {
+        $page = $this->pages->create('Approval mixed');
+        $cID = (int) $page->getCollectionID();
+        $chatId = $this->newChat();
+        $good = self::call('update_page', ['pageID' => $cID, 'description' => 'Mixed batch']);
+        $bad = self::call('update_page', ['pageID' => 999999999, 'description' => 'Nowhere']);
+
+        $agent = $this->agent($chatId, new FakeAIProvider(self::calls($good, $bad)));
+        $this->assertSame(ConcreteCmsAgent::AWAITING_REPLY, $agent->handleUserMessage('Set both.'));
+        $cards = array_column($agent->getApprovalCards(), 'status', 'callId');
+        $this->assertSame([$good->getCallId() => ApprovalService::PENDING, $bad->getCallId() => ApprovalService::REFUSED], $cards);
+
+        $provider = new FakeAIProvider(new AssistantMessage('One done.'));
+        $this->assertSame(['recorded' => true, 'reply' => 'One done.'], $this->agent($chatId, $provider)->decide((string) $good->getCallId(), true));
+        $this->assertSame('Mixed batch', (string) self::newest($cID)->getCollectionDescription());
+        $this->assertStringContainsString('Error executing tool: Page with ID 999999999 not found', self::sentResults($provider));
     }
 }

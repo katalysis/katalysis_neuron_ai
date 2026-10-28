@@ -15,12 +15,16 @@ use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\SystemMessage;
+use NeuronAI\Tools\ToolCall;
+use NeuronAI\Chat\Messages\ToolResultMessage;
+use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use NeuronAI\Workflow\Persistence\DatabasePersistence;
 use NeuronAI\Workflow\Workflow;
 use Katalysis\NeuronAi\Approval\ApprovalLogListener;
 use Katalysis\NeuronAi\Approval\ApprovalService;
+use Katalysis\NeuronAi\Approval\ApprovalToolNode;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
@@ -68,6 +72,9 @@ class ConcreteCmsAgent extends Agent
     /** Neuron's run state, so a turn paused for approval survives between requests (P3.6-1). */
     public const WORKFLOW_TABLE = 'KatalysisNeuronAiWorkflowStore';
 
+    /** The stored result of a call whose turn failed after it ran (P3.6-2): what it returned was not saved. */
+    public const UNSAVED_RESULT = 'Not saved: the turn failed after this call ran, so its result is unknown. Check the page before trying again.';
+
     /** Metadata key on a reply the panel doesn't show: the model's answer to calls a new message rejected (P3.6-1). */
     public const HIDDEN_META_KEY = 'katalysis_hidden';
 
@@ -76,7 +83,11 @@ class ConcreteCmsAgent extends Agent
         ApprovalService::DENIED => 'denied',
         ApprovalService::STALE => 'the page changed since the preview',
         ApprovalService::NOT_APPROVED => 'not approved',
+        ApprovalService::REFUSED => 'refused by its own checks',
     ];
+
+    /** P3.6-2: how many times one request goes on at once because every waiting call would be refused. */
+    private const MAX_REFUSED_ROUNDS = 5;
 
     private ?array $runtimePageContext = null;
     private ?ToolResultScanner $toolResultScanner = null;
@@ -115,7 +126,7 @@ class ConcreteCmsAgent extends Agent
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Tool Error: ' . $errorMsg);
             
             // Return a clear error message that the LLM can understand
-            return "Error executing tool: " . $safeMessage . ". Please try a different approach or ask for clarification.";
+            return self::toolErrorText($e);
         });
 
         // Scans the results the scanner's wrapper didn't, such as those of tools we don't build (P2.2).
@@ -130,6 +141,15 @@ class ConcreteCmsAgent extends Agent
         // Every tool call and approval decision, redacted, in Concrete's log (P3.6-1).
         $this->log = new ApprovalLogListener();
         $this->subscribe(ToolCalled::class, $this->log);
+    }
+
+    /**
+     * What the model gets for a tool call that threw: the message, redacted. Shared with the approval check's dry run
+     * (P3.6-2), so a call refused before it is put to the user reads exactly as the refused call would have.
+     */
+    public static function toolErrorText(\Throwable $e): string
+    {
+        return 'Error executing tool: ' . SecretRedactor::redact($e->getMessage()) . '. Please try a different approach or ask for clarification.';
     }
 
     /**
@@ -197,6 +217,24 @@ class ConcreteCmsAgent extends Agent
         $this->openEditorBlockIDs = array_values(array_unique(array_map('intval', $blockIDs)));
 
         return $this;
+    }
+
+    /**
+     * Neuron's nodes, with ApprovalToolNode in place of ToolNode (P3.6-2): a call its own checks would refuse gets that
+     * refusal as its result. As Agent::nodes(), without parallel tool calls, which this agent doesn't use.
+     *
+     * @return \NeuronAI\Workflow\Node[]
+     */
+    protected function nodes(): array
+    {
+        return [
+            ...$this->entryNodes(),
+            new \NeuronAI\Agent\Nodes\ChatNode(),
+            new \NeuronAI\Agent\Nodes\StructuredOutputNode(),
+            new ApprovalToolNode($this->toolMaxRuns, $this->toolErrorHandler ?? $this->resolveToolErrorHandler()),
+            new \NeuronAI\Agent\Nodes\AwaitToolResultsNode(),
+            ...$this->exitNodes(),
+        ];
     }
 
     /**
@@ -867,13 +905,22 @@ INST);
      */
     private function endSegment(AgentState $state): string
     {
-        if ($state->isInterrupted() && $state->getInterruptRequest() instanceof ApprovalRequest) {
+        for ($round = 0; $state->isInterrupted() && $state->getInterruptRequest() instanceof ApprovalRequest; $round++) {
             $this->awaitingApproval = true;
-            if ($this->chatId !== null) {
-                $this->approvals()->record($this->chatId, $this->pendingApprovals(), ApprovalService::currentUserId());
+            if ($this->chatId === null) {
+                return self::AWAITING_REPLY;
             }
+            $this->approvals()->record($this->chatId, $this->pendingApprovals(), ApprovalService::currentUserId());
 
-            return self::AWAITING_REPLY;
+            // P3.6-2: when every waiting call would be refused by its own checks (CallCheck), nobody is asked: the
+            // refusals go to the model at once, in the tool's words, and the turn goes on.
+            $decisions = $round < self::MAX_REFUSED_ROUNDS ? $this->approvals()->claimDecided($this->chatId) : null;
+            if ($decisions === null) {
+                return self::AWAITING_REPLY;
+            }
+            $this->settledCallIds = array_values(array_unique([...$this->settledCallIds, ...array_map('strval', array_keys($decisions))]));
+            $this->noteRefusals($decisions);
+            $state = $this->submitApprovalDecisions($decisions)->run();
         }
 
         $this->awaitingApproval = false;
@@ -1000,7 +1047,17 @@ INST);
             $messages = $history->getMessages();
             $last = end($messages);
             $store = $this->resolveMessageStore();
-            if ($last instanceof UserMessage) {
+            if ($last instanceof ToolCallMessage && $store instanceof ChatMessageStore) {
+                // P3.6-2: a resumed batch that failed after its calls ran. The call was stored before the pause, with
+                // no result, so it would look like it still waits and refuse every later turn (B-ERR-5). Its results
+                // are stored as unknown, then the error reply.
+                $results = array_map(
+                    static fn (ToolCall $call): ToolCall => (clone $call)->setResult(self::UNSAVED_RESULT),
+                    $last->getToolCalls()
+                );
+                $store->append($this->getThreadId(), new ToolResultMessage($results));
+                $store->append($this->getThreadId(), new AssistantMessage(self::ERROR_REPLY));
+            } elseif ($last instanceof UserMessage) {
                 $history->addMessage(new AssistantMessage(self::ERROR_REPLY));
             } elseif ($last instanceof AssistantMessage && ChatMessageStore::isRecovered($last) && $store instanceof ChatMessageStore) {
                 $store->append($this->getThreadId(), new AssistantMessage(self::ERROR_REPLY));

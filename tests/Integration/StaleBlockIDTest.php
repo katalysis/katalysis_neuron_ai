@@ -14,6 +14,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
+use Katalysis\NeuronAi\Tests\Support\ApproveAll;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tests\Support\ToolByName;
@@ -197,7 +198,7 @@ final class StaleBlockIDTest extends ConcreteTestCase
 
         $agent = (new ConcreteCmsAgent())->setChatId((int) $chat->getId())
             ->setAiProvider(new FakeAIProvider($call($b1), $call($newID), new AssistantMessage('Done.')));
-        $this->assertSame('Done.', $agent->handleUserMessage('Make the first paragraph bold.'));
+        $this->assertSame('Done.', ApproveAll::turn($agent, 'Make the first paragraph bold.'));
 
         $this->assertSame('<p><strong>Block one edited by hand.</strong></p>', $this->html($this->pages->blockIDs($cID)[0]));
         $versions = (int) $this->db()->fetchOne('SELECT COUNT(*) FROM CollectionVersions WHERE cID = ?', [$cID]);
