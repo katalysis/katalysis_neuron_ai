@@ -410,7 +410,7 @@ After permissions, so that approval never stands in for a permission check.
   - the scenario runner learns approve and deny steps
   - first set of tools: `update_page`, `set_page_attribute_value` and `create_page`
   - scenarios (keeps its own ×3 before merge, WP-4): 08, 10, 14 ×3; cap $0.65
-- [ ] P3.6-2 **Approval on every write tool, with previews** (L; safety). Depends on: P3.6-1 and P3.3-4.
+- [x] P3.6-2 **Approval on every write tool, with previews** (L; safety; Done (PR #92)). Depends on: P3.6-1 and P3.3-4.
   - every write tool needs approval, with a summary or diff of the change, including the whole-value writes (`update_page`, `set_page_attribute_value`; B-T1-2)
   - the approval must cover `create_page`: P1.13 makes it create an unpublished page, but it still adds a page to the sitemap, and publishing stays a person's action from Page Versions
   - from P1.8a: a draft belongs to the page, not to a user. `PageDraft::of()` and `create_page_draft` reuse the page's newest unapproved version, whoever made it. Approval and its UI must show the draft's changes, not only the current call's, and say when the draft already holds someone else's edits
