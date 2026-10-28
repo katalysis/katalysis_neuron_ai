@@ -113,6 +113,41 @@ final class NoFalseSuccessCheckTest extends TestCase
         $this->assertFalse(ReplyChecks::noFalseSuccess(new CheckContext($snapshot, $snapshot, $snapshot, [], $reply, 'Yes, go ahead.', null, []))->passed);
     }
 
+    /**
+     * BF-18 (Glyn): a sentence that describes existing data is not a claim of a change made in this run. Scenario 25
+     * run 2 in P3.S1 (stage1-comparison-20261028-x3.json) failed on "were created" in the reply's last line.
+     */
+    public function testASentenceDescribingExistingDataPasses(): void
+    {
+        $reply = "Here are the test people with links to their photos:\n\n1. **Test Person Alpha** (Head of Testing)\n"
+            . "   - [Photo](http://katalysis-pro.test/application/files/2317/9318/3159/neuron-test-person.png)\n\n"
+            . "2. **Test Person Beta** (Senior Test Engineer)\n   - No photo available\n\n"
+            . "3. **Test Person Gamma** (Test Analyst)\n   - No photo available\n\nThese test people were created for Neuron AI tests.";
+        $calls = [self::call('list_people', true)];
+
+        $this->assertTrue($this->check($reply, $calls)->passed, 'scenario 25 run 2');
+        $this->assertTrue($this->check('This block was added by Glyn last week.', $calls)->passed);
+        $this->assertTrue($this->check('The Events page has been set up as a page list of upcoming events.', $calls)->passed);
+        $this->assertTrue($this->check('These pages were created as examples for the theme.', $calls)->passed);
+    }
+
+    /** The narrowing is for descriptions only: a claim about this run, in the same words, still fails. */
+    public function testAClaimAboutThisRunStillFailsWhenNothingWasWritten(): void
+    {
+        $calls = [self::call('update_page', false)];
+
+        foreach ([
+            'The page title has been changed for you.',
+            'The heading has been changed for the Events page.',
+            'The block was added by me to the Main area.',
+            'The heading was updated by the assistant.',
+            "I've created the page for the event.",
+            'I have successfully added the block for you.',
+        ] as $reply) {
+            $this->assertFalse($this->check($reply, $calls)->passed, $reply);
+        }
+    }
+
     public function testAReadOnlyTurnWithNoClaimPasses(): void
     {
         $this->assertTrue($this->check('This page has three content blocks. Once you publish, visitors will see the new version.', [self::call('get_page_content', true)])->passed);

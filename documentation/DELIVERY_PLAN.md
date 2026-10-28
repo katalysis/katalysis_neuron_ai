@@ -390,7 +390,6 @@ Deleting first means less code to move, and every later behaviour change lands i
   - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list (BF-6)
   - `count_blocks_by_type` now checks permissions page by page (P3.5-1), which is slower on large sites; include it in the large-list work
   - `list_page_types` counts pages per type ignoring permissions (found in P3.5-1; it is in `NoElevationTest`'s allowed list until then): count only pages the user can view, with the large-list work
-  - `list_pages` and `get_page_children` with `parentPath` `/` error ("Parent page not found at path: /"; `Page::getByPath('/')` finds nothing), seen in scenario 15 at the Phase 1 exit (B-ERR-1). Resolve `/` to the home page, as `PageContextResolver` does since BF-1
   - declare `items` for the 6 array properties in `ToolRegistryTest`'s known list (P2.3)
   - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
   - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, checked in P3.S2's comparison)
@@ -693,6 +692,11 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - `add_block_to_page_area`, `update_block_in_page_area` and `batch_update_page_content` refuse a field the block type doesn't have, before any draft, and the message names the block type's real fields
   - a red-first test per tool
   - scenarios: `--fake` of 07 and 27–32, then 30 and 07 ×3; cap $0.50
+- [x] BF-18 **`parentPath` `/` is the home page** (small; Done (PR #81); its own PR into `development`; no plan stop; Glyn, after P3.S1; moved here from P3.3-5). Found again in P3.S1: scenario 15 failed 2 of 5 runs because `list_pages` with `parentPath: "/"` errors ("Parent page not found at path: /"; Concrete stores the home page with an empty path). Scope:
+  - `list_pages` and `get_page_children` treat `/` as the home page, as `PageContextResolver` does (BF-1)
+  - a red-first test
+  - with it, in its own commit (Glyn approved): `no_false_success` no longer counts a sentence that describes existing data ("were created for tests", "was added by", "has been set up as") as a claim of a change made in this run; unit-tested with scenario 25's flagged reply (must pass), the existing false-success cases still fail
+  - scenarios: `--fake` of 15 only; P3.S2 compares it
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
