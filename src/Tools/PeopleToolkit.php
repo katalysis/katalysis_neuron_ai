@@ -9,6 +9,7 @@ use Concrete\Package\KatalysisPro\Src\KatalysisPro\People\PeopleList;
 use Concrete\Core\Support\Facade\Database;
 use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\User\User;
+use NeuronAI\Tools\ArrayProperty;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
@@ -77,11 +78,14 @@ class PeopleToolkit extends AbstractToolkit
             false
         ));
 
+        $tool->addProperty(self::fieldsProperty());
+
         $tool->setHandler($this->guarded(function (
             ?bool $active_only = true,
             ?bool $featured_only = false,
             ?int $limit = 100,
-            ?int $offset = null
+            ?int $offset = null,
+            ?array $fields = null
         ): array {
             $window = ListWindow::of($limit, $offset, 100, 100);
             $list = new PeopleList();
@@ -111,16 +115,7 @@ class PeopleToolkit extends AbstractToolkit
                     // BF-12: the absolute URL beside the file ID, so the model never adds a host.
                     $images[] = [$person->getImage(), $imageUrl = AbsoluteUrl::forFile($person->getImage())];
 
-                    $people[] = [
-                        'sID' => $person->getSID(),
-                        'name' => $person->getName(),
-                        'jobTitle' => $person->getJobTitle(),
-                        'email' => $person->getEmail(),
-                        'phone' => $person->getPhone(),
-                        'image' => $person->getImage(),
-                        'imageUrl' => $imageUrl,
-                        'active' => (bool) $person->getActive(),
-                        'featured' => (bool) $person->getFeatured(),
+                    $people[] = self::profile($person, $imageUrl, (array) $fields) + [
                         'specialisms' => array_column($specialisms, 'treeNodeName'),
                         'topics' => array_column($topics, 'treeNodeName'),
                         'places' => array_column($places, 'name'),
@@ -166,10 +161,13 @@ class PeopleToolkit extends AbstractToolkit
             false
         ));
 
+        $tool->addProperty(self::fieldsProperty());
+
         $tool->setHandler($this->guarded(function (
             ?int $person_id = null,
             ?string $name = null,
-            ?string $email = null
+            ?string $email = null,
+            ?array $fields = null
         ): array {
             if (!$person_id && !$name && !$email) {
                 throw new \RuntimeException('Either person_id, name, or email is required');
@@ -219,18 +217,7 @@ class PeopleToolkit extends AbstractToolkit
 
             return AbsoluteUrl::withNote([
                 'success' => true,
-                'person' => [
-                    'sID' => $person->getSID(),
-                    'name' => $person->getName(),
-                    'jobTitle' => $person->getJobTitle(),
-                    'email' => $person->getEmail(),
-                    'phone' => $person->getPhone(),
-                    'mobile' => $person->getMobile(),
-                    'linkedin' => $person->getLinkedin(),
-                    'image' => $person->getImage(),
-                    'imageUrl' => $imageUrl,
-                    'active' => (bool) $person->getActive(),
-                    'featured' => (bool) $person->getFeatured(),
+                'person' => self::profile($person, $imageUrl, array_merge(['qualification'], (array) $fields)) + [
                     'sortOrder' => $person->getSortOrder(),
                     'specialisms' => $specialisms,
                     'topics' => $topics,
@@ -502,6 +489,56 @@ class PeopleToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /** P3.5-2 (B-PII-2): the details a request may add to a person's profile. */
+    private const OPTIONAL_FIELDS = ['email', 'phone', 'mobile', 'linkedin', 'biography', 'qualification', 'image'];
+
+    private static function fieldsProperty(): ArrayProperty
+    {
+        return new ArrayProperty(
+            'fields',
+            'Details to add, only when the request needs them: ' . implode(', ', self::OPTIONAL_FIELDS) . ' (for '
+            . '"what do their bios say", add biography). By default the public profile is returned: name, job title, '
+            . 'short biography, photo, specialisms, topics and places.',
+            false,
+            new ToolProperty('field', PropertyType::STRING, 'One of: ' . implode(', ', self::OPTIONAL_FIELDS), true)
+        );
+    }
+
+    /**
+     * P3.5-2 (B-PII-2): a person's public profile, and only the details asked for.
+     *
+     * @param list<string> $fields
+     */
+    private static function profile(Person $person, ?string $imageUrl, array $fields): array
+    {
+        $profile = [
+            'sID' => $person->getSID(),
+            'name' => $person->getName(),
+            'jobTitle' => $person->getJobTitle(),
+            'shortBiography' => $person->getShortBiography(),
+            'imageUrl' => $imageUrl,
+            'active' => (bool) $person->getActive(),
+            'featured' => (bool) $person->getFeatured(),
+            'page' => $person->getPage(),
+        ];
+        $optional = [
+            'email' => static fn (): string => $person->getEmail(),
+            'phone' => static fn (): string => $person->getPhone(),
+            'mobile' => static fn (): string => $person->getMobile(),
+            'linkedin' => static fn (): string => $person->getLinkedin(),
+            'biography' => static fn (): string => $person->getBiography(),
+            'qualification' => static fn (): string => $person->getQualification(),
+            'image' => static fn (): ?int => $person->getImage(),
+        ];
+        foreach ($optional as $field => $value) {
+            if (in_array($field, $fields, true)) {
+                $profile[$field] = $value();
+            }
+        }
+
+        return $profile;
     }
 
     /**

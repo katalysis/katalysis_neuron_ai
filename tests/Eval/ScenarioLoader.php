@@ -19,7 +19,7 @@ final class ScenarioLoader
     private const STATE_KEYS = [
         'nothing_changed', 'page_exists', 'page_not_published', 'page_absent', 'page_unchanged', 'page_type', 'attribute',
         'attribute_on_children_of', 'blocks', 'all_text_unchanged', 'live_version_unchanged', 'file_exists',
-        'people', 'person_field_empty', 'changed_pages',
+        'people', 'person_field_empty', 'changed_pages', 'users_unchanged',
     ];
     private const BLOCK_KEYS = ['page', 'area', 'count', 'headings', 'contains_html', 'lacks_html', 'unchanged', 'has_block', 'has_block_unchanged', 'has_block_field'];
     private const TOOL_KEYS = ['no_write_tool_succeeded', 'no_write_tool_failed', 'not_succeeded', 'not_called', 'called_any', 'succeeded', 'notice_shown', 'notice_absent'];

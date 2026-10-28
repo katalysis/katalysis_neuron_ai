@@ -343,7 +343,7 @@ Why first:
   - one PHPUnit test per write tool for the denied case, calling the tool by name, so the tests survive P3.3-4
   - B-ACC-5: check that no tool elevates (today "Not verified"); B-ACC-6: tests that a refused write isn't reached by the obvious other routes
   - scenarios (keeps its own ×3 before merge, WP-4): 11 ×5; 02, 03, 08, 10, 18 ×3; a new denied-write scenario ×3; cap $1.75 (Glyn, on approving the plan: $1.61 plus one re-run)
-- [ ] P3.5-2 **Personal data** (S–M; safety). Depends on: P3.5-1's helper.
+- [x] P3.5-2 **Personal data** (S–M; safety). Done (PR #73). Depends on: P3.5-1's helper.
   - `get_user` and the people tools return only the fields the request needs (B-PII-2; scenario 03 is partial on this)
   - remove `set_user_attribute_value` (disabled in P1.7); a scenario for B-ACC-7
   - from P2.8: `katalysis_pro`'s `guarded()` catches `\Throwable` and returns the raw exception message as `{ok: false, error}`, which skips `SecretRedactor`. Route that text through `SecretRedactor` (for example by letting the exception reach the agent's tool error handler, which redacts and logs it), in a `katalysis_pro` PR with a test here
@@ -388,6 +388,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
   - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list (BF-6)
   - `count_blocks_by_type` now checks permissions page by page (P3.5-1), which is slower on large sites; include it in the large-list work
+  - `list_page_types` counts pages per type ignoring permissions (found in P3.5-1; it is in `NoElevationTest`'s allowed list until then): count only pages the user can view, with the large-list work
   - `list_pages` and `get_page_children` with `parentPath` `/` error ("Parent page not found at path: /"; `Page::getByPath('/')` finds nothing), seen in scenario 15 at the Phase 1 exit (B-ERR-1). Resolve `/` to the home page, as `PageContextResolver` does since BF-1
   - declare `items` for the 6 array properties in `ToolRegistryTest`'s known list (P2.3)
   - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
@@ -518,6 +519,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   - (decided after P2.2) today the AI settings page builds every external toolkit on each load, to list the ones that fail. Revisit that here (an MCP toolkit would connect on every page view)
   - re-enabling `katalysis_pro`'s `add_person` and `update_person` behind approval (from P3.6-3, after the internal pilot; WP-4)
   - `katalysis_pro` `canWritePeople()`: drop the "any logged-in user when People is enabled" path, leaving the Dashboard page check (found in P3.5-1's plan); must merge before `add_person` or `update_person` is re-enabled
+  - `katalysis_pro` `list_people` and `get_person`: the `fields` input and opt-in contact details, as P3.5-2 did for the core tools (plan section 1); scenario 03 reaches pass only after this, because `katalysis_pro`'s `list_people` replaces core's when installed. Merges before core relies on it
   - scenarios: 03, 04, 21, 25 ×3; cap $0.85 (Phase 5's budget, not Phase 3's)
 - P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
 - P5.2 Move and convert content between block types, using per-block-type field mappers. **Takes in P3.10-2** (moved from Phase 3 on the roadmap, 27 October 2026; see `EXTENSIONS.md`):

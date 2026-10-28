@@ -55,12 +55,45 @@ final class ToolBaseline
         'PagesToolkit::list_pages' => 'BF-6: offset input; limit names its default; the description says the result gives the total and whether there are more',
         'PagesToolkit::get_page_children' => 'BF-6: offset input; limit names its range; the description no longer says "all" and says the result gives the total',
         'FilesToolkit::list_files' => 'BF-6: offset input; limit names its default; the description says newest first and that the result gives the total',
-        'UsersToolkit::list_users' => 'BF-6: offset input; limit names its default; the description says newest first and that the result gives the total',
-        'UsersToolkit::search_users' => 'BF-6: offset input; limit names its range; the description says the result gives the total',
+        'UsersToolkit::list_users' => 'BF-6: offset input; limit names its default; the description says newest first and that the result gives the total; P3.5-2: fields input (email on request)',
+        'UsersToolkit::search_users' => 'BF-6: offset input; limit names its range; the description says the result gives the total; P3.5-2: fields input (email on request)',
+        'UsersToolkit::get_user' => 'P3.5-2: fields and attributes inputs (email, lastLogin, timezone and named attributes on request, B-PII-2)',
+        'UsersToolkit::get_current_user' => 'P3.5-2: fields and attributes inputs (lastLogin, timezone and named attributes on request, B-PII-2)',
         'VersionsToolkit::list_page_versions' => 'BF-6: offset input; the description says newest first and that the result gives the total',
-        'PeopleToolkit::list_people' => 'BF-6: offset input; limit capped at 100; the description says the result gives the total',
+        'PeopleToolkit::list_people' => 'BF-6: offset input; limit capped at 100; the description says the result gives the total; P3.5-2: fields input (contact details and the full biography on request)',
+        'PeopleToolkit::get_person_details' => 'P3.5-2: fields input (contact details and the full biography on request, B-PII-2)',
         'TopicsToolkit::get_topic_tree_structure' => 'BF-6: the description says what totalTopics counts and how a cut at max_depth is shown; P3.3-1: the description says categories are shown and counted',
     ];
+
+    /**
+     * Tools removed on purpose after the v3 capture, with the task and the reason. The capture itself is never edited;
+     * capturedDefinitions() leaves these out.
+     *
+     * @var array<string, string> "Toolkit::tool" => reason
+     */
+    public const REMOVED = [
+        'UserAttributesToolkit::set_user_attribute_value' => 'P3.5-2: removed; user accounts are read-only at every tier (B-ACC-7)',
+    ];
+
+    /**
+     * The v3 capture's definitions without the tools in REMOVED.
+     *
+     * @return list<array{toolkit: string, guidelines: ?string, tools: list<array<string, mixed>>}>
+     */
+    public static function capturedDefinitions(): array
+    {
+        $baseline = json_decode((string) file_get_contents(self::FILE), true, 512, JSON_THROW_ON_ERROR);
+        $definitions = [];
+        foreach ($baseline['definitions'] as $toolkit) {
+            $toolkit['tools'] = array_values(array_filter(
+                $toolkit['tools'],
+                static fn (array $tool): bool => !isset(self::REMOVED[$toolkit['toolkit'] . '::' . $tool['name']])
+            ));
+            $definitions[] = $toolkit;
+        }
+
+        return $definitions;
+    }
 
     /**
      * Every core toolkit: the ones the agent registers, in its order, then AttributesToolkit (not registered, P1.8a).

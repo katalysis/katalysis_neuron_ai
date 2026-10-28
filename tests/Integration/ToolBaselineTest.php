@@ -62,7 +62,8 @@ final class ToolBaselineTest extends ConcreteTestCase
 
     public function testEveryCoreToolIsDefinedAsOnNeuron3(): void
     {
-        $expected = $this->baseline()['definitions'];
+        // The capture, without the tools removed on purpose since (ToolBaseline::REMOVED, each with its task and reason).
+        $expected = ToolBaseline::capturedDefinitions();
         $actual = ToolBaseline::definitions(ToolBaseline::coreToolkits());
 
         // Names first, so a missing or extra tool reads clearly before the full comparison.

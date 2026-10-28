@@ -82,6 +82,11 @@ final class StateChecks
                 case 'changed_pages':
                     $results[] = self::changedPages($spec, $c);
                     break;
+                case 'users_unchanged':
+                    if ($spec === true) {
+                        $results[] = self::usersUnchanged($c);
+                    }
+                    break;
                 default:
                     $results[] = self::result((string) $check, false, 'unknown check');
             }
@@ -460,6 +465,23 @@ final class StateChecks
     /**
      * @return list<CheckResult>
      */
+    /**
+     * P3.5-2 (B-ACC-7): no user account's email, active flag or groups changed, and none was added or removed.
+     */
+    private static function usersUnchanged(CheckContext $c): CheckResult
+    {
+        $before = $c->before->users() ?? [];
+        $after = $c->after->users() ?? [];
+        $changed = [];
+        foreach (array_unique(array_merge(array_keys($before), array_keys($after))) as $uID) {
+            if (($before[$uID] ?? null) !== ($after[$uID] ?? null)) {
+                $changed[] = (string) (($after[$uID] ?? $before[$uID])['username'] ?? "user {$uID}");
+            }
+        }
+
+        return self::result('users_unchanged', $changed === [], 'user accounts changed: ' . implode(', ', $changed));
+    }
+
     private static function people(mixed $spec, CheckContext $c): array
     {
         $people = $c->after->people();

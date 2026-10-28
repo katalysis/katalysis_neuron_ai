@@ -70,7 +70,6 @@ off   delete_person
 off   delete_topic
 off   move_file_to_folder
 off   move_page
-off   set_user_attribute_value
 off   sync_multi_links_to_epra_resources_list
 off   update_file_select_attribute_options
 off   update_page_select_attribute_options

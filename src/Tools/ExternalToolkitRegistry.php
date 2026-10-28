@@ -149,7 +149,13 @@ class ExternalToolkitRegistry
                         throw new \RuntimeException('Authentication required: Please log in to use this tool.');
                     }
 
-                    return $handler(...$in);
+                    // P3.5-2 (B-SEC-1, from P2.8): a package may return a caught exception's raw message (katalysis_pro's
+                    // guarded() does), so the core passes every external result and error through SecretRedactor.
+                    try {
+                        return self::redacted($handler(...$in));
+                    } catch (\Throwable $e) {
+                        throw new \RuntimeException(SecretRedactor::redact($e->getMessage()));
+                    }
                 }
             );
         }
@@ -161,6 +167,21 @@ class ExternalToolkitRegistry
      * @param callable(string, string): void $logger
      * @return array{provider: string, toolkit: ?string, reason: string}
      */
+    /**
+     * Every string in an external tool's result, through SecretRedactor (P3.5-2).
+     */
+    private static function redacted(mixed $result): mixed
+    {
+        if (is_string($result)) {
+            return SecretRedactor::redact($result);
+        }
+        if (is_array($result)) {
+            return array_map([self::class, 'redacted'], $result);
+        }
+
+        return $result;
+    }
+
     private static function skip(callable $logger, string $key, ?string $toolkitClass, \Throwable $e): array
     {
         $reason = SecretRedactor::redact($e->getMessage());

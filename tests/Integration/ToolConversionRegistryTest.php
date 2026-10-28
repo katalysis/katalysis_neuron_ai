@@ -68,8 +68,8 @@ final class ToolConversionRegistryTest extends ConcreteTestCase
      */
     public static function definedToolCases(): iterable
     {
-        $baseline = json_decode((string) file_get_contents(ToolBaseline::FILE), true, 512, JSON_THROW_ON_ERROR);
-        foreach ($baseline['definitions'] as $t => $toolkit) {
+        // The capture without the tools removed on purpose since (ToolBaseline::REMOVED; P3.5-2).
+        foreach (ToolBaseline::capturedDefinitions() as $t => $toolkit) {
             foreach ($toolkit['tools'] as $i => $tool) {
                 yield $toolkit['toolkit'] . '::' . $tool['name'] => [$tool['name'], $t, $i];
             }
@@ -84,9 +84,10 @@ final class ToolConversionRegistryTest extends ConcreteTestCase
         return $tool;
     }
 
-    public function testThereAre87CoreToolDefinitions(): void
+    public function testThereAre87CoreToolDefinitionsLessTheRemovedOnes(): void
     {
-        $this->assertCount(87, self::definedTools());
+        // P2.3 converted 87; P3.5-2 removed set_user_attribute_value (ToolBaseline::REMOVED).
+        $this->assertCount(87 - count(ToolBaseline::REMOVED), self::definedTools());
     }
 
     #[DataProvider('definedToolCases')]

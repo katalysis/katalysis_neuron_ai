@@ -27,15 +27,26 @@ final class Snapshot
     private array $files;
     /** @var array<string, array<string, mixed>>|null */
     private ?array $people;
+    /** @var array<string, array<string, string>>|null user ID => username, email, active, groups (P3.5-2) */
+    private ?array $users;
 
     /**
-     * @param array{pages: array<int, array<string, mixed>>, files: list<array<string, mixed>>, people: array<string, array<string, mixed>>|null} $data
+     * @param array{pages: array<int, array<string, mixed>>, files: list<array<string, mixed>>, people: array<string, array<string, mixed>>|null, users?: array<string, array<string, string>>|null} $data
      */
     public function __construct(array $data)
     {
         $this->pages = $data['pages'];
         $this->files = $data['files'];
         $this->people = $data['people'];
+        $this->users = $data['users'] ?? null;
+    }
+
+    /**
+     * @return array<string, array<string, string>>|null
+     */
+    public function users(): ?array
+    {
+        return $this->users;
     }
 
     /**
