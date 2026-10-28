@@ -366,6 +366,8 @@ class ContentToolkit extends AbstractToolkit
             EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
+            // P3.6-2: a block an earlier call in this request copied into the draft is changed in its copy.
+            $blockID = PageDraft::followCopies($page, $areaHandle, (int) $blockID);
             // P3.5-1 decision 3: edit mode's own permission first, then the block's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
@@ -481,6 +483,8 @@ class ContentToolkit extends AbstractToolkit
             EditModeGuard::refuse($page);
             SystemPageGuard::refuseGlobalArea($page, $areaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
+            // P3.6-2: a block an earlier call in this request copied into the draft is removed in its copy.
+            $blockID = PageDraft::followCopies($page, $areaHandle, (int) $blockID);
 
             // P3.5-1 decision 3: edit mode's own permission first, then the block's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
@@ -579,6 +583,8 @@ class ContentToolkit extends AbstractToolkit
             SystemPageGuard::refuseGlobalArea($page, $fromAreaHandle);
             SystemPageGuard::refuseGlobalArea($page, $toAreaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
+            // P3.6-2: a block an earlier call in this request copied into the draft is moved as its copy.
+            $blockID = PageDraft::followCopies($page, $fromAreaHandle, (int) $blockID);
             // P3.5-1 decision 3: edit mode's own permission first, then the block's and the destination area's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 

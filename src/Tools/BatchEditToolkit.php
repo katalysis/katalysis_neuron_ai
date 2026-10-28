@@ -19,6 +19,7 @@ use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\Utilities\TextIntegrity;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
@@ -173,9 +174,11 @@ class BatchEditToolkit extends AbstractToolkit
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
-            foreach ($updates as $update) {
+            foreach ($updates as $i => $update) {
                 SystemPageGuard::refuseGlobalArea($page, (string) $update['areaHandle']);
                 EditModeGuard::refuseOpenBlock($page, (int) $update['blockID']);
+                // P3.6-2: a block an earlier call in this request copied into the draft is changed in its copy.
+                $updates[$i]['blockID'] = PageDraft::followCopies($page, (string) $update['areaHandle'], (int) $update['blockID']);
             }
 
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));

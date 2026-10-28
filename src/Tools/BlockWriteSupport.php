@@ -9,6 +9,7 @@ use Concrete\Core\Block\Block;
 use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Support\Facade\Application;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 
 /**
@@ -56,6 +57,12 @@ trait BlockWriteSupport
     {
         SystemPageGuard::refuseGlobalArea($page, $areaHandle);
 
-        return $this->coreGetBlockToEdit($page, $area, $areaHandle, $blockID);
+        $block = $this->coreGetBlockToEdit($page, $area, $areaHandle, $blockID);
+        // P3.6-2: a later call in this request that names the old ID follows the copy (PageDraft::followCopies()).
+        if ($block) {
+            PageDraft::recordCopy((int) $page->getCollectionID(), (int) $blockID, (int) $block->getBlockID());
+        }
+
+        return $block;
     }
 }
