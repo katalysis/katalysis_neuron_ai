@@ -64,6 +64,10 @@ final class CallCheckTest extends ConcreteTestCase
         return match ($tool) {
             // Scenario 04's and 35's calls (P3.6-2's re-run): attribute handles that don't exist.
             'create_page' => ['good' => ['parentID' => $parent, 'name' => 'Call check new page'], 'bad' => ['parentID' => $parent, 'name' => 'Test Person Delta', 'attributes' => ['email' => 'delta@neuron-test.invalid']]],
+            // P3.6-3: re-enabled behind approval. The dry run stops before Concrete's request, or the file move.
+            'move_page' => ['good' => ['pageID' => $cID, 'newParentID' => (int) Page::getByPath('/neuron-test/move-target')->getCollectionID()], 'bad' => ['pageID' => 999999999, 'newParentID' => $parent]],
+            'delete_page' => ['good' => ['pageID' => $cID], 'bad' => ['pageID' => 999999999]],
+            'mark_file_for_deletion' => ['good' => ['fileID' => (string) $this->seedFileID()], 'bad' => ['fileID' => '999999999']],
             'update_page' => ['good' => ['pageID' => $cID, 'description' => 'Checked'], 'bad' => ['pageID' => 999999999, 'description' => 'Checked']],
             'set_page_attribute_value' => ['good' => ['pageID' => $cID, 'handle' => 'meta_title', 'value' => 'Checked'], 'bad' => ['pageID' => $cID, 'handle' => 'no_such_attribute', 'value' => 'x']],
             'add_block_to_page_area' => ['good' => ['pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'content', 'value' => ['content' => '<p>New.</p>']], 'bad' => ['pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'no_such_type', 'value' => ['content' => 'x']]],
@@ -94,6 +98,18 @@ final class CallCheckTest extends ConcreteTestCase
         $real = ToolByName::run($tool, $cases['bad']);
         $this->assertFalse(ToolKind::succeeded($real), "{$tool}: the real call fails too: {$real}");
         $this->assertSame(str_starts_with($real, 'Error executing tool: ') ? $real . self::SUFFIX : $real, $refusal, "{$tool}: the same words as the real call");
+    }
+
+    private function seedFileID(): int
+    {
+        $id = $this->db()->fetchOne(
+            "SELECT f.fID FROM Files f JOIN FileVersions fv ON fv.fID = f.fID AND fv.fvIsApproved = 1 WHERE fv.fvTitle = 'Neuron Test File'"
+        );
+        if ($id === false) {
+            $this->markTestSkipped('The seed has no "Neuron Test File". Run the seed script first.');
+        }
+
+        return (int) $id;
     }
 
     public function testToolsWithoutADraftSayFromTheirReadsWhenTheyWouldBeRefused(): void

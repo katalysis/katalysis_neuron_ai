@@ -12,7 +12,6 @@ use Concrete\Core\Http\Request;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Support\Facade\Config;
 use Concrete\Core\Tree\Node\Node as TreeNode;
-use Concrete\Core\Tree\Node\Type\File as FileNode;
 use Concrete\Core\Tree\Node\Type\FileFolder;
 use Katalysis\NeuronAi\Approval\ChangePreview;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
@@ -37,10 +36,17 @@ final class ReenabledToolsTest extends ConcreteTestCase
 
     private bool $reviewFolderExisted = true;
 
+    /** @var array<string, int> the highest ID in the tables Concrete's move and delete requests write to */
+    private array $marks = [];
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->pages = new ThrowawayPages($this->db());
+        // A move or delete goes through Concrete's workflow request, which records itself even when it runs at once.
+        foreach (['WorkflowProgressHistory' => 'wphID', 'WorkflowRequestObjects' => 'wrID'] as $table => $column) {
+            $this->marks[$table] = (int) $this->db()->fetchOne("SELECT COALESCE(MAX(`{$column}`), 0) FROM `{$table}`");
+        }
         $this->reviewFolderExisted = $this->reviewFolder() !== null;
         ThrowawayPages::actAs('superuser');
     }
@@ -50,8 +56,7 @@ final class ReenabledToolsTest extends ConcreteTestCase
         Config::set('concrete.misc.enable_trash_can', true);
         ThrowawayPages::actAs('superuser');
         if ($this->movedFile !== null) {
-            $node = FileNode::getByID((int) File::getByID($this->movedFile['fID'])->getFileNodeID());
-            $node->move(FileFolder::getByID($this->movedFile['folderID']));
+            File::getByID($this->movedFile['fID'])->getFileNodeObject()->move(FileFolder::getByID($this->movedFile['folderID']));
             $this->movedFile = null;
         }
         $folder = $this->reviewFolder();
@@ -59,6 +64,8 @@ final class ReenabledToolsTest extends ConcreteTestCase
             $folder->delete();
         }
         $this->pages->restore();
+        $this->db()->executeStatement('DELETE FROM WorkflowProgressHistory WHERE wphID > ?', [$this->marks['WorkflowProgressHistory']]);
+        $this->db()->executeStatement('DELETE FROM WorkflowRequestObjects WHERE wrID > ?', [$this->marks['WorkflowRequestObjects']]);
         Request::getInstance()->setCustomRequestUser(-1);
         parent::tearDown();
     }
@@ -281,7 +288,8 @@ final class ReenabledToolsTest extends ConcreteTestCase
 
         $refusal = ChangePreview::of('mark_file_for_deletion', $inputs)['refusal'];
         $this->assertStringContainsString('only moves files to', (string) $refusal);
-        $this->assertSame(ToolByName::run('mark_file_for_deletion', $inputs) . '. Please try a different approach or ask for clarification.', $refusal);
+        // FilesToolkit answers a refusal with its {ok: false} envelope, which is what the model gets.
+        $this->assertSame(ToolByName::run('mark_file_for_deletion', $inputs), $refusal);
         $this->assertSame((int) $file->getFileFolderObject()->getTreeNodeID(), (int) File::getByID($file->getFileID())->getFileFolderObject()->getTreeNodeID());
     }
 }
