@@ -7,6 +7,7 @@ namespace Katalysis\NeuronAi\Tests\Integration;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\File\Filesystem;
 use Concrete\Core\Http\Request;
+use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\Tree\Type\Topic as TopicTree;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\PermissionCleanup;
@@ -59,13 +60,19 @@ final class FilesTopicsAttributesPermissionTest extends ConcreteTestCase
         return $fID;
     }
 
-    private function topicRootID(): int
+    /**
+     * A throwaway topic tree with one topic, made as the super user (tearDown removes it).
+     *
+     * @return array{string, int} the tree's name and its topic's node ID
+     */
+    private function topicTree(): array
     {
         ThrowawayPages::actAs('superuser');
         $this->lastAccess = (int) $this->db()->fetchOne('SELECT COALESCE(MAX(paID), 0) FROM PermissionAccess');
         $this->tree = TopicTree::add('Neuron Test Topics ' . bin2hex(random_bytes(3)));
+        $topic = call_user_func_array([TopicNode::class, 'add'], ['Neuron Test Topic', $this->tree->getRootTreeNodeObject()]);
 
-        return (int) $this->tree->getRootTreeNodeID();
+        return [(string) $this->tree->getTreeName(), (int) $topic->getTreeNodeID()];
     }
 
     /**
@@ -162,9 +169,11 @@ final class FilesTopicsAttributesPermissionTest extends ConcreteTestCase
             'move_file_to_folder' => ['fileID' => (string) $this->seedFileID(), 'folderID' => $root],
             'delete_file' => ['fileID' => $this->seedFileID()],
             'set_file_attribute_value' => ['fileID' => $this->seedFileID(), 'handle' => 'width', 'value' => '10'],
-            'create_topic' => ['tree_name' => $this->tree?->getTreeName() ?? 'x', 'topic_name' => 'Refused', 'parent_topic_id' => $this->topicRootID()],
-            'rename_topic' => ['topic_id' => $this->topicRootID(), 'new_name' => 'Refused'],
-            'delete_topic' => ['topic_id' => $this->topicRootID()],
+            'update_page_select_attribute_options', 'update_user_select_attribute_options', 'update_file_select_attribute_options'
+                => ['handle' => 'neuron_test_refused', 'options' => ['Refused']],
+            'create_topic' => ['tree_name' => $this->topicTree()[0], 'topic_name' => 'Refused'],
+            'rename_topic' => ['topic_id' => $this->topicTree()[1], 'new_name' => 'Refused'],
+            'delete_topic' => ['topic_id' => $this->topicTree()[1]],
             default => [],
         };
 
