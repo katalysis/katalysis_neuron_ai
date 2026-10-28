@@ -178,7 +178,7 @@ class NeuronProvider implements CapabilityProvider
 
 | Today | Becomes |
 |---|---|
-| `normalizeCustomBlockPayload`, alias lists, `inferRepeatableLinkContract` in `PagesToolkit` | The Level 0 generic block adapter, plus a `link` field type in the descriptor engine |
+| Until P3.4 (PR #83): `normalizeCustomBlockPayload`, alias lists, `inferRepeatableLinkContract` in `PagesToolkit`. P3.4 deleted them. | The Level 0 generic block adapter, plus a `link` field type in the descriptor engine |
 | `loadEpraResourceEntries` (hard-coded table) | Level 0 child-table read, or the `entries` field in the EPRA descriptor |
 | `sync_multi_links_to_epra_resources_list` | A transform JSON in the EPRA theme package, plus the core `convert_blocks` tool |
 | `get_doc_download_files_on_page` | A `doc_download` descriptor in the EPRA package, plus the core `list_page_blocks_by_type` |
