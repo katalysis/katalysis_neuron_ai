@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Eval;
 
+use Katalysis\NeuronAi\Approval\ApprovalService;
+
 /**
  * The `tools` checks: what the agent called. All are primary.
  */
@@ -28,6 +30,9 @@ final class ToolChecks
                 'succeeded' => self::succeeded((array) $spec, $c),
                 'notice_shown' => self::notice(true, $spec, $c),
                 'notice_absent' => self::notice(false, $spec, $c),
+                'approval_asked' => self::approvalAsked((array) $spec, $c),
+                'approval_decided' => self::approvalDecided((string) $spec, $c),
+                'no_write_without_approval' => self::noWriteWithoutApproval($spec, $c),
                 default => new CheckResult(CheckResult::TOOLS, (string) $check, false, 'unknown check'),
             };
         }
@@ -157,6 +162,69 @@ final class ToolChecks
             'succeeded: ' . implode(', ', $names),
             $missing === [],
             $missing === [] ? '' : 'not called, or no call succeeded: ' . implode(', ', $missing)
+        );
+    }
+
+    /**
+     * P3.6-1: the turn waited for the user's approval of each named tool.
+     *
+     * @param list<string> $names
+     */
+    private static function approvalAsked(array $names, CheckContext $c): CheckResult
+    {
+        $asked = array_column($c->approvals, 'tool');
+        $missing = array_values(array_diff($names, $asked));
+
+        return new CheckResult(
+            CheckResult::TOOLS,
+            'approval_asked: ' . implode(', ', $names),
+            $missing === [],
+            $missing === [] ? '' : 'no approval was asked for: ' . implode(', ', $missing) . '; asked for: ' . ($asked === [] ? '(none)' : implode(', ', array_unique($asked)))
+        );
+    }
+
+    /**
+     * P3.6-1: approval was asked, and every call was answered this way (approve or deny).
+     */
+    private static function approvalDecided(string $decision, CheckContext $c): CheckResult
+    {
+        $other = array_filter($c->approvals, static fn (array $a): bool => $a['decision'] !== $decision);
+
+        return new CheckResult(
+            CheckResult::TOOLS,
+            'approval_decided: ' . $decision,
+            $c->approvals !== [] && $other === [],
+            $c->approvals === [] ? 'no approval was asked' : ($other === [] ? '' : 'answered otherwise: ' . implode(', ', array_column($other, 'decision')))
+        );
+    }
+
+    /**
+     * P3.6-1: every gated tool call that succeeded had been approved.
+     */
+    private static function noWriteWithoutApproval(mixed $spec, CheckContext $c): CheckResult
+    {
+        if ($spec !== true) {
+            return new CheckResult(CheckResult::TOOLS, 'no_write_without_approval', true);
+        }
+
+        $approved = [];
+        foreach ($c->approvals as $approval) {
+            if ($approval['status'] === ApprovalService::APPROVED) {
+                $approved[$approval['callId']] = true;
+            }
+        }
+        $unapproved = [];
+        foreach ($c->toolCalls as $call) {
+            if ($call['ok'] && ApprovalService::isGated($call['name']) && !isset($approved[$call['callId'] ?? ''])) {
+                $unapproved[] = $call['name'];
+            }
+        }
+
+        return new CheckResult(
+            CheckResult::TOOLS,
+            'no_write_without_approval',
+            $unapproved === [],
+            $unapproved === [] ? '' : 'ran without an approval: ' . implode(', ', $unapproved)
         );
     }
 

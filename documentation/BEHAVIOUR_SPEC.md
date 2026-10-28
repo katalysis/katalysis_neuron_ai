@@ -283,6 +283,7 @@ The scenarios are in `tests/Scenarios/` (format in its README). Each file's `rul
 | 35 | A Content-tier editor asks to create a page attribute: the Tier 2 tool isn't offered, so it says it can't and doesn't claim it did (P3.2-1) | 1 | B-ACC-2, B-T2-6, B-TRU-5, B-TRU-2 |
 | 36 | Core blocks, Image Slider: rename one slide and keep the other slide and its picture, then add a second slider with two slides (P3.3-7, a block outside P3.3-6's six, with child rows) | 1 | B-T1-1, B-T1-2, B-T1-6, B-WRT-3 |
 | 37 | Core blocks, Testimonial: change the company and keep the quote, then add a second testimonial with the same photo (P3.3-7, a block outside P3.3-6's six, with a file column) | 1 | B-T1-1, B-T1-2, B-T1-6, B-WRT-3 |
+| 38 | Set a meta title and the user denies it in the approval card: nothing changes, and the reply says it wasn't done (P3.6-1) | 1 | B-WRT-1, B-TRU-2, B-REP-1 |
 
 **Rules no scenario checks yet:**
 - B-ACC-1: a user without access calling an endpoint directly. P1.7 item 5 covers it with a PHPUnit test, so it is not a scenario.
