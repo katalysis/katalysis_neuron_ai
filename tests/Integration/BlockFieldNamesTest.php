@@ -123,7 +123,11 @@ final class BlockFieldNamesTest extends ConcreteTestCase
         $this->assertSame('Fast and simple', (string) $this->newestRow($cID, 'btFeature')['title']);
     }
 
-    /** The FAQ block's save() takes its entries as parallel arrays: title[], linkTitle[], description[], sortOrder[]. */
+    /**
+     * The FAQ block's form save() takes its entries as parallel arrays: title[], linkTitle[], description[], sortOrder[].
+     * P3.3-7 (Glyn): the tools write them as the rows of the table the block's export declares (btFaqEntries), each
+     * stored row by its id; replacing an entry's text names it (scoped_text).
+     */
     public function testUpdateSetsAnFaqEntry(): void
     {
         $page = $this->newPage();
@@ -131,13 +135,17 @@ final class BlockFieldNamesTest extends ConcreteTestCase
             'blockTitle' => 'Questions',
             'title' => ['Old question'], 'linkTitle' => ['old'], 'description' => ['<p>Old answer.</p>'], 'sortOrder' => [0],
         ]);
+        $entryID = (int) $this->db()->fetchOne('SELECT id FROM btFaqEntries WHERE bID = ?', [$block->getBlockID()]);
         $cID = $this->startAsEditor($page);
 
         $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => (int) $block->getBlockID(),
             'value' => [
-                'title' => ['New question'], 'linkTitle' => ['new'], 'description' => ['<p>New answer.</p>'], 'sortOrder' => [0],
+                'btFaqEntries' => [['id' => $entryID, 'title' => 'New question', 'linkTitle' => 'new', 'description' => '<p>New answer.</p>']],
             ],
+            'changeMode' => 'scoped_text',
+            'textFields' => ['btFaqEntries'],
+            'replacedText' => ['Old question', 'Old answer.'],
         ]));
 
         $entries = $this->newestEntries($cID, 'btFaq', 'btFaqEntries');
@@ -149,7 +157,10 @@ final class BlockFieldNamesTest extends ConcreteTestCase
 
     // ---- katalysis_pro: a list block's entries are saved ----------------------
 
-    /** Its save() reads `entries`, which the tools used to move to `slide`. */
+    /**
+     * Its save() reads `entries`, which the tools used to move to `slide`. P3.3-7 (Glyn): the tools write the entries as
+     * the rows of the table the block's export declares (btKatalysisFeatureListEntries).
+     */
     public function testAddSavesAFeatureListsEntries(): void
     {
         if (!BlockType::getByHandle('katalysis_feature_list')) {
@@ -160,7 +171,7 @@ final class BlockFieldNamesTest extends ConcreteTestCase
 
         $this->json($this->tryTool(new ContentToolkit(), 'add_block_to_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'katalysis_feature_list',
-            'value' => ['entries' => [
+            'value' => ['btKatalysisFeatureListEntries' => [
                 ['linkTitle' => 'First feature', 'linkDescription' => 'One', 'sortOrder' => 0],
                 ['linkTitle' => 'Second feature', 'linkDescription' => 'Two', 'sortOrder' => 1],
             ]],
