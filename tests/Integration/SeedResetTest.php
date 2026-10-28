@@ -335,7 +335,7 @@ final class SeedResetTest extends TestCase
         $this->assertSame(0, $result['code'], $result['output']);
         $this->assertNull($this->recordJson(), 'The record of stored IDs must go with the content.');
         $this->assertSame(0, (int) $this->db()->fetchOne("SELECT COUNT(*) FROM PagePaths WHERE cPath = '/neuron-test' OR cPath LIKE '/neuron-test/%'"));
-        $this->assertSame(0, (int) $this->db()->fetchOne("SELECT COUNT(*) FROM Users WHERE uName IN ('neuron_editor', 'neuron_chat_editor')"));
+        $this->assertSame(0, (int) $this->db()->fetchOne("SELECT COUNT(*) FROM Users WHERE uName IN ('neuron_editor', 'neuron_chat_editor', 'neuron_content_editor')"));
 
         $result = self::$seed->run([]);
 
@@ -717,7 +717,7 @@ final class SeedResetTest extends TestCase
         $structure = [
             'pages' => $pages,
             'people' => $db->fetchAllAssociative("SELECT name, email, jobTitle FROM KatalysisPeople WHERE email LIKE '%@neuron-test.invalid' OR name LIKE 'Test Person %' ORDER BY email"),
-            'users' => $db->fetchAllAssociative("SELECT uName, uEmail FROM Users WHERE uName IN ('neuron_editor', 'neuron_chat_editor') ORDER BY uName"),
+            'users' => $db->fetchAllAssociative("SELECT uName, uEmail FROM Users WHERE uName IN ('neuron_editor', 'neuron_chat_editor', 'neuron_content_editor') ORDER BY uName"),
             'group' => $db->fetchAllAssociative('SELECT gName, gDescription FROM `Groups` WHERE gName = ?', [self::GROUP]),
             'members' => $db->fetchFirstColumn(
                 'SELECT u.uName FROM UserGroups ug JOIN Users u ON u.uID = ug.uID JOIN `Groups` g ON g.gID = ug.gID WHERE g.gName = ? ORDER BY u.uName',
