@@ -679,7 +679,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - a red-first integration test per tool that makes the call
   - the fix against Concrete 9.5.5's API
   - no paid scenario runs; a free `--fake` run only
-- [ ] BF-16 **Disable `remove_attribute_from_set`** (small; its own PR into `development`; no plan stop; Glyn's decision after P3.S1). Found in BF-15: the tool calls `getAttributeSet()` and then `setAttributeSet(null)`, which in Concrete 9.5.5 only adds a key to a set, so it can't remove. Scope:
+- [x] BF-16 **Disable `remove_attribute_from_set`** (small; its own PR into `development`; no plan stop; Glyn's decision after P3.S1). Done (PR #78). Found in BF-15: the tool calls `getAttributeSet()` and then `setAttributeSet(null)`, which in Concrete 9.5.5 only adds a key to a set, so it can't remove. Scope:
   - add it to `DisabledTools` with the reason "in Concrete 9.5.5 the call it uses only adds to a set; fix in Phase 6"
   - the `DisabledToolsTest` list change (approved), in its own commit with the reason
   - the fix goes in Phase 6's entry
