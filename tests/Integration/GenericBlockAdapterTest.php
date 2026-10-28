@@ -62,6 +62,21 @@ final class GenericBlockAdapterTest extends ConcreteTestCase
         $this->assertSame(['First slide', 'Second slide'], array_column($this->slides($bID), 'title'), 'The live block changed');
     }
 
+    /**
+     * Scenario 36's paid run: the model named the slide's field in textFields as "btImageSliderEntries[1].title". A row
+     * or a row's field counts as its table, whose rows the text check compares.
+     */
+    public function testTextFieldsMayNameARowsField(): void
+    {
+        [$cID, $bID] = $this->pageWithSlider();
+        [$first, $second] = $this->slideIDs($bID);
+
+        $output = $this->update($cID, $bID, ['btImageSliderEntries' => [['id' => $first], ['id' => $second, 'title' => 'Renamed slide']]], 'scoped_text', ['btImageSliderEntries[1].title'], ['Second slide']);
+
+        $this->assertTrue(ToolKind::succeeded($output), $output);
+        $this->assertSame(['First slide', 'Renamed slide'], array_column($this->slides((int) json_decode($output, true)['blockID']), 'title'));
+    }
+
     public function testASliderSettingChangeKeepsItsSlides(): void
     {
         [$cID, $bID] = $this->pageWithSlider();
