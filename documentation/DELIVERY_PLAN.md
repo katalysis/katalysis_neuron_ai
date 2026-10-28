@@ -342,7 +342,7 @@ Why first:
   - `search_blocks_by_type` checks only `canViewPage`, so by default it lists blocks in a page's newest, unpublished version to a user who can't view versions. Use the published version for that user (as `PageVersionRead` does for the page reads), with a denied-case test (BF-6)
   - one PHPUnit test per write tool for the denied case, calling the tool by name, so the tests survive P3.3-4
   - B-ACC-5: check that no tool elevates (today "Not verified"); B-ACC-6: tests that a refused write isn't reached by the obvious other routes
-  - scenarios (keeps its own ×3 before merge, WP-4): 11 ×5; 02, 03, 08, 10, 18 ×3; a new denied-write scenario ×3; cap $1.60
+  - scenarios (keeps its own ×3 before merge, WP-4): 11 ×5; 02, 03, 08, 10, 18 ×3; a new denied-write scenario ×3; cap $1.75 (Glyn, on approving the plan: $1.61 plus one re-run)
 - [ ] P3.5-2 **Personal data** (S–M; safety). Depends on: P3.5-1's helper.
   - `get_user` and the people tools return only the fields the request needs (B-PII-2; scenario 03 is partial on this)
   - remove `set_user_attribute_value` (disabled in P1.7); a scenario for B-ACC-7
@@ -387,6 +387,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - `get_page_children` accepts `parentID` as well as `pageID`: in scenario 17 the model sent `parentID` in 2 of 3 runs and was refused (`list_pages` takes `parentID`; BF-6)
   - (Glyn, starting BF-8) in scenario 15 run 4 the model paged `list_pages` one item at a time (`limit: 1` at offsets 0 to 9: 10 calls, 146,332 input tokens, against about 38,600 for the other runs). The "more" note (`ListWindow`) should suggest a larger page when the requested limit is small; consider a minimum page size
   - large sites: `list_pages`, `get_page_children`, `list_files`, `list_users` and `search_users` load and permission-check every match to count the total. Concrete has no permission-aware count query (with a permission checker, `getTotalResults()` returns -1, and `PermissionablePagination` checks up to 1,000 results in PHP). Find a faster total, or a capped "more than N", with a test on a large list (BF-6)
+  - `count_blocks_by_type` now checks permissions page by page (P3.5-1), which is slower on large sites; include it in the large-list work
   - `list_pages` and `get_page_children` with `parentPath` `/` error ("Parent page not found at path: /"; `Page::getByPath('/')` finds nothing), seen in scenario 15 at the Phase 1 exit (B-ERR-1). Resolve `/` to the home page, as `PageContextResolver` does since BF-1
   - declare `items` for the 6 array properties in `ToolRegistryTest`'s known list (P2.3)
   - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
@@ -516,6 +517,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   - a shim for `ExternalToolkitRegistry` for one release
   - (decided after P2.2) today the AI settings page builds every external toolkit on each load, to list the ones that fail. Revisit that here (an MCP toolkit would connect on every page view)
   - re-enabling `katalysis_pro`'s `add_person` and `update_person` behind approval (from P3.6-3, after the internal pilot; WP-4)
+  - `katalysis_pro` `canWritePeople()`: drop the "any logged-in user when People is enabled" path, leaving the Dashboard page check (found in P3.5-1's plan); must merge before `add_person` or `update_person` is re-enabled
   - scenarios: 03, 04, 21, 25 ×3; cap $0.85 (Phase 5's budget, not Phase 3's)
 - P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
 - P5.2 Move and convert content between block types, using per-block-type field mappers. **Takes in P3.10-2** (moved from Phase 3 on the roadmap, 27 October 2026; see `EXTENSIONS.md`):
