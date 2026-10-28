@@ -25,6 +25,8 @@ final class CheckContext
      * @param list<array{name: string, inputs: array<string, mixed>, result: string, ok: bool}> $toolCalls
      * @param list<array{name: string, inputs: array<string, mixed>, result: string, ok: bool}>|null $runToolCalls
      * @param list<string>|null $runPrompts
+     * @param list<array{tool: string, callId: string, decision: string, status: string}> $approvals P3.6-1: the calls the
+     *     turn (or, at scenario level, the run) waited on for approval, with the runner's answer and the outcome
      */
     public function __construct(
         public readonly Snapshot $before,
@@ -36,6 +38,7 @@ final class CheckContext
         public readonly ?string $notice = null,
         public readonly ?array $runToolCalls = null,
         public readonly ?array $runPrompts = null,
+        public readonly array $approvals = [],
     ) {
     }
 

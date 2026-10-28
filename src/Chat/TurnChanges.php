@@ -21,14 +21,34 @@ use NeuronAI\Tools\ToolOutput;
  * - Neuron may emit the event again on a retry (src/Observability/AGENTS.md:28), so each call is taken once, keyed by
  *   its call ID (or, with none, its name and inputs).
  * - Every string recorded goes through SecretRedactor. Nothing is logged here.
+ *
+ * P3.6-1 (plans/P3.6-1.md §4) adds what the turn's "Changed: …" line needs: each page's newest version and whether the
+ * turn created it; every other successful write (a file, a topic, a version, …), so every write tool is recorded
+ * (TurnChangesCoverageTest); and the writes that were refused, failed or not approved. line() writes the text, which
+ * the agent stores on the turn's reply (META_KEY) and the panel shows under it.
  */
 final class TurnChanges
 {
+    /** Metadata key on the turn's stored reply: {line} (P3.6-1). */
+    public const META_KEY = 'katalysis_changes';
+
+    /** The input names that identify what a write that isn't a page draft changed, in order of preference. */
+    private const OBJECT_INPUTS = ['fileID', 'fID', 'topicID', 'treeNodeID', 'nodeID', 'userID', 'uID', 'versionID', 'cvID', 'pageID', 'id', 'handle', 'name'];
+
     /** @var array<string, true> calls already taken */
     private array $seen = [];
 
-    /** @var array<int, array{pageID: int, path: string, name: string, tools: list<string>, blockIDs: list<int>, replacedBlockIDs: array<string, int>}> */
+    /** @var array<int, array{pageID: int, path: string, name: string, tools: list<string>, blockIDs: list<int>, replacedBlockIDs: array<string, int>, versionID: int, isNewPage: bool, kind: string}> */
     private array $pages = [];
+
+    /** @var array<string, array{kind: string, object: string, tools: list<string>}> successful writes that aren't page drafts */
+    private array $others = [];
+
+    /** @var list<array{tool: string, target: string, reason: string}> */
+    private array $refused = [];
+
+    /** Whether the turn called a write tool at all, so "Nothing was changed" is only said after one. */
+    private bool $attempted = false;
 
     public function __invoke(ToolCalled $event): void
     {
@@ -47,18 +67,27 @@ final class TurnChanges
             return;
         }
 
+        $this->attempted = true;
         $result = $call->getResult();
         if (!ToolKind::succeeded($result)) {
+            $this->seen[$key] = true;
+            $this->refuse($name, self::object($call->getInputs()), 'failed');
+
             return;
         }
         $data = json_decode($result instanceof ToolOutput ? $result->getText() : $result, true);
         $pageID = is_array($data) ? (int) ($data['versionState']['pageID'] ?? 0) : 0;
+        $this->seen[$key] = true;
         if ($pageID <= 0) {
+            // Any other write (a file, a topic, a version, a user, …): recorded by what it names (P3.6-1).
+            $this->recordOther($name, $call->getInputs());
+
             return;
         }
-        $this->seen[$key] = true;
 
         $entry = $this->pages[$pageID] ?? $this->newEntry($pageID);
+        $entry['versionID'] = max($entry['versionID'], (int) ($data['versionState']['versionID'] ?? 0));
+        $entry['isNewPage'] = $entry['isNewPage'] || $name === 'create_page';
         $toolName = SecretRedactor::redact($name);
         if (!in_array($toolName, $entry['tools'], true)) {
             $entry['tools'][] = $toolName;
@@ -75,17 +104,154 @@ final class TurnChanges
     }
 
     /**
-     * @return list<array{pageID: int, path: string, name: string, tools: list<string>, blockIDs: list<int>, replacedBlockIDs: array<string, int>}>
+     * @return list<array{pageID: int, path: string, name: string, tools: list<string>, blockIDs: list<int>, replacedBlockIDs: array<string, int>, versionID: int, isNewPage: bool, kind: string}>
      */
     public function all(): array
     {
         return array_values($this->pages);
     }
 
+    /**
+     * The successful writes that aren't page drafts.
+     *
+     * @return list<array{kind: string, object: string, tools: list<string>}>
+     */
+    public function others(): array
+    {
+        return array_values($this->others);
+    }
+
+    /**
+     * @return list<array{tool: string, target: string, reason: string}>
+     */
+    public function refused(): array
+    {
+        return $this->refused;
+    }
+
+    /**
+     * A write that didn't happen: it failed, or the user didn't approve it (ApprovalService). $reason is a short fixed
+     * phrase, never an error message.
+     */
+    public function refuse(string $tool, string $target, string $reason): void
+    {
+        $this->attempted = true;
+        $this->refused[] = [
+            'tool' => SecretRedactor::redact($tool),
+            'target' => SecretRedactor::redact($target),
+            'reason' => SecretRedactor::redact($reason),
+        ];
+    }
+
+    /**
+     * The turn's "Changed: …" line, or null when the turn called no write tool. After a failed turn it starts "Before the
+     * error: ". Every write tool is recorded (TurnChangesCoverageTest), so "Nothing was changed" is true when it is said.
+     */
+    public function line(bool $failed = false): ?string
+    {
+        if (!$this->attempted) {
+            return null;
+        }
+
+        $changed = [];
+        foreach ($this->pages as $page) {
+            $label = ($page['name'] !== '' ? $page['name'] : 'page ' . $page['pageID']) . ($page['path'] !== '' ? ' (' . $page['path'] . ')' : '');
+            $changed[] = $label . ($page['isNewPage'] ? ', a new unpublished page' : ($page['versionID'] > 0 ? ', unpublished version ' . $page['versionID'] : ''));
+        }
+        foreach ($this->others as $other) {
+            $changed[] = $other['object'];
+        }
+
+        $line = $changed === []
+            ? 'Nothing was changed.'
+            : ($failed ? 'Before the error: changed ' : 'Changed: ') . implode('; ', $changed) . '.';
+        if ($this->refused !== []) {
+            $line .= ' Not done: ' . implode('; ', array_map(
+                static fn (array $r): string => $r['tool'] . ($r['target'] !== '' ? ' on ' . $r['target'] : '') . ' (' . $r['reason'] . ')',
+                $this->refused
+            )) . '.';
+        }
+
+        return $line;
+    }
+
     public function reset(): void
     {
         $this->seen = [];
         $this->pages = [];
+        $this->others = [];
+        $this->refused = [];
+        $this->attempted = false;
+    }
+
+    /**
+     * Adds the stored line to each reply that has one (META_KEY), as `changes`, for the panel's history.
+     */
+    public static function annotateHistoryJson(string $json): string
+    {
+        $messages = json_decode($json, true);
+        if (!is_array($messages) || $messages === []) {
+            return $json;
+        }
+
+        $changed = false;
+        foreach ($messages as $i => $message) {
+            if (!is_array($message) || ($message['role'] ?? null) !== 'assistant') {
+                continue;
+            }
+            $meta = is_array($message['__meta'] ?? null) ? $message['__meta'] : $message;
+            $line = $meta[self::META_KEY]['line'] ?? null;
+            if (is_string($line) && $line !== '') {
+                $messages[$i]['changes'] = $line;
+                $changed = true;
+            }
+        }
+        if (!$changed) {
+            return $json;
+        }
+
+        $encoded = json_encode($messages, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        return $encoded === false ? $json : $encoded;
+    }
+
+    private function recordOther(string $tool, array $inputs): void
+    {
+        $kind = self::kind($tool);
+        $object = self::object($inputs);
+        $label = SecretRedactor::redact($object !== '' ? $kind . ' ' . $object : $kind . ' (' . $tool . ')');
+        $entry = $this->others[$label] ?? ['kind' => $kind, 'object' => $label, 'tools' => []];
+        if (!in_array($tool, $entry['tools'], true)) {
+            $entry['tools'][] = SecretRedactor::redact($tool);
+        }
+        $this->others[$label] = $entry;
+    }
+
+    /** What kind of thing a write that isn't a page draft changed, from the tool's name. */
+    private static function kind(string $tool): string
+    {
+        return match (true) {
+            str_contains($tool, 'file') => 'file',
+            str_contains($tool, 'topic') => 'topic',
+            str_contains($tool, 'version') => 'version',
+            str_contains($tool, 'user'), str_contains($tool, 'people'), str_contains($tool, 'person') => 'person',
+            str_contains($tool, 'attribute') => 'attribute',
+            str_contains($tool, 'page') => 'page',
+            default => 'item',
+        };
+    }
+
+    /** The first input that names what was written, as text, or ''. */
+    private static function object(array $inputs): string
+    {
+        foreach (self::OBJECT_INPUTS as $name) {
+            $value = $inputs[$name] ?? null;
+            if (is_int($value) || (is_string($value) && $value !== '' && mb_strlen($value) <= 100)) {
+                return (string) $value;
+            }
+        }
+
+        return '';
     }
 
     private function newEntry(int $pageID): array
@@ -100,6 +266,9 @@ final class TurnChanges
             'tools' => [],
             'blockIDs' => [],
             'replacedBlockIDs' => [],
+            'versionID' => 0,
+            'isNewPage' => false,
+            'kind' => 'page',
         ];
     }
 

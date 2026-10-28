@@ -17,6 +17,8 @@
         // ID of the saved chat the chat view shows, or null when unknown or none (a new chat
         // has no ID until its first message). See resolveShownChatId().
         shownChatId: null,
+        // P3.6-1: the approval cards shown, by call ID: { card, buttons }.
+        approvalCards: {},
 
         // Shows a failed response in the chat. A 403 with code 'invalid_token' means the
         // panel's CSRF token is missing or expired (tokens last 24 hours), so say what
@@ -165,9 +167,11 @@
                     const normalizedContent = this.normalizeMessageContent(msg ? msg.content : '');
                     const role = msg && msg.role === 'user' ? 'user' : 'assistant';
                     if (normalizedContent) {
-                        this.addMessage(normalizedContent, role, false, msg ? msg.notice : null);
+                        this.addMessage(normalizedContent, role, false, msg ? msg.notice : null, msg ? msg.changes : null);
                     }
                 });
+                // P3.6-1: calls still waiting for a decision.
+                this.showApprovalCards(data.chat ? data.chat.approvals : null);
 
                 // Keep local fallback cache aligned with this session only.
                 localStorage.setItem('neuron-chat-history', JSON.stringify(
@@ -292,16 +296,116 @@
                 this.hideLoading();
                 
                 if (data.success) {
-                    // data.notice is wording the server wrote (null when there is none); it is shown as it comes.
-                    this.addMessage(data.response, 'assistant', true, data.notice);
-                    // Also after a failed turn: a write may have happened before it failed (BF-7).
-                    this.showChangesToThisPage(data.changes);
+                    this.showTurn(data);
                 } else {
                     this.showFailure(data, 'Error: ');
                 }
             } catch (error) {
                 this.hideLoading();
                 this.addMessage('Error: Could not connect to AI assistant. ' + error.message, 'assistant');
+            } finally {
+                this.setLoading(false);
+            }
+        },
+
+        // A turn's or a decision's answer: the cards it settled, the reply with its notice and "Changed" line (wording the
+        // server wrote, null when there is none, shown as it comes), and any calls now waiting for a decision (P3.6-1).
+        showTurn(data) {
+            this.settleApprovalCards(data.settledApprovals);
+            if (typeof data.response === 'string') {
+                // The "waiting for your approval" reply isn't stored by the server, so it isn't kept here either.
+                this.addMessage(data.response, 'assistant', !data.awaitingApproval, data.notice, data.changesLine);
+            }
+            this.showApprovalCards(data.approvals);
+            // Also after a failed turn: a write may have happened before it failed (BF-7).
+            this.showChangesToThisPage(data.changes);
+        },
+
+        // P3.6-1: one card per call waiting for a decision, each with its own Approve and Deny buttons (chat-format.js
+        // builds it as text only). A card already shown is left as it is.
+        showApprovalCards(cards) {
+            if (!Array.isArray(cards)) {
+                return;
+            }
+            cards.forEach((card) => {
+                const already = card && this.approvalCards[card.callId];
+                // A card the view dropped (a cleared or reloaded chat) is shown again.
+                if (!card || typeof card.callId !== 'string' || (already && already.card.isConnected)) {
+                    return;
+                }
+                const shown = window.NeuronChatFormat.renderApprovalCard(this.messages, card, document);
+                this.approvalCards[card.callId] = shown;
+                if (shown.buttons) {
+                    shown.buttons.approve.addEventListener('click', () => this.decide(card.callId, 'approve'));
+                    shown.buttons.deny.addEventListener('click', () => this.decide(card.callId, 'deny'));
+                }
+            });
+            this.scrollToBottom();
+        },
+
+        // Replaces a card's buttons with the server's status text.
+        settleApprovalCards(cards) {
+            if (!Array.isArray(cards)) {
+                return;
+            }
+            cards.forEach((card) => {
+                const shown = card && this.approvalCards[card.callId];
+                if (shown && shown.buttons && card.status !== 'pending') {
+                    this.replaceApprovalButtons(shown, typeof card.statusText === 'string' ? card.statusText : '');
+                }
+            });
+        },
+
+        replaceApprovalButtons(shown, statusText) {
+            const actions = shown.buttons.approve.parentNode;
+            if (actions) {
+                actions.replaceWith(window.NeuronChatFormat.approvalStatus(document, statusText));
+            }
+            shown.buttons = null;
+        },
+
+        async decide(callId, decision) {
+            const shown = this.approvalCards[callId];
+            if (shown && shown.buttons) {
+                shown.buttons.approve.disabled = true;
+                shown.buttons.deny.disabled = true;
+            }
+            this.showLoading();
+            this.setLoading(true);
+
+            try {
+                const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/decide', {
+                    method: 'POST',
+                    headers: this.postHeaders(),
+                    body: JSON.stringify({ callId, decision, pageContext: this.getPageContext(), openBlockIDs: this.getOpenEditorBlockIDs() })
+                });
+                const contentType = response.headers.get('content-type') || '';
+                if (contentType.indexOf('application/json') === -1) {
+                    throw new Error('Server returned ' + response.status + ' ' + response.statusText + '.');
+                }
+                const data = await response.json();
+                this.hideLoading();
+
+                if (data.success) {
+                    // Decided while another call in the batch waits: this card shows its decision now.
+                    this.settleApprovalCards(data.approvals);
+                    this.showTurn(data);
+                } else if (data.code === 'not_waiting' && shown && shown.buttons) {
+                    this.replaceApprovalButtons(shown, data.error || '');
+                } else {
+                    this.showFailure(data, 'Error: ');
+                    if (shown && shown.buttons) {
+                        shown.buttons.approve.disabled = false;
+                        shown.buttons.deny.disabled = false;
+                    }
+                }
+            } catch (error) {
+                this.hideLoading();
+                this.addMessage('Error: Could not connect to AI assistant. ' + error.message, 'assistant');
+                if (shown && shown.buttons) {
+                    shown.buttons.approve.disabled = false;
+                    shown.buttons.deny.disabled = false;
+                }
             } finally {
                 this.setLoading(false);
             }
@@ -803,9 +907,10 @@
                                 const normalizedContent = this.normalizeMessageContent(msg ? msg.content : '');
                                 const role = msg && msg.role === 'user' ? 'user' : 'assistant';
                                 if (normalizedContent) {
-                                    this.addMessage(normalizedContent, role, false, msg ? msg.notice : null);
+                                    this.addMessage(normalizedContent, role, false, msg ? msg.notice : null, msg ? msg.changes : null);
                                 }
                             });
+                            this.showApprovalCards(data.chat.approvals);
 
                             localStorage.setItem('neuron-chat-history', JSON.stringify(
                                 history.map((msg) => ({
@@ -901,7 +1006,7 @@
             return String(content || '');
         },
         
-        addMessage(content, type = 'assistant', saveToStorage = true, notice = null) {
+        addMessage(content, type = 'assistant', saveToStorage = true, notice = null, changesLine = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `neuron-chat-message neuron-chat-${type}`;
 
@@ -934,6 +1039,11 @@
                 noticeDiv.setAttribute('role', 'note');
                 noticeDiv.textContent = notice;
                 messageDiv.appendChild(noticeDiv);
+            }
+
+            // P3.6-1: what the turn changed, as the server wrote it. Text only.
+            if (type === 'assistant' && typeof changesLine === 'string' && changesLine !== '') {
+                window.NeuronChatFormat.renderChangesLine(messageDiv, changesLine, document);
             }
             
             this.messages.appendChild(messageDiv);

@@ -261,5 +261,91 @@
         }
     }
 
-    return { parse, safeHref, renderInto };
+    /**
+     * P3.6-1: one call waiting for approval, as a card. Every text in it is the server's (ApprovalService::card()):
+     * set with textContent only, never parsed. While the call waits the card ends in Approve and Deny buttons, the
+     * only way to decide (typed text never approves); afterwards in the server's status text. Returns the card and
+     * its buttons (null once decided), for the panel to wire.
+     */
+    function renderApprovalCard(container, card, doc) {
+        doc = doc || container.ownerDocument || document;
+        const text = (value) => (typeof value === 'string' ? value : '');
+        const el = doc.createElement('div');
+        el.className = 'neuron-approval-card';
+        el.setAttribute('role', 'group');
+
+        const title = doc.createElement('div');
+        title.className = 'neuron-approval-title';
+        const action = doc.createElement('strong');
+        action.textContent = text(card.action);
+        title.appendChild(action);
+        const target = text(card.target) + (text(card.path) !== '' ? ' (' + text(card.path) + ')' : '');
+        if (target !== '') {
+            title.appendChild(doc.createTextNode(' ' + target));
+        }
+        el.appendChild(title);
+
+        const details = Array.isArray(card.details) ? card.details.filter((d) => typeof d === 'string') : [];
+        if (details.length > 0) {
+            const list = doc.createElement('ul');
+            for (const detail of details) {
+                const li = doc.createElement('li');
+                li.textContent = detail;
+                list.appendChild(li);
+            }
+            el.appendChild(list);
+        }
+        if (text(card.note) !== '') {
+            const note = doc.createElement('div');
+            note.className = 'neuron-approval-note';
+            note.textContent = text(card.note);
+            el.appendChild(note);
+        }
+
+        let buttons = null;
+        if (card.status === 'pending') {
+            const actions = doc.createElement('div');
+            actions.className = 'neuron-approval-actions';
+            const button = (label, decision) => {
+                const b = doc.createElement('button');
+                b.setAttribute('type', 'button');
+                b.className = 'neuron-approval-' + decision;
+                b.textContent = label;
+                actions.appendChild(b);
+                return b;
+            };
+            buttons = { approve: button('Approve', 'approve'), deny: button('Deny', 'deny') };
+            el.appendChild(actions);
+        } else {
+            el.appendChild(approvalStatus(doc, text(card.statusText)));
+        }
+
+        container.appendChild(el);
+
+        return { card: el, buttons };
+    }
+
+    /** The decided state at the foot of a card: the server's status text. */
+    function approvalStatus(doc, statusText) {
+        const status = doc.createElement('div');
+        status.className = 'neuron-approval-status';
+        status.setAttribute('role', 'status');
+        status.textContent = statusText;
+        return status;
+    }
+
+    /**
+     * P3.6-1: the turn's "Changed: …" line under a reply, as the server wrote it. Text only.
+     */
+    function renderChangesLine(container, line, doc) {
+        doc = doc || container.ownerDocument || document;
+        const el = doc.createElement('div');
+        el.className = 'neuron-chat-changes';
+        el.setAttribute('role', 'note');
+        el.textContent = typeof line === 'string' ? line : '';
+        container.appendChild(el);
+        return el;
+    }
+
+    return { parse, safeHref, renderInto, renderApprovalCard, approvalStatus, renderChangesLine };
 });

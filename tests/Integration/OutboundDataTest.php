@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Integration;
 
 use Concrete\Core\Http\Request;
+use Katalysis\NeuronAi\Approval\ApprovalLogListener;
 use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
@@ -97,10 +98,11 @@ final class OutboundDataTest extends ConcreteTestCase
     }
 
     /**
-     * Fails unless the agent has no listener other than its own TurnChanges on ToolCalled (BF-7: it keeps the pages a
-     * turn changed in memory for the chat response and sends nothing anywhere; the request tests below run with it
-     * attached), and no external dispatcher. Reads Neuron internals (HandleDispatcher): if a Neuron upgrade renames
-     * them, this fails, and the upgrade must check observability again.
+     * Fails unless the agent has no listener other than its own TurnChanges and ApprovalLogListener on ToolCalled (BF-7:
+     * TurnChanges keeps the pages a turn changed in memory for the chat response; P3.6-1: the log listener writes
+     * redacted lines to Concrete's own log, on the site. Neither sends anything anywhere; the request tests below run
+     * with both attached), and no external dispatcher. Reads Neuron internals (HandleDispatcher): if a Neuron upgrade
+     * renames them, this fails, and the upgrade must check observability again.
      */
     private function assertNothingAttached(ConcreteCmsAgent $agent): void
     {
@@ -108,9 +110,10 @@ final class OutboundDataTest extends ConcreteTestCase
         if ($registry !== null) {
             $this->assertInstanceOf(ListenerRegistry::class, $registry);
             $listeners = (new \ReflectionProperty(ListenerRegistry::class, 'listeners'))->getValue($registry);
-            $this->assertSame([ToolCalled::class], array_keys($listeners), 'no listener but TurnChanges');
-            $this->assertCount(1, $listeners[ToolCalled::class], 'no listener but TurnChanges');
-            $this->assertInstanceOf(TurnChanges::class, $listeners[ToolCalled::class][0], 'no listener but TurnChanges');
+            $this->assertSame([ToolCalled::class], array_keys($listeners), 'no listener but TurnChanges and the log listener');
+            $this->assertCount(2, $listeners[ToolCalled::class], 'no listener but TurnChanges and the log listener');
+            $this->assertInstanceOf(TurnChanges::class, $listeners[ToolCalled::class][0], 'no listener but TurnChanges and the log listener');
+            $this->assertInstanceOf(ApprovalLogListener::class, $listeners[ToolCalled::class][1], 'no listener but TurnChanges and the log listener');
         }
         $this->assertNull((new \ReflectionProperty(Workflow::class, 'externalDispatcher'))->getValue($agent), 'no forwarding dispatcher');
     }

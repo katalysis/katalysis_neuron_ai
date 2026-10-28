@@ -11,6 +11,7 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Access\NeuronPermissions;
+use Katalysis\NeuronAi\Approval\ApprovalService;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Entity\Chat;
@@ -39,6 +40,8 @@ final class ScenarioRunner
     public const AGENT_ERROR_REPLY = ConcreteCmsAgent::ERROR_REPLY;
 
     private const MAX_TEXT = 1000;
+    /** P3.6-1: how many times one turn may pause for approval before the runner stops answering. */
+    private const MAX_APPROVAL_ROUNDS = 5;
 
     /**
      * @param \Closure(): ConcreteCmsAgent $agentFactory
@@ -69,6 +72,7 @@ final class ScenarioRunner
         $checks = [];
         $hadError = false;
         $allCalls = [];
+        $allApprovals = [];
         $usage = null;
         $anyNotice = null;
         $setup = new ScenarioSetup();
@@ -108,6 +112,12 @@ final class ScenarioRunner
 
                 $turnStarted = microtime(true);
                 $reply = $agent->handleUserMessage((string) $turn['say']);
+                // The same call controllers/chat.php makes, before any approval round. Recorded for every scenario, so
+                // false notices show up everywhere.
+                $notice = $agent->getTurnNotice();
+                // P3.6-1: a paused turn is answered as the user would, through the panel's path (ConcreteCmsAgent::decide()).
+                [$reply, $agent, $approvals] = $this->answerApprovals($agent, $chatId, $page, $reply, (string) ($turn['approval'] ?? 'approve'));
+                $notice ??= $agent->getTurnNotice();
                 $turnSeconds = microtime(true) - $turnStarted;
 
                 $after = $this->snapshots->take();
@@ -116,8 +126,6 @@ final class ScenarioRunner
                 $turnUsage = $this->usage($newMessages);
                 $logErrors = $this->errorLogs($logMark);
                 $agentError = $reply === self::AGENT_ERROR_REPLY;
-                // The same call controllers/chat.php makes. Recorded for every scenario, so false notices show up everywhere.
-                $notice = $agent->getTurnNotice();
 
                 // BF-12: the run so far, this turn included, for no_invented_hosts and the recorded inventedHosts.
                 $runCalls = array_merge($allCalls, $calls);
@@ -126,7 +134,7 @@ final class ScenarioRunner
 
                 $turnChecks = [];
                 if (isset($turn['expect'])) {
-                    $context = new CheckContext($before, $start, $after, $calls, $reply, (string) $turn['say'], $notice, $runCalls, $says);
+                    $context = new CheckContext($before, $start, $after, $calls, $reply, (string) $turn['say'], $notice, $runCalls, $says, $approvals);
                     foreach (Expectations::evaluate($turn['expect'], $context) as $check) {
                         $turnChecks[] = $check->at('turn ' . ($i + 1));
                     }
@@ -134,6 +142,7 @@ final class ScenarioRunner
 
                 $checks = array_merge($checks, $turnChecks);
                 $allCalls = $runCalls;
+                $allApprovals = array_merge($allApprovals, $approvals);
                 $anyNotice ??= $notice;
                 $usage = $this->addUsage($usage, $turnUsage);
                 $hadError = $hadError || $agentError;
@@ -151,13 +160,15 @@ final class ScenarioRunner
                     'durationSec' => round($turnSeconds, 1),
                     'usage' => $turnUsage,
                     'toolCalls' => array_map(fn (array $call): array => $this->truncateCall($call), $calls),
+                    // P3.6-1: each call the turn waited on: the tool, what the runner answered, and the outcome.
+                    'approvals' => array_map(static fn (array $a): array => array_diff_key($a, ['callId' => true]), $approvals),
                     'logErrors' => $logErrors,
                     'checks' => array_map(static fn (CheckResult $c): array => $c->toArray(), $turnChecks),
                 ];
             }
 
             if (isset($scenario['expect'])) {
-                $context = new CheckContext($start, $start, $after, $allCalls, $lastReply, $lastSay, $anyNotice, $allCalls, $says);
+                $context = new CheckContext($start, $start, $after, $allCalls, $lastReply, $lastSay, $anyNotice, $allCalls, $says, $allApprovals);
                 foreach (Expectations::evaluate($scenario['expect'], $context) as $check) {
                     $checks[] = $check->at('end');
                 }
@@ -182,6 +193,46 @@ final class ScenarioRunner
         $run['durationSec'] = round(microtime(true) - $started, 1);
 
         return $run;
+    }
+
+    /**
+     * P3.6-1: while the turn waits for approval, answers every waiting call with the turn's `approval` (approve by
+     * default, tests/Scenarios/README.md), each answer as a new request with a new agent, as the panel's buttons are.
+     * At most MAX_APPROVAL_ROUNDS pauses per turn.
+     *
+     * @return array{string, ConcreteCmsAgent, list<array{tool: string, callId: string, decision: string, status: string}>}
+     *     the turn's final reply, the agent that ended it, and the calls it waited on
+     */
+    private function answerApprovals(ConcreteCmsAgent $agent, int $chatId, string $page, string $reply, string $decision): array
+    {
+        $approvals = [];
+        for ($round = 0; $agent->isAwaitingApproval() && $round < self::MAX_APPROVAL_ROUNDS; $round++) {
+            $cards = $agent->getApprovalCards();
+            if ($cards === []) {
+                break;
+            }
+            foreach ($cards as $card) {
+                if ($card['status'] !== ApprovalService::PENDING) {
+                    continue;
+                }
+                $this->entityManager()->clear();
+                $agent = ($this->agentFactory)();
+                $agent->setChatId($chatId);
+                $this->setPageContext($agent, $page);
+                $result = $agent->decide((string) $card['callId'], $decision === 'approve');
+                $approvals[] = ['tool' => (string) $card['tool'], 'callId' => (string) $card['callId'], 'decision' => $decision, 'status' => ''];
+                if ($result['reply'] !== null) {
+                    $reply = $result['reply'];
+                }
+            }
+        }
+
+        $statuses = ApprovalService::make()->statuses($chatId, array_column($approvals, 'callId'));
+        foreach ($approvals as $i => $approval) {
+            $approvals[$i]['status'] = $statuses[$approval['callId']] ?? '';
+        }
+
+        return [$reply, $agent, $approvals];
     }
 
     /**
@@ -329,7 +380,7 @@ final class ScenarioRunner
      *
      * @param list<Message> $messages
      *
-     * @return list<array{name: string, inputs: array<string, mixed>, result: string, ok: bool}>
+     * @return list<array{name: string, inputs: array<string, mixed>, result: string, ok: bool, callId: string}>
      */
     private function toolCalls(array $messages): array
     {
@@ -358,6 +409,7 @@ final class ScenarioRunner
                     'inputs' => $tool->getInputs(),
                     'result' => $result,
                     'ok' => ToolCall::succeeded($result),
+                    'callId' => (string) $tool->getCallId(),
                 ];
             }
         }
