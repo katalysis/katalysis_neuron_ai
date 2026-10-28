@@ -30,7 +30,6 @@ final class DisabledTools
             . 'disabled in P1.7, redirected to a review folder in P3.5 (baseline scenario 18)',
         'approve_page_version' => 'publishing stays a human action until P3.6 approval exists '
             . '(baseline scenario 14 published a live change from injected text)',
-        'sync_multi_links_to_epra_resources_list' => 'writes to the live version; EPRA-only; moves out in P3.4',
 
         // P1.13: no tool changes the live site outside a draft until P3.6 approval exists.
         'delete_page' => 'trashes the page and its children at once, and permanently when the trash can is off '
