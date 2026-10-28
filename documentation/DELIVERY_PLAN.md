@@ -371,7 +371,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - from P1.8a, for the future EPRA package: if `sync_multi_links_to_epra_resources_list` is ever re-enabled, it must get its draft from `PageDraft::of()`, and `DraftIsolationTest` gets a case for it
   - more than 20 lines of working code are deleted: covered by this plan
   - scenarios: `--fake` of 05, 07, 13; none new or changed, so no paid run. Compared ×3 in P3.S2
-- [ ] P3.3-4 **Split `PagesToolkit.php`, mechanically** (M). Depends on: P3.3-1, P3.3-2, P3.4 and P3.5-1's Pages half.
+- [x] P3.3-4 **Split `PagesToolkit.php`, mechanically** (M). Done (PR #84). Depends on: P3.3-1, P3.3-2, P3.4 and P3.5-1's Pages half.
   - `PagesToolkit` (3,490 lines, 18 tools) becomes Pages, Content (page blocks and areas) and BatchEdit; two PRs if that is easier to review (Content out, then BatchEdit out)
   - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
   - the tools stay on `CallableTool` (the subclass conversion is dropped)
