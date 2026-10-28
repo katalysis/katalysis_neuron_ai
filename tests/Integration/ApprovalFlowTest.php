@@ -461,4 +461,48 @@ final class ApprovalFlowTest extends ConcreteTestCase
         $this->assertSame('<p>Block one original text.</p>', trim((string) $this->db()->fetchOne('SELECT content FROM btContentLocal WHERE bID = ?', [$b1])), 'the live block is unchanged');
         $this->assertSame(2, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM CollectionVersions WHERE cID = ?', [$cID]), 'one draft');
     }
+
+    public function testACallItsOwnChecksWouldRefuseIsNotPutToTheUser(): void
+    {
+        // P3.6-2 (A): scenario 29's made-up ID. The block isn't on the page, so the call is refused at once, in the
+        // tool's own words, and the turn goes on: no click, and the model can retry with the right ID.
+        $page = $this->pages->create('Approval refused');
+        $cID = (int) $page->getCollectionID();
+        $chatId = $this->newChat();
+        $call = self::call('delete_block_from_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => 999999999]);
+        $provider = new FakeAIProvider(self::calls($call), new AssistantMessage('That block is not there.'));
+
+        $agent = $this->agent($chatId, $provider);
+        $this->assertSame('That block is not there.', $agent->handleUserMessage('Delete it.'));
+        $this->assertFalse($agent->isAwaitingApproval());
+
+        $this->assertSame([$call->getCallId() => ApprovalService::REFUSED], $this->statuses($chatId));
+        $results = self::sentResults($provider);
+        $this->assertStringStartsWith('Error executing tool: Block 999999999 not found', trim($results), 'the tool\'s own words');
+        $this->assertStringNotContainsString('TOOL NOT EXECUTED', $results);
+        $cards = $agent->getSettledApprovalCards();
+        $this->assertSame(ApprovalService::REFUSED, $cards[0]['status']);
+        $this->assertStringStartsWith('Not asked: this would be refused: Block 999999999 not found', $cards[0]['statusText']);
+        $this->assertStringContainsString('Not done: delete_block_from_page_area', (string) $agent->getTurnChangesLine());
+        $this->assertSame(0, $this->runRows($chatId));
+    }
+
+    public function testInAMixedBatchOnlyTheCallThatCanSucceedIsPutToTheUser(): void
+    {
+        $page = $this->pages->create('Approval mixed');
+        $cID = (int) $page->getCollectionID();
+        $chatId = $this->newChat();
+        $good = self::call('update_page', ['pageID' => $cID, 'description' => 'Mixed batch']);
+        $bad = self::call('update_page', ['pageID' => 999999999, 'description' => 'Nowhere']);
+
+        $agent = $this->agent($chatId, new FakeAIProvider(self::calls($good, $bad)));
+        $this->assertSame(ConcreteCmsAgent::AWAITING_REPLY, $agent->handleUserMessage('Set both.'));
+        $cards = array_column($agent->getApprovalCards(), 'status', 'callId');
+        $this->assertSame([$good->getCallId() => ApprovalService::PENDING, $bad->getCallId() => ApprovalService::REFUSED], $cards);
+
+        $provider = new FakeAIProvider(new AssistantMessage('One done.'));
+        $this->assertSame(['recorded' => true, 'reply' => 'One done.'], $this->agent($chatId, $provider)->decide((string) $good->getCallId(), true));
+        $this->assertSame('Mixed batch', (string) self::newest($cID)->getCollectionDescription());
+        $this->assertStringContainsString('Error executing tool: Page with ID 999999999 not found', self::sentResults($provider));
+    }
 }
