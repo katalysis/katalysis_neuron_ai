@@ -76,7 +76,6 @@ final class DisabledToolsTest extends TestCase
                 'move_file_to_folder',
                 'move_page',
                 'remove_attribute_from_set',
-                'sync_multi_links_to_epra_resources_list',
                 'update_file_select_attribute_options',
                 'update_page_select_attribute_options',
                 'update_person',

@@ -392,7 +392,6 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
             'create_page' => 'makes a page, not a draft: testCreatePageDeletesThePageItMadeWhenItFailsAfterwards',
             'move_page' => 'disabled; moves the live page, no draft (P1.13)',
             'delete_page' => 'disabled; trashes the live page, no draft (P1.13)',
-            'sync_multi_links_to_epra_resources_list' => 'disabled, EPRA only, moves out in P3.4',
         ];
         $covered = array_map(static fn (array $case): string => $case[1], array_values(self::draftToolProvider()));
 

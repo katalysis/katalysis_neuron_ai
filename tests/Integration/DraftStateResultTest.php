@@ -35,7 +35,6 @@ final class DraftStateResultTest extends ConcreteTestCase
 {
     /** Write tools with a page input that don't write to a page draft, and why. */
     private const EXEMPT = [
-        'sync_multi_links_to_epra_resources_list' => 'disabled; writes live; moves out in P3.4',
         'move_page' => 'disabled; a move is not part of a page version',
         'delete_page' => 'disabled; a delete is not part of a page version',
         'approve_page_version' => 'disabled; publishes',

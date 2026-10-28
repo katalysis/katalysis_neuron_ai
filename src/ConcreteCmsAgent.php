@@ -334,8 +334,6 @@ GUIDELINES:
 - For targeted text updates, use `batch_update_page_content` with `changeMode="scoped_text"` and explicit `textFields` per block
 - For multi-block heading-level changes in Content blocks, prefer `batch_update_content_headings` to find and update all matching headings on-page with built-in text-integrity checks
 - Use `batch_update_content_headings(matchMode="bold_paragraph", areaHandleContains=" : Column 1")` when asked to update all bold paragraph headings in a specific column across many blocks
-- For Multi Link to EPRA Resources List migrations on a page, prefer `sync_multi_links_to_epra_resources_list` so updates happen per-area on existing target blocks with file-link verification
-- For requests like "get title and file IDs from Doc Download blocks on this page", use `get_doc_download_files_on_page` first; it handles display-name variants and nested/container areas
 - Never use `contentPreview` (from page block listings) as source HTML for writes; it is discovery-only and may be truncated
 - Before updating Content blocks, fetch full raw content field values (not previews) and apply minimal in-place transforms to those full values
 - If any candidate source text includes ellipsis (`...`) or appears truncated, treat it as invalid for write-back and re-fetch full content

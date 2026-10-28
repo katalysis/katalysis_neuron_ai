@@ -80,7 +80,6 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
         return [
             'batch_update_page_content' => [PagesToolkit::class, 'batch_update_page_content', 'pageID'],
             'batch_update_content_headings' => [PagesToolkit::class, 'batch_update_content_headings', 'pageID'],
-            'sync_multi_links_to_epra_resources_list' => [PagesToolkit::class, 'sync_multi_links_to_epra_resources_list', 'pageID'],
             'create_page (parent)' => [PagesToolkit::class, 'create_page', 'parentID'],
             'update_page' => [PagesToolkit::class, 'update_page', 'pageID'],
             'move_page (page)' => [PagesToolkit::class, 'move_page', 'pageID'],

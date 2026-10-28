@@ -58,14 +58,12 @@ final class ToolTiers
         'move_block_between_areas',
         'move_page',
         'delete_page',
-        'sync_multi_links_to_epra_resources_list',
         // Blocks
         'list_page_blocks_by_type',
         'search_blocks_by_type',
         'get_block_data',
         'get_block_controller_data',
         'count_blocks_by_type',
-        'get_doc_download_files_on_page',
         'list_container_blocks',
         // Files: a folder organises files as an upload does (B-T1-12), under Concrete's Add File check
         'resolve_file_id_from_path',
