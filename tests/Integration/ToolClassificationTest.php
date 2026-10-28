@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Integration;
 
+use Concrete\Core\Http\Request;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Eval\ToolCall;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\DisabledTools;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -26,6 +28,19 @@ use NeuronAI\Tools\Toolkits\ToolkitInterface;
 final class ToolClassificationTest extends ConcreteTestCase
 {
     private const FILE = __DIR__ . '/../Support/tool-classification.txt';
+
+    // P3.2-1: the agent offers each user only their tier's tools. The super user is Tier 3, so it is offered every tool.
+    protected function setUp(): void
+    {
+        parent::setUp();
+        ThrowawayPages::actAs('superuser');
+    }
+
+    protected function tearDown(): void
+    {
+        Request::getInstance()->setCustomRequestUser(-1);
+        parent::tearDown();
+    }
 
     /**
      * @return list<string> "read name" or "write name", sorted by name

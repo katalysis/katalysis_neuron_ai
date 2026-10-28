@@ -1,7 +1,7 @@
 id: 06-bold-headings-to-h3-column-1
 title: "Turn the bold-paragraph headings in column 1 into h3"
 tier: 1
-user: neuron_editor
+user: neuron_content_editor
 current_page: /neuron-test/columns
 rules: [B-T1-2, B-T1-3, B-CON-4, B-REP-1]
 known_to_fail_today: "Partial since P3.3-1 (PR #62; 3 of 3 partial): both bold paragraphs in Column 1 become h3 and the state checks pass. What still misses is the secondary reply check: the reply doesn't give the page path (neuron-test/columns), and says the change goes live on publishing in words the draft pattern doesn't match (B-REP-1). Before P3.3-1: fail in the P1.5 baseline (only 1 of the 2 bold paragraphs was converted)."

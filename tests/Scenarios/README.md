@@ -18,7 +18,7 @@ Every scenario cites the `documentation/BEHAVIOUR_SPEC.md` rule IDs it checks. T
 ```yaml
 id: 05-h3-to-h2                  # same as the file name, without .yaml
 title: Change all h3 headings to h2 on this page
-tier: 1                          # 1, 2 or 3, or "any"
+user: neuron_content_editor      # neuron_content_editor (seeded, Tier 1; P3.2-1) or superuser (the dev site's admin, Tier 3)
 user: neuron_editor              # neuron_editor (seeded, non-admin) or superuser (the dev site's admin)
 current_page: /neuron-test/headings   # the page the user is on when they send the first message
 rules: [B-T1-2, B-WRT-3]         # spec rule IDs this scenario checks

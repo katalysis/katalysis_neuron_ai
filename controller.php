@@ -18,7 +18,7 @@ class Controller extends Package
 {
     protected $pkgHandle = 'katalysis_neuron_ai';
     protected $appVersionRequired = '9.3';
-    protected $pkgVersion = '3.2.0';
+    protected $pkgVersion = '3.3.0';
     protected $pkgAutoloaderRegistries = [
         'src' => '\Katalysis\NeuronAi'
     ];
@@ -190,8 +190,8 @@ class Controller extends Package
   }
 
     /**
-     * Adds the two task permission keys if they are missing. Existing keys and what an admin has
-     * assigned to them are left alone.
+     * Adds the task permission keys (P1.10a's two and P3.2-1's tier keys) if they are missing. Existing keys and what
+     * an admin has assigned to them are left alone.
      */
     protected function installPermissionKeys($pkg)
     {

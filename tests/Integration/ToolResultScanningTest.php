@@ -80,6 +80,8 @@ final class ToolResultScanningTest extends ConcreteTestCase
 
     public function testEveryToolTheAgentOffersIsWrapped(): void
     {
+        // P3.2-1: the agent offers each user only their tier's tools. The super user is Tier 3, so it is offered every tool.
+        $this->actAs('superuser');
         $agent = new ConcreteCmsAgent();
         $scanner = $agent->toolResultScanner();
 

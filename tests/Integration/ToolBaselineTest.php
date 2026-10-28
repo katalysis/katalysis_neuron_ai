@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Integration;
 
+use Concrete\Core\Http\Request;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tests\Support\ToolBaseline;
 use Katalysis\NeuronAi\Tools\DisabledTools;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
@@ -34,10 +36,13 @@ final class ToolBaselineTest extends ConcreteTestCase
         $this->savedFactories = $property->getValue();
         // Core tools only: external toolkits (katalysis_pro) are not part of the baseline.
         $property->setValue(null, []);
+        // P3.2-1: the agent offers each user only their tier's tools. The super user is Tier 3, so it is offered every tool.
+        ThrowawayPages::actAs('superuser');
     }
 
     protected function tearDown(): void
     {
+        Request::getInstance()->setCustomRequestUser(-1);
         (new \ReflectionProperty(ExternalToolkitRegistry::class, 'factories'))->setValue(null, $this->savedFactories);
         parent::tearDown();
     }
