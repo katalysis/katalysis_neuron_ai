@@ -400,7 +400,7 @@ Deleting first means less code to move, and every later behaviour change lands i
 #### Stage 3: approval
 After permissions, so that approval never stands in for a permission check.
 
-- [ ] P3.6-1 **The approval mechanism** (L; safety). Depends on: P3.5-1.
+- [x] P3.6-1 **The approval mechanism** (L; safety; Done (PR #91)). Depends on: P3.5-1.
   - use Neuron 4 tool approval, with a mechanism of our own on top of its pause and resume: a preview the tool computes without writing, stored with a fingerprint of the proposed change, checked again when the approval is applied; refuse if it differs. Neuron 4 re-evaluates the tool on resume and binds the approval only to the call ID (P2.1 findings §8)
   - the workflow store: Neuron's File store or a new table (a schema decision)
   - **what a new message does while a call waits.** Today it is refused before the provider (B-ERR-5, BF-9). An approval that ran before a later failed provider call leaves the stored call still marked pending with no result, because Neuron writes it before the decision and never updates the row. Decide (for example, reject the waiting calls); the panel shows a clear "waiting for approval" message, not the generic error (BF-9)
