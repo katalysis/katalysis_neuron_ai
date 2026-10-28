@@ -117,6 +117,10 @@ final class UserFieldsTest extends ConcreteTestCase
 
         $this->assertSame([], array_column($result['users'], 'username'), 'a user the requester may not view was listed');
         $this->assertSame(0, $result['total'] ?? null, 'and counted');
+
+        // list_users had the same gap: UserList::getResults() never calls the permission checker set on the list.
+        $listed = array_column($this->call('list_users', ['limit' => 100])['users'], 'username');
+        $this->assertNotContains('neuron_chat_editor', $listed, 'list_users listed a user the requester may not view');
     }
 
     public function testTheCurrentUserSeesTheirOwnEmailButNoAttributesByDefault(): void
