@@ -22,14 +22,16 @@ use NeuronAI\Tools\Toolkits\ToolkitInterface;
  *
  * - Draft-writing tools run their own checks in a dry run that stops where the draft would be made (PageDraft::dryRun()):
  *   every check they make before writing, in the same order, with nothing written (BF-3 put the checks first).
+ *   create_page makes no draft; its dry run stops just before it adds the page (PageDraft::stopIfDryRun()).
  * - Other tools: their preview's reads say when the call can't succeed (ChangePreview).
  *
  * The dry run uses a fresh instance of the tool, not the agent's, so the result scanner and the turn's record don't see it.
  */
 final class CallCheck
 {
-    /** The draft-writing tools the dry run covers, and the toolkit each comes from. */
+    /** The tools the dry run covers (the draft-writing tools, and create_page), and the toolkit each comes from. */
     public const DRY_RUN = [
+        'create_page' => PagesToolkit::class,
         'update_page' => PagesToolkit::class,
         'set_page_attribute_value' => PageAttributesToolkit::class,
         'add_block_to_page_area' => ContentToolkit::class,

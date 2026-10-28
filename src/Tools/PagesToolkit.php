@@ -27,6 +27,7 @@ use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\PermittedWindow;
@@ -545,6 +546,8 @@ class PagesToolkit extends AbstractToolkit
                 $attributeMap = $attributeValueMapFactory->createFromRequestData($category, $attributes);
             }
 
+            // P3.6-2: an approval check's dry run stops here, with every check above done (CallCheck).
+            PageDraft::stopIfDryRun();
             $page = $parent->add($pt, $data, $pageTemplate);
             // If the call fails from here on, the page it made is deleted under DraftCleanup's rule (BF-3).
             DraftCleanup::createdPage($page);

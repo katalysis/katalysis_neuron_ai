@@ -17,8 +17,6 @@ use Katalysis\NeuronAi\Approval\Preview\TopicPreviews;
 use Katalysis\NeuronAi\Approval\Preview\VersionPreviews;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\PageByName;
-use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
-use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 
 /**
@@ -90,8 +88,11 @@ final class ChangePreview
             $state['previewFailed'] = get_class($e);
         }
 
-        // P3.6-2: a draft-writing tool runs its own checks, stopping before the draft (CallCheck).
-        $refusal ??= CallCheck::dryRun($tool, $inputs);
+        // P3.6-2: a tool the dry run covers runs its own checks, stopping before it writes (CallCheck): every refusal it
+        // makes, in its order. The others say it from their preview's reads.
+        if (isset(CallCheck::DRY_RUN[$tool])) {
+            $refusal = CallCheck::dryRun($tool, $inputs);
+        }
 
         return ['entry' => $entry, 'fingerprint' => self::hash($tool, $state), 'refusal' => $refusal];
     }
@@ -194,11 +195,7 @@ final class ChangePreview
 
         $parent = self::newest(is_numeric($inputs['parentID'] ?? null) ? (int) $inputs['parentID'] : 0);
         if ($parent === null) {
-            return [
-                self::entry('Create page', '"' . $name . '" under a page that was not found', '', $details, $note),
-                ['missing' => $inputs['parentID'] ?? null],
-                WriteRefusal::pageNotFound((int) ($inputs['parentID'] ?? 0), 'Parent page'),
-            ];
+            return [self::entry('Create page', '"' . $name . '" under a page that was not found', '', $details, $note), ['missing' => $inputs['parentID'] ?? null]];
         }
 
         $visible = self::canView($parent);
@@ -211,11 +208,7 @@ final class ChangePreview
             'canAdd' => ObjectPermissions::addSubpage($parent, $type ?: null) === null,
         ];
 
-        return [
-            self::entry('Create page', '"' . $name . '" under ' . self::name($parent, $visible), self::path($parent, $visible), $details, $note),
-            $state,
-            $name !== '' ? PagesToolkit::duplicatePathRefusal($parent, $name) : null,
-        ];
+        return [self::entry('Create page', '"' . $name . '" under ' . self::name($parent, $visible), self::path($parent, $visible), $details, $note), $state];
     }
 
     private const VERSION_NOTE = 'Saved in a new unpublished version; nothing goes live until someone publishes it.';

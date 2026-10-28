@@ -51,6 +51,17 @@ final class PageDraft
     private static bool $dryRun = false;
 
     /**
+     * For a write that makes no draft (create_page makes a page): stops an approval check's dry run at the point where
+     * the call would write, as of() does for a draft.
+     */
+    public static function stopIfDryRun(): void
+    {
+        if (self::$dryRun) {
+            throw new DryRunReached('The call passed its checks; the dry run stops before it writes.');
+        }
+    }
+
+    /**
      * Runs $call with the draft step stopped (CallCheck): every check a write tool makes before its draft runs, and
      * nothing is written.
      */
