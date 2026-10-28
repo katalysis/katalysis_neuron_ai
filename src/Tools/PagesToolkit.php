@@ -516,7 +516,16 @@ class PagesToolkit extends AbstractToolkit
             }
 
             ObjectPermissions::deny(ObjectPermissions::addSubpage($parent, $pt));
-            
+
+            // P3.6-2: a page already at this path is refused. Concrete would quietly add "-1" and make a second page
+            // (scenario 09's wrong-page write).
+            if ($existing = self::childWithPathOf($parent, $name)) {
+                throw new \RuntimeException(
+                    "A page '{$existing->getCollectionName()}' already exists at {$existing->getCollectionPath()} (ID "
+                    . "{$existing->getCollectionID()}), so nothing was created. Use that page."
+                );
+            }
+
             // No approved version: the page is not live until a person approves it from Page Versions (P1.13, B-WRT-3).
             $data = ['name' => $name, 'cvIsApproved' => 0];
             if ($description) {
@@ -555,6 +564,27 @@ class PagesToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * The child of $parent that has the path a new page named $name would get (Concrete's own handle rule, Page::add()),
+     * compared ignoring case, or null. Trashed pages are not children.
+     */
+    private static function childWithPathOf(Page $parent, string $name): ?Page
+    {
+        $handle = Application::getFacadeApplication()->make('helper/text')->urlify($name);
+        $handle = str_replace('-', (string) \Concrete\Core\Support\Facade\Config::get('concrete.seo.page_path_separator'), $handle);
+        if ($handle === '') {
+            return null;
+        }
+        $path = rtrim((string) $parent->getCollectionPath(), '/') . '/' . $handle;
+        $cID = Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class)->fetchOne(
+            'SELECT cID FROM PagePaths WHERE LOWER(cPath) = LOWER(?) AND ppIsCanonical = 1',
+            [$path]
+        );
+        $page = $cID === false ? null : Page::getByID((int) $cID);
+
+        return $page && !$page->isError() && !$page->isInTrash() ? $page : null;
     }
 
     /**
