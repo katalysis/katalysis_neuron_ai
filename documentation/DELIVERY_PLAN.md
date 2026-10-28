@@ -673,7 +673,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - `search_users` gets the same per-user check as `list_users` (Concrete's `canViewUser`), so it never lists, or counts, a user the requester can't view
   - a red-first integration test: `neuron_editor` searches for a user it can't view and gets nothing
   - no paid scenario runs; a free `--fake` run of 03 and 34
-- [ ] BF-15 **Attribute toolkits: `getAttributeSet()` undefined** (small; its own PR into `development`; no plan stop; Glyn's decision after P3.2-1). Found in P3.2-1's scenario 35 run: `list_page_attributes` failed with `Call to undefined method Concrete\Core\Entity\Attribute\Key\PageKey::getAttributeSet()`; the matching user and file tools make the same call. Scope:
+- [x] BF-15 **Attribute toolkits: `getAttributeSet()` undefined** (small; its own PR into `development`; no plan stop; Glyn's decision after P3.2-1). Done (PR #76). Found in P3.2-1's scenario 35 run: `list_page_attributes` failed with `Call to undefined method Concrete\Core\Entity\Attribute\Key\PageKey::getAttributeSet()`; the matching user and file tools make the same call. Scope:
   - a red-first integration test per tool that makes the call
   - the fix against Concrete 9.5.5's API
   - no paid scenario runs; a free `--fake` run only
