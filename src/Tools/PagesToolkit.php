@@ -198,13 +198,10 @@ class PagesToolkit extends AbstractToolkit
                     // Use path-based filtering to find all descendants
                     $parent = Page::getByID($resolvedParentID);
                     if ($parent && !$parent->isError()) {
-                        $parentPathPrefix = $parent->getCollectionPath();
-                        // Ensure path ends with / for proper prefix matching
-                        if ($parentPathPrefix !== '/' && !str_ends_with($parentPathPrefix, '/')) {
-                            $parentPathPrefix .= '/';
-                        }
-                        // Use LIKE pattern to match all pages under this path
-                        $list->filterByPath($parentPathPrefix . '%');
+                        // P3.6-2: Concrete's filterByPath() matches "<path>/%" itself. Given "/parent/%" it matched
+                        // only grandchildren (scenario 09's wrong-page write). The home page's path is empty, so its
+                        // descendants are every page under "/".
+                        $list->filterByPath(rtrim((string) $parent->getCollectionPath(), '/'));
                     }
                 } else {
                     // Only direct children (original behavior)
