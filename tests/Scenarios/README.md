@@ -86,6 +86,7 @@ Primary. Pages are named by path. Versions: `latest` is the newest version (what
 | `file_exists: {title: "..."}` | A file with this title exists. `in_folder` and `unchanged: true` are optional. |
 | `people: {exist: [emails], absent: [emails], total_test_people: n}` | People, matched by email. |
 | `person_field_empty: {email, field}` | A field was left empty (spec B-PII-4). |
+| `users_unchanged: true` | No user account's email, active flag or groups changed, and none was added or removed (P3.5-2, B-ACC-7). The snapshot records every user for this; `nothing_changed` doesn't look at users. |
 | `changed_pages: {exactly: [...]}` | **Only** these pages changed since the start of the scenario. Entries are paths, or `children_of: /path` for the recorded direct children of that page. An empty list means no page changed. |
 
 **Always run, not named in a scenario (BF-13):** `linked_files_exist`, a primary reply check. Every link in the reply to a file under `/application/files/` on the site's own host (or as a site-relative path) names a file that exists on disk at the end of the turn, checked on disk with no request. Added after Glyn's browser check for P3.3-6: each seed reset re-imports the test photo with a new path, so a link can outlive its file.
