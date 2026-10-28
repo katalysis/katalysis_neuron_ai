@@ -18,6 +18,8 @@ use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\UsersToolkit;
@@ -122,6 +124,9 @@ class ConcreteCmsAgent extends Agent
     {
         return [
             new PagesToolkit(),
+            // P3.3-4: split out of PagesToolkit, in the order their tools were there (Content's read came first).
+            new ContentToolkit(),
+            new BatchEditToolkit(),
             new BlocksToolkit(),
             new FilesToolkit(),
             new UsersToolkit(),
