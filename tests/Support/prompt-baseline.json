@@ -1,9 +1,9 @@
 {
     "captured": {
-        "branch": "task/P3.2-1-tier-keys",
-        "commit": "cd8f7d8",
+        "branch": "task/P3.4-delete-epra-code",
+        "commit": "4212c55",
         "neuron": "4.1.12",
-        "date": "2026-10-28T09:45Z"
+        "date": "2026-10-28T11:41Z"
     },
     "inputs": {
         "page": "/neuron-test/headings",
@@ -51,8 +51,6 @@
             "- For targeted text updates, use `batch_update_page_content` with `changeMode=\"scoped_text\"` and explicit `textFields` per block",
             "- For multi-block heading-level changes in Content blocks, prefer `batch_update_content_headings` to find and update all matching headings on-page with built-in text-integrity checks",
             "- Use `batch_update_content_headings(matchMode=\"bold_paragraph\", areaHandleContains=\" : Column 1\")` when asked to update all bold paragraph headings in a specific column across many blocks",
-            "- For Multi Link to EPRA Resources List migrations on a page, prefer `sync_multi_links_to_epra_resources_list` so updates happen per-area on existing target blocks with file-link verification",
-            "- For requests like \"get title and file IDs from Doc Download blocks on this page\", use `get_doc_download_files_on_page` first; it handles display-name variants and nested/container areas",
             "- Never use `contentPreview` (from page block listings) as source HTML for writes; it is discovery-only and may be truncated",
             "- Before updating Content blocks, fetch full raw content field values (not previews) and apply minimal in-place transforms to those full values",
             "- If any candidate source text includes ellipsis (`...`) or appears truncated, treat it as invalid for write-back and re-fetch full content",
@@ -91,7 +89,6 @@
             "Use these tools to search for and inspect blocks across the site. WORKFLOW: First use search_blocks_by_type to find blocks and get their blockID, pageID, and areaHandle. For blocks INSIDE CONTAINERS: Look for area handles with ' : ' delimiter (e.g., '12704 : Column 1'). Use list_container_blocks(containerBlockID) to see all nested blocks. Then use get_block_controller_data with blockID, pageID, and the full areaHandle (including container ID) to see the actual content. This is more efficient than querying each page individually when looking for specific block types.",
             "search_blocks_by_type",
             "- list_page_blocks_by_type",
-            "- get_doc_download_files_on_page",
             "- get_block_data",
             "- get_block_controller_data",
             "- count_blocks_by_type",
@@ -218,7 +215,6 @@
             "move_block_between_areas",
             "search_blocks_by_type",
             "list_page_blocks_by_type",
-            "get_doc_download_files_on_page",
             "get_block_data",
             "get_block_controller_data",
             "count_blocks_by_type",
@@ -296,8 +292,6 @@
             "- For targeted text updates, use `batch_update_page_content` with `changeMode=\"scoped_text\"` and explicit `textFields` per block",
             "- For multi-block heading-level changes in Content blocks, prefer `batch_update_content_headings` to find and update all matching headings on-page with built-in text-integrity checks",
             "- Use `batch_update_content_headings(matchMode=\"bold_paragraph\", areaHandleContains=\" : Column 1\")` when asked to update all bold paragraph headings in a specific column across many blocks",
-            "- For Multi Link to EPRA Resources List migrations on a page, prefer `sync_multi_links_to_epra_resources_list` so updates happen per-area on existing target blocks with file-link verification",
-            "- For requests like \"get title and file IDs from Doc Download blocks on this page\", use `get_doc_download_files_on_page` first; it handles display-name variants and nested/container areas",
             "- Never use `contentPreview` (from page block listings) as source HTML for writes; it is discovery-only and may be truncated",
             "- Before updating Content blocks, fetch full raw content field values (not previews) and apply minimal in-place transforms to those full values",
             "- If any candidate source text includes ellipsis (`...`) or appears truncated, treat it as invalid for write-back and re-fetch full content",
@@ -336,7 +330,6 @@
             "Use these tools to search for and inspect blocks across the site. WORKFLOW: First use search_blocks_by_type to find blocks and get their blockID, pageID, and areaHandle. For blocks INSIDE CONTAINERS: Look for area handles with ' : ' delimiter (e.g., '12704 : Column 1'). Use list_container_blocks(containerBlockID) to see all nested blocks. Then use get_block_controller_data with blockID, pageID, and the full areaHandle (including container ID) to see the actual content. This is more efficient than querying each page individually when looking for specific block types.",
             "search_blocks_by_type",
             "- list_page_blocks_by_type",
-            "- get_doc_download_files_on_page",
             "- get_block_data",
             "- get_block_controller_data",
             "- count_blocks_by_type",
@@ -472,7 +465,6 @@
             "move_block_between_areas",
             "search_blocks_by_type",
             "list_page_blocks_by_type",
-            "get_doc_download_files_on_page",
             "get_block_data",
             "get_block_controller_data",
             "count_blocks_by_type",
