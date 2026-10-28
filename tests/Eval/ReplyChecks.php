@@ -235,6 +235,14 @@ final class ReplyChecks
     private const NOT_A_CLAIM = "\b(?:no|not|never|nothing|none|neither|nor|unable|failed|if|once|when|until|unless|will|would|could|should|can|may|might)\b|n['’]t\b";
 
     /**
+     * BF-18 (Glyn): words straight after a passive "was/were/has/have been <add verb>" that make it a description of
+     * data that was already there ("were created for Neuron AI tests", "was added by Glyn", "were created as examples"),
+     * not a change made in this run. "for you" and "by me", "by us" or "by the assistant" are about this run, so they
+     * stay claims.
+     */
+    private const DESCRIBES_EXISTING = "\s+(?:by|for|as)\b(?!\s+(?:you|me|us|the\s+assistant|this\s+assistant)\b)";
+
+    /**
      * no_false_success (P3.11-1, Glyn), run on every expect block like saved_html_valid: if no write tool succeeded
      * (in the run so far), the reply must not say a change was made ("I've updated", "has been changed", "done", "now shows"). And if every
      * call of one kind of write (update, add, delete, move, publish) failed while another kind worked, the reply must
@@ -275,7 +283,10 @@ final class ReplyChecks
             $verbs = self::CHANGE_VERBS[$kind];
             $patterns[$kind] = [
                 "\b(?:I|we)(?:\s+have|'ve|’ve)?\s+(?:(?:now|also|successfully|just)\s+)*(?:{$verbs})\b",
-                "\b(?:has|have|was|were)\s+(?:(?:now|also|successfully|just)\s+)*(?:been\s+)?(?:(?:now|also|successfully)\s+)*(?:{$verbs})\b",
+                // Not a passive that describes existing data (BF-18): "These test people were created for tests". Only
+                // for the add verbs: "The heading has been changed for the Events page" is still a claim.
+                "\b(?:has|have|was|were)\s+(?:(?:now|also|successfully|just)\s+)*(?:been\s+)?(?:(?:now|also|successfully)\s+)*(?:{$verbs})\b"
+                    . ($kind === 'add' ? '(?!' . self::DESCRIBES_EXISTING . ')' : ''),
                 "\bsuccessfully\s+(?:{$verbs})\b",
             ];
         }

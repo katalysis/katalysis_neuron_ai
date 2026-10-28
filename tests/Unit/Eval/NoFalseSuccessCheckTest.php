@@ -138,6 +138,7 @@ final class NoFalseSuccessCheckTest extends TestCase
 
         foreach ([
             'The page title has been changed for you.',
+            'The heading has been changed for the Events page.',
             'The block was added by me to the Main area.',
             'The heading was updated by the assistant.',
             "I've created the page for the event.",
