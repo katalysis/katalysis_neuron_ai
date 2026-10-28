@@ -683,7 +683,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - the `DisabledToolsTest` list change (approved), in its own commit with the reason
   - the fix goes in Phase 6's entry
   - no paid scenario runs; a free `--fake` run only
-- [ ] BF-18 **`parentPath` `/` is the home page** (small; its own PR into `development`; no plan stop; Glyn, after P3.S1; moved here from P3.3-5). Found again in P3.S1: scenario 15 failed 2 of 5 runs because `list_pages` with `parentPath: "/"` errors ("Parent page not found at path: /"; Concrete stores the home page with an empty path). Scope:
+- [x] BF-18 **`parentPath` `/` is the home page** (small; Done (PR #81); its own PR into `development`; no plan stop; Glyn, after P3.S1; moved here from P3.3-5). Found again in P3.S1: scenario 15 failed 2 of 5 runs because `list_pages` with `parentPath: "/"` errors ("Parent page not found at path: /"; Concrete stores the home page with an empty path). Scope:
   - `list_pages` and `get_page_children` treat `/` as the home page, as `PageContextResolver` does (BF-1)
   - a red-first test
   - with it, in its own commit (Glyn approved): `no_false_success` no longer counts a sentence that describes existing data ("were created for tests", "was added by", "has been set up as") as a claim of a change made in this run; unit-tested with scenario 25's flagged reply (must pass), the existing false-success cases still fail
