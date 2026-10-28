@@ -308,15 +308,115 @@ final class ReplyChecks
             }
         }
         $claims = array_values(array_unique($claims));
+        $objectClaims = $wroteInRun ? self::objectClaims($c) : [];
+
+        $details = [];
+        if ($claims !== []) {
+            $details[] = (!$wroteInRun ? 'no write tool succeeded' : 'every ' . implode(', ', $kinds) . ' write failed')
+                . ', but the reply says: ' . implode(', ', $claims);
+        }
+        if ($objectClaims !== []) {
+            $details[] = 'the reply says ' . implode(', ', $objectClaims) . ', but no write of that kind succeeded';
+        }
 
         return new CheckResult(
             CheckResult::REPLY,
             'no_false_success',
-            $claims === [],
-            $claims === [] ? '' : (!$wroteInRun ? 'no write tool succeeded' : 'every ' . implode(', ', $kinds) . ' write failed')
-                . ', but the reply says: ' . implode(', ', $claims),
+            $details === [],
+            implode('; ', $details),
             true
         );
+    }
+
+    /** P3.6-2: the kinds of thing a claim may name, longest first, and what each is called in the detail. */
+    private const OBJECT_NOUNS = '(attribute\s+sets?|attributes?|pages?|blocks?|files?|folders?|topic\s+trees?|topics?|sets?)';
+
+    /**
+     * P3.6-2 (Glyn, after scenario 35: "The Event Date page attribute has been created" when only create_page had run):
+     * a claim names the kind of thing it changed, and some write of that kind must have succeeded in the run so far. The
+     * thing is the head of the claim's noun phrase: after "I have <verb>" ("I have added a new Page List block to Main":
+     * block), before "has been <verb>" ("The Event Date page attribute has been created": attribute). A claim that names
+     * none of the kinds is not checked here.
+     *
+     * @return list<string>
+     */
+    private static function objectClaims(CheckContext $c): array
+    {
+        $written = [];
+        foreach ($c->runCalls() as $call) {
+            if ($call['ok'] && ToolCall::isWrite($call['name'])) {
+                foreach (self::objectKinds($call['name']) as $kind) {
+                    $written[$kind] = true;
+                }
+            }
+        }
+
+        $verbs = implode('|', self::CHANGE_VERBS);
+        $patterns = [
+            'active' => "\b(?:I|we)(?:\s+have|'ve|’ve)?\s+(?:(?:now|also|successfully|just)\s+)*(?:{$verbs})\b",
+            'passive' => "\b(?:has|have|was|were)\s+(?:(?:now|also|successfully|just)\s+)*(?:been\s+)?(?:(?:now|also|successfully)\s+)*(?:{$verbs})\b",
+        ];
+        $claims = [];
+        foreach ($patterns as $voice => $pattern) {
+            if (preg_match_all('~' . $pattern . '~iu', $c->reply, $m, PREG_OFFSET_CAPTURE) === 0) {
+                continue;
+            }
+            foreach ($m[0] as [$text, $offset]) {
+                if (self::negated($c->reply, $offset)) {
+                    continue;
+                }
+                $kind = $voice === 'active'
+                    ? self::headNoun(substr($c->reply, $offset + strlen($text), 120))
+                    : self::headNoun((string) preg_replace('~^.*[.!?\n;,]~su', '', substr($c->reply, 0, $offset)));
+                if ($kind !== null && !isset($written[$kind])) {
+                    $claims[] = '"' . trim($text, " .!?\n") . "\" about a {$kind}";
+                }
+            }
+        }
+
+        return array_values(array_unique($claims));
+    }
+
+    /** The kind the noun phrase at the start of $text is about: its last kind noun before a preposition or a stop. */
+    private static function headNoun(string $text): ?string
+    {
+        $phrase = (string) preg_replace('~\b(?:to|in|on|into|under|for|with|at|from|so|and|but|which|that|by|as)\b.*$~siu', '', $text);
+        $phrase = (string) preg_replace('~[.,;:!?\n].*$~su', '', $phrase);
+        if (preg_match_all('~\b' . self::OBJECT_NOUNS . '\b~iu', $phrase, $m) === 0) {
+            return null;
+        }
+        $noun = strtolower((string) preg_replace('~\s+~', ' ', (string) end($m[1])));
+
+        return match (true) {
+            str_starts_with($noun, 'attribute set'), str_starts_with($noun, 'set') => 'set',
+            str_starts_with($noun, 'attribute') => 'attribute',
+            str_starts_with($noun, 'topic') => 'topic',
+            str_starts_with($noun, 'folder') => 'folder',
+            str_starts_with($noun, 'file') => 'file',
+            str_starts_with($noun, 'block') => 'block',
+            default => 'page',
+        };
+    }
+
+    /**
+     * The kinds of thing a write tool changes, by its name. A block or a page attribute value is a change to its page
+     * too ("The page has been updated with a new block").
+     *
+     * @return list<string>
+     */
+    private static function objectKinds(string $tool): array
+    {
+        return match (true) {
+            str_contains($tool, 'attribute_set'), str_ends_with($tool, '_to_set') => str_starts_with($tool, 'create_page_attribute') ? ['attribute', 'set'] : ['set'],
+            str_starts_with($tool, 'set_') && str_contains($tool, 'attribute') => str_contains($tool, 'page') ? ['attribute', 'page'] : (str_contains($tool, 'file') ? ['attribute', 'file'] : ['attribute']),
+            str_contains($tool, 'attribute') => str_contains($tool, '_to_set') ? ['attribute', 'set'] : ['attribute'],
+            str_contains($tool, 'folder') => ['folder'],
+            str_contains($tool, 'file') => ['file'],
+            str_contains($tool, 'topic') => ['topic'],
+            str_contains($tool, 'block'), str_starts_with($tool, 'batch_update') => ['block', 'page'],
+            str_contains($tool, 'page') || str_contains($tool, 'draft') => ['page'],
+            default => [],
+        };
     }
 
     /**
