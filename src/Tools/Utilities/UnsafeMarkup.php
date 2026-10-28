@@ -11,9 +11,15 @@ namespace Katalysis\NeuronAi\Tools\Utilities;
  *
  * Only what the value adds is refused: an HTML block that already holds an embed script keeps it. Text about these
  * things ("never paste javascript: links") is not markup and is allowed.
+ *
+ * P3.3-7: a whole value that is a javascript:, data: or vbscript: URL is refused too. Link columns (a Feature's
+ * externalLink, a slide's linkURL) are saved as given in import mode, without the block form's URL sanitising.
  */
 final class UnsafeMarkup
 {
+    /** Schemes refused as a whole value. */
+    private const BARE_SCHEMES = ['javascript', 'data', 'vbscript'];
+
     /** An opening tag with its attributes. */
     private const TAG = '/<[a-zA-Z][a-zA-Z0-9-]*(\s[^<>]*)?\/?>/';
 
@@ -72,6 +78,14 @@ final class UnsafeMarkup
         $add = static function (string $what) use (&$found): void {
             $found[$what] = ($found[$what] ?? 0) + 1;
         };
+
+        // Browsers ignore whitespace and control characters inside the scheme ("java\tscript:").
+        $bare = strtolower((string) preg_replace('/[\x00-\x20]+/', '', html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+        foreach (self::BARE_SCHEMES as $scheme) {
+            if (str_starts_with($bare, $scheme . ':')) {
+                $add("{$scheme}: URL");
+            }
+        }
 
         $scripts = preg_match_all('/<script\b/i', $html);
         for ($i = 0; $i < (int) $scripts; $i++) {

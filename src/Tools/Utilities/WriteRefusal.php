@@ -30,6 +30,12 @@ final class WriteRefusal
      */
     public static function blockValidation(mixed $errors, string $handle): ?string
     {
+        // P3.3-7: false (allowed by BlockController::validate() for older packages) refuses without a reason; it is
+        // never a pass, so no write skips validation silently.
+        if ($errors === false) {
+            return "The '{$handle}' block's own check refused the data without saying why. Nothing was changed. "
+                . 'Compare the value with how an existing block of this type stores it (get_block_data).';
+        }
         if (!$errors instanceof ErrorList || !$errors->has()) {
             return null;
         }
