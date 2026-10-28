@@ -13,7 +13,6 @@ use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\GlobalAreaFixture;
 use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
-use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -204,7 +203,7 @@ final class GlobalAreaWriteRefusalTest extends ConcreteTestCase
         return [
             new PagesToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
             new UserAttributesToolkit(), new FileAttributesToolkit(), new AttributeSetsToolkit(), new TopicsToolkit(),
-            new PeopleToolkit(), new VersionsToolkit(), new AttributesToolkit(),
+            new PeopleToolkit(), new VersionsToolkit(),
         ];
     }
 

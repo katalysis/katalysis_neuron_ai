@@ -8,7 +8,6 @@ use Concrete\Core\Database\Connection\Connection;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
-use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -80,9 +79,6 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
             'set_page_attribute_value, PageAttributesToolkit (pageID)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pageID'],
             'set_page_attribute_value, PageAttributesToolkit (pagePath)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pagePath'],
             'set_page_attribute_value, PageAttributesToolkit (pageName)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pageName'],
-            'set_page_attribute_value, AttributesToolkit (pageID)' => [AttributesToolkit::class, 'set_page_attribute_value', 'pageID'],
-            'set_page_attribute_value, AttributesToolkit (pagePath)' => [AttributesToolkit::class, 'set_page_attribute_value', 'pagePath'],
-            'set_page_attribute_value, AttributesToolkit (pageName)' => [AttributesToolkit::class, 'set_page_attribute_value', 'pageName'],
             'approve_page_version' => [VersionsToolkit::class, 'approve_page_version', 'pageID'],
             'create_page_draft' => [VersionsToolkit::class, 'create_page_draft', 'pageID'],
             'discard_draft_version' => [VersionsToolkit::class, 'discard_draft_version', 'pageID'],
@@ -377,7 +373,7 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
         return [
             new PagesToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
             new UserAttributesToolkit(), new FileAttributesToolkit(), new AttributeSetsToolkit(), new TopicsToolkit(),
-            new PeopleToolkit(), new VersionsToolkit(), new AttributesToolkit(),
+            new PeopleToolkit(), new VersionsToolkit(),
         ];
     }
 }

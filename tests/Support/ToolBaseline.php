@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Support;
 
 use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
-use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -76,6 +75,16 @@ final class ToolBaseline
     ];
 
     /**
+     * Toolkits deleted on purpose after the v3 capture, with the task and the reason. capturedDefinitions() leaves them
+     * out; the capture is never edited.
+     *
+     * @var array<string, string> toolkit => reason
+     */
+    public const REMOVED_TOOLKITS = [
+        'AttributesToolkit' => 'P3.3-3: deleted; the agent never registered it (P1.8a) and it duplicated PageAttributesToolkit',
+    ];
+
+    /**
      * Tools disabled on purpose after the v3 capture (DisabledTools), with the task and the reason. They are still
      * defined as captured, but no longer offered; capturedOffered() leaves them out. The capture is never edited.
      *
@@ -103,7 +112,23 @@ final class ToolBaseline
     }
 
     /**
-     * The v3 capture's definitions without the tools in REMOVED.
+     * How many tools the capture holds in the toolkits in REMOVED_TOOLKITS.
+     */
+    public static function removedToolkitToolCount(): int
+    {
+        $baseline = json_decode((string) file_get_contents(self::FILE), true, 512, JSON_THROW_ON_ERROR);
+        $count = 0;
+        foreach ($baseline['definitions'] as $toolkit) {
+            if (isset(self::REMOVED_TOOLKITS[$toolkit['toolkit']])) {
+                $count += count($toolkit['tools']);
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * The v3 capture's definitions without the tools in REMOVED and the toolkits in REMOVED_TOOLKITS.
      *
      * @return list<array{toolkit: string, guidelines: ?string, tools: list<array<string, mixed>>}>
      */
@@ -112,6 +137,9 @@ final class ToolBaseline
         $baseline = json_decode((string) file_get_contents(self::FILE), true, 512, JSON_THROW_ON_ERROR);
         $definitions = [];
         foreach ($baseline['definitions'] as $toolkit) {
+            if (isset(self::REMOVED_TOOLKITS[$toolkit['toolkit']])) {
+                continue;
+            }
             $toolkit['tools'] = array_values(array_filter(
                 $toolkit['tools'],
                 static fn (array $tool): bool => !isset(self::REMOVED[$toolkit['toolkit'] . '::' . $tool['name']])
@@ -123,7 +151,8 @@ final class ToolBaseline
     }
 
     /**
-     * Every core toolkit: the ones the agent registers, in its order, then AttributesToolkit (not registered, P1.8a).
+     * Every core toolkit, in the order the agent registers them. (AttributesToolkit, which the agent never registered,
+     * was the last until P3.3-3 deleted it.)
      *
      * @return list<ToolkitInterface>
      */
@@ -141,7 +170,6 @@ final class ToolBaseline
             new TopicsToolkit(),
             new PeopleToolkit(),
             new VersionsToolkit(),
-            new AttributesToolkit(),
         ];
     }
 

@@ -11,7 +11,6 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\GlobalAreaFixture;
-use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\Utilities\PageByName;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -124,7 +123,7 @@ final class PageByNameTest extends ConcreteTestCase
      */
     public static function toolkitProvider(): array
     {
-        return ['PageAttributesToolkit' => [PageAttributesToolkit::class], 'AttributesToolkit' => [AttributesToolkit::class]];
+        return ['PageAttributesToolkit' => [PageAttributesToolkit::class]];
     }
 
     /**

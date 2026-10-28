@@ -1,5 +1,7 @@
 # Concrete CMS Native Toolkits - Implementation Complete
 
+> **Historical (P3.3-3, 28 October 2026).** This describes the first toolkits, `src/Toolkits/` and `ConcreteCmsAIProvider`, and `AttributesToolkit`, all deleted in P3.3-3. The agent's tools are in `src/Tools/` (CLAUDE.md, "Layout"). Kept as a record; nothing below is current.
+
 ## Summary
 
 Successfully created comprehensive native Concrete CMS toolkits providing **14 tools** across **3 categories** - all working entirely in PHP with no external dependencies or HTTP overhead.

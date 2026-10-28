@@ -21,7 +21,6 @@ use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Tests\Support\AreaGrantFixture;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
-use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
 use NeuronAI\Tools\ToolInterface;
@@ -577,7 +576,6 @@ final class DraftIsolationTest extends ConcreteTestCase
     {
         return [
             'PageAttributesToolkit' => [PageAttributesToolkit::class],
-            'AttributesToolkit' => [AttributesToolkit::class],
         ];
     }
 

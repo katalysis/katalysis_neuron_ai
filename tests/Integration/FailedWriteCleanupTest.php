@@ -11,7 +11,6 @@ use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Page\Page;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
-use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
@@ -66,7 +65,6 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
             'delete_block_from_page_area' => ['pages', 'delete_block_from_page_area'],
             'move_block_between_areas' => ['pages', 'move_block_between_areas'],
             'set_page_attribute_value, PageAttributesToolkit' => ['page_attributes', 'set_page_attribute_value'],
-            'set_page_attribute_value, AttributesToolkit' => ['attributes', 'set_page_attribute_value'],
         ];
     }
 
@@ -399,7 +397,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         $covered = array_map(static fn (array $case): string => $case[1], array_values(self::draftToolProvider()));
 
         $found = [];
-        foreach ([new PagesToolkit(), new PageAttributesToolkit(), new AttributesToolkit()] as $toolkit) {
+        foreach ([new PagesToolkit(), new PageAttributesToolkit()] as $toolkit) {
             $source = (string) file_get_contents((new \ReflectionClass($toolkit))->getFileName());
             if (preg_match('/PageDraft::of\(|getDraftOf\(/', $source) === 1) {
                 $this->assertStringContainsString('DraftCleanup::run(', $source, $toolkit::class . ' makes drafts but its tools do not run through DraftCleanup.');
@@ -492,20 +490,6 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
                 }
             },
             'page_attributes' => new class extends PageAttributesToolkit {
-                public ?\Closure $afterDraft = null;
-                public ?\Closure $afterCopy = null;
-
-                protected function getDraftOf(Page $page): Page
-                {
-                    $draft = parent::getDraftOf($page);
-                    if ($this->afterDraft !== null) {
-                        ($this->afterDraft)($draft);
-                    }
-
-                    return $draft;
-                }
-            },
-            'attributes' => new class extends AttributesToolkit {
                 public ?\Closure $afterDraft = null;
                 public ?\Closure $afterCopy = null;
 

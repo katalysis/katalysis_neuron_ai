@@ -30,8 +30,9 @@ foreach ($installed['packages'] ?? $installed ?? [] as $package) {
 }
 
 $toolkits = ToolBaseline::coreToolkits();
-// What the agent offers from the core toolkits: AttributesToolkit (the last) is not registered.
-$registered = array_slice(ToolBaseline::coreToolkits(), 0, -1);
+// What the agent offers from the core toolkits. On v3, AttributesToolkit (then the last) was not registered; P3.3-3
+// deleted it, so every core toolkit is registered now. (The v3 capture is never re-run.)
+$registered = ToolBaseline::coreToolkits();
 $offered = DisabledTools::apply(ToolNameResolver::resolve($registered, [], static function (): void {}), static function (): void {});
 
 $baseline = [
