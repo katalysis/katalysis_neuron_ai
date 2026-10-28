@@ -196,6 +196,23 @@ final class GenericBlockAdapterTest extends ConcreteTestCase
         $this->assertStringContainsString('fID', $missing);
     }
 
+    /**
+     * Glyn, after the first paid runs of 36 and 37: a file a block refers to needs view_file (the user may see it on the
+     * site), not the File Manager's own permission, which the scenario editors don't have.
+     */
+    public function testAnEditorCanUseAFileTheyMaySeeOnTheSite(): void
+    {
+        [$cID] = $this->pageWith('testimonial', ['fID' => $this->photoID(), 'name' => 'Pat Reader', 'paragraph' => 'A friendly library.']);
+        ThrowawayPages::actAs('neuron_editor');
+
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'add_block_to_page_area', [
+            'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'testimonial',
+            'value' => ['fID' => $this->photoID(), 'name' => 'Sam Reader', 'paragraph' => 'I help on Saturdays.'],
+        ]);
+
+        $this->assertTrue(ToolKind::succeeded($output), $output);
+    }
+
     // ---- What Level 0 can't describe is refused --------------------------------------------------------------
 
     public function testPageListFormInputsAreRefusedNamingTheColumnsToSet(): void
