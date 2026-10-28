@@ -39,6 +39,28 @@ The core introspects every installed block type using information Concrete alrea
 
 This turns the current guesswork into a **generic, testable block adapter**. It works reasonably well for blocks built with Block Designer-style tools, which follow predictable conventions (a `btX` table, a `btXEntries` child table, `link_*` field groups). It still can't know *meaning*. Level 1 adds that.
 
+**Status: built in P3.3-7 (October 2026, PR #85)** as `BlockFields` (the description) and `BlockImportSave` (the writes). How it differs from the design above:
+- **Write path.** Writes don't go through the edit form's path. They use `save()` in import mode (`SaveMode::SAVE_MODE_IMPORT`), so the columns are taken as stored, as a CIF import takes them. Link pickers and other form-only inputs don't apply. The save goes into the page's draft, and the block events the core commands send are sent too.
+- **Child tables.** Declared child tables (`$btExportTables`) are written as rows. A row sent with a stored row's `id` keeps that row's other fields; rows left out are removed.
+- **Kinds.** Column kinds come from all six `$btExport…Columns` lists, including content (HTML) and file folders.
+
+What it covers:
+- **Reads:** `get_block_data` shows each field with its kind, the page or file it refers to (when the user may see it), and child rows with their ids.
+- **Checks before any draft:**
+  - only the block's own fields
+  - a new block has its required columns
+  - referenced pages and files exist, and the user may see them (`view_page`, `view_file`)
+  - no script, including a bare `javascript:`, `data:` or `vbscript:` URL
+  - the block type's own `validate()`, run on the column-shaped value
+- **Hand-written knowledge kept** (`BlockSaveInputs`): link picker inputs, Image's thumbnail types, the accordion's `accordionBlockData`, the Express form, and Page List's form inputs.
+
+What it refuses, and never guesses:
+- a block type with no table
+- Concrete's system blocks (`core_*`)
+- child tables that a controller imports with its own code: Gallery, Survey and the legacy Form
+- a change to a column named `…ID` that no export list covers, such as a topic tree node or an Express form
+- a save that removes rows from a side table the export leaves out (undone, then refused)
+
 ### Level 1: Declarative descriptors (a JSON file, no PHP)
 A package ships `neuron/blocks/<block_handle>.json`. The core finds these files in installed packages automatically. No code runs and no Neuron classes are needed.
 
