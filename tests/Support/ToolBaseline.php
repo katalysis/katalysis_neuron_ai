@@ -66,6 +66,36 @@ final class ToolBaseline
     ];
 
     /**
+     * Tools removed on purpose after the v3 capture, with the task and the reason. The capture itself is never edited;
+     * capturedDefinitions() leaves these out.
+     *
+     * @var array<string, string> "Toolkit::tool" => reason
+     */
+    public const REMOVED = [
+        'UserAttributesToolkit::set_user_attribute_value' => 'P3.5-2: removed; user accounts are read-only at every tier (B-ACC-7)',
+    ];
+
+    /**
+     * The v3 capture's definitions without the tools in REMOVED.
+     *
+     * @return list<array{toolkit: string, guidelines: ?string, tools: list<array<string, mixed>>}>
+     */
+    public static function capturedDefinitions(): array
+    {
+        $baseline = json_decode((string) file_get_contents(self::FILE), true, 512, JSON_THROW_ON_ERROR);
+        $definitions = [];
+        foreach ($baseline['definitions'] as $toolkit) {
+            $toolkit['tools'] = array_values(array_filter(
+                $toolkit['tools'],
+                static fn (array $tool): bool => !isset(self::REMOVED[$toolkit['toolkit'] . '::' . $tool['name']])
+            ));
+            $definitions[] = $toolkit;
+        }
+
+        return $definitions;
+    }
+
+    /**
      * Every core toolkit: the ones the agent registers, in its order, then AttributesToolkit (not registered, P1.8a).
      *
      * @return list<ToolkitInterface>
