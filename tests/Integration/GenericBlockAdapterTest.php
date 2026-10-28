@@ -256,6 +256,31 @@ final class GenericBlockAdapterTest extends ConcreteTestCase
         $this->assertStringContainsString('Nothing was changed', $output);
     }
 
+    /**
+     * BF-20 (scenario 29 in P3.S2): the model sent true/false for Page List's flag columns, and the insert failed with
+     * the database's own message. A boolean is stored as 1/0; any other non-numeric value for a number is refused.
+     */
+    public function testFlagsTakeTrueAndFalseAndANumberMustBeANumber(): void
+    {
+        [$cID] = $this->pageWithPageList();
+        $parent = (int) Page::getByPath('/neuron-test')->getCollectionID();
+
+        $added = $this->add($cID, 'page_list', ['num' => 4, 'cParentID' => $parent, 'orderBy' => 'display_asc', 'includeName' => true, 'cThis' => false, 'includeDescription' => true]);
+        $this->assertTrue(ToolKind::succeeded($added), $added);
+        $row = $this->row('btPageList', (int) json_decode($added, true)['blockID']);
+        $this->assertSame('1', (string) $row['includeName']);
+        $this->assertSame('0', (string) $row['cThis']);
+
+        $versions = $this->versionCount($cID);
+        $refused = $this->add($cID, 'page_list', ['num' => 'five', 'cParentID' => $parent]);
+        $this->assertFalse(ToolKind::succeeded($refused), $refused);
+        $this->assertStringContainsString("'num'", $refused);
+        $this->assertStringContainsString('number', $refused);
+        $this->assertStringContainsString('Nothing was changed', $refused);
+        $this->assertStringNotContainsString('INSERT', $refused, 'The database\'s message reached the model');
+        $this->assertSame($versions, $this->versionCount($cID));
+    }
+
     public function testANewBlockNeedsItsRequiredColumns(): void
     {
         [$cID] = $this->pageWithPageList();

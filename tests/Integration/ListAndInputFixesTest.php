@@ -75,6 +75,24 @@ final class ListAndInputFixesTest extends ConcreteTestCase
         $this->assertSame($parentID, $result['parent']['id']);
     }
 
+    /**
+     * BF-20 (scenario 15 in P3.S2): list_pages with parentPath "/" and limit 1 returned /neuron-test, and the model took
+     * it for the home page. The result names its parent page.
+     */
+    public function testListPagesNamesItsParentPage(): void
+    {
+        [$parentID] = $this->parentWithChildren(1);
+
+        $byID = $this->json(ToolByName::run('list_pages', ['parentID' => $parentID]));
+        $this->assertSame($parentID, $byID['parent']['id'] ?? null);
+        $this->assertStringStartsWith('/neuron-test/', (string) ($byID['parent']['path'] ?? ''));
+        $this->assertStringStartsWith('List parent', (string) ($byID['parent']['name'] ?? ''));
+
+        $home = $this->json(ToolByName::run('list_pages', ['parentPath' => '/', 'limit' => 1]));
+        $this->assertSame('/', $home['parent']['path'] ?? null, 'The home page is named as the parent');
+        $this->assertSame((int) Page::getHomePageID(), $home['parent']['id'] ?? null);
+    }
+
     // ---- large lists ------------------------------------------------------------------------------------------
 
     public function testAListStopsCountingAtTheCheckLimitAndSaysAtLeast(): void
@@ -161,6 +179,17 @@ final class ListAndInputFixesTest extends ConcreteTestCase
         $names = array_map(static fn ($p): string => $p->getName(), ToolByName::tool('batch_update_content_headings')->getProperties());
 
         $this->assertNotContains('includeInactive', $names);
+    }
+
+    /**
+     * BF-20 (scenario 24 in P3.S2): the model used the headings tool to rename a heading.
+     */
+    public function testTheHeadingsToolSaysItChangesLevelsOnly(): void
+    {
+        $description = ToolByName::tool('batch_update_content_headings')->getDescription();
+
+        $this->assertStringContainsString('levels only', (string) $description);
+        $this->assertStringContainsString('update_block_in_page_area', (string) $description);
     }
 
     public function testTheBlockWriteToolsSayWhereTheFieldNamesComeFrom(): void
