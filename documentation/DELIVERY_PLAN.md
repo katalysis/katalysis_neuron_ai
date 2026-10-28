@@ -704,6 +704,11 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - find which task, test or seed step since P3.S1 made the change, and why scenario 23 passed during the run
   - fix the cause, not the symptom: if a test or the seed leaves permission rows behind, fix that and make the leak check catch it; red-first test where possible. **If the cause is in our code rather than the data, stop and tell Glyn before fixing**
   - scenarios: 06 ×3 after a reset; cap $0.35
+- [x] BF-20 **Stage 2 small fixes** (small; Done (PR #89); its own PR into `development`; no plan stop; Glyn, after P3.S2). Found in P3.S2. Scope:
+  - the Level 0 adapter converts `true`/`false` to 1/0 for integer and boolean columns, and refuses anything else non-numeric for a number column with a clear message (scenario 29's SQL error); red-first test
+  - `list_pages` names the parent page (path and title) in its result, so the model can't take a child for the home page (scenario 15's wrong-place write); red-first test
+  - `batch_update_content_headings`' description says it changes heading levels only, and that renaming a heading's text uses `update_block_in_page_area` (scenario 24); recorded in `ToolBaseline` as deliberate
+  - scenarios: `--fake` of 15, 24 and 29; P3.S3 compares them
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.

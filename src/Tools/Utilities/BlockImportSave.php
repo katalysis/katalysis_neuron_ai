@@ -63,6 +63,7 @@ final class BlockImportSave
         $handle = $fields->handle();
         $value = BlockSaveInputs::pickerToColumns($handle, $value);
         self::refuseUnknown($fields, $value);
+        $value = self::numbers($fields, null, $value);
 
         $missing = array_values(array_filter($fields->required(), static fn (string $c): bool => ($value[$c] ?? null) === null));
         if ($missing !== []) {
@@ -106,6 +107,7 @@ final class BlockImportSave
         $handle = $fields->handle();
         $value = BlockSaveInputs::pickerToColumns($handle, $value);
         self::refuseUnknown($fields, $value);
+        $value = self::numbers($fields, null, $value);
 
         foreach ($fields->undeclaredReferences() as $column) {
             if (array_key_exists($column, $value) && (string) $value[$column] !== (string) ($record[$column] ?? '')) {
@@ -436,6 +438,7 @@ final class BlockImportSave
                         self::refuseIf(self::undeclaredRefusal($handle, $where . $column));
                     }
                 }
+                $row = self::numbers($fields, $table, $row, $where);
                 self::refuseReferences($fields, $table, $row, $stored, $where);
                 foreach ($row as $column => $cell) {
                     self::refuseIf(UnsafeMarkup::problem($where . $column, $cell, $stored[$column] ?? null));
@@ -591,6 +594,33 @@ final class BlockImportSave
         return "Field '{$column}' of the {$handle} block refers to something the assistant can't identify (it is not a page, file, "
             . 'page type, feed or folder in the block\'s export), so it keeps its stored value. Nothing was changed. Send the change '
             . "without '{$column}'; it can be changed in edit mode.";
+    }
+
+    /**
+     * BF-20 (scenario 29 in P3.S2): the number and flag columns a value names, as the database takes them. true and false
+     * are 1 and 0; a number, or a numeric string, is kept; null is kept for a column that allows it. Anything else is
+     * refused, before the database refuses it with its own message.
+     *
+     * @param array<string, mixed> $values
+     *
+     * @return array<string, mixed>
+     */
+    private static function numbers(BlockFields $fields, ?string $table, array $values, string $where = ''): array
+    {
+        foreach ($fields->columns($table) as $column => $info) {
+            if (!array_key_exists($column, $values) || !in_array($info['kind'], [BlockFields::NUMBER, BlockFields::FLAG], true)) {
+                continue;
+            }
+            $cell = $values[$column];
+            if (is_bool($cell)) {
+                $values[$column] = (int) $cell;
+            } elseif (!is_int($cell) && !is_float($cell) && !(is_string($cell) && is_numeric(trim($cell))) && !($cell === null && $info['nullable'])) {
+                self::refuseIf("Field '{$where}{$column}' of the {$fields->handle()} block is a number, and " . json_encode($cell)
+                    . ' is not one. Send a number (for a yes/no setting, 1 or 0; true and false also work). Nothing was changed.');
+            }
+        }
+
+        return $values;
     }
 
     private static function isEmpty(mixed $value): bool

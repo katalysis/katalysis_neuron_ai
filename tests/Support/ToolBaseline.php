@@ -46,7 +46,7 @@ final class ToolBaseline
         'ContentToolkit::update_block_in_page_area' => 'BF-5: changeMode, textFields and replacedText inputs; the description says existing text is kept; P3.3-5: value says the fields are named as get_block_data shows them',
         'ContentToolkit::add_block_to_page_area' => 'P3.3-5: value says the fields are named as get_block_data shows them, and how table entries are sent',
         'BatchEditToolkit::batch_update_page_content' => 'BF-5: changeMode keep_text by default, freeform removed; replacedText per block; BF-3: changeMode per block, every item checked before saving, continueOnError described; P3.3-5: blocks declares its items (an object with its fields)',
-        'BatchEditToolkit::batch_update_content_headings' => 'P3.3-5: includeInactive removed (ignored since P1.8); headingTexts declares its items',
+        'BatchEditToolkit::batch_update_content_headings' => 'P3.3-5: includeInactive removed (ignored since P1.8); headingTexts declares its items; BF-20: the description says it changes heading levels only, and that a rename uses update_block_in_page_area',
         'PageAttributesToolkit::create_page_attribute' => 'P3.3-5: options declares its items (strings)',
         'PageAttributesToolkit::create_page_attribute_and_add_to_set' => 'P3.3-5: options declares its items (strings)',
         'PageAttributesToolkit::update_page_select_attribute_options' => 'P3.3-5: options declares its items (strings)',
