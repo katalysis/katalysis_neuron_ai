@@ -20,6 +20,8 @@ use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Tests\Support\AreaGrantFixture;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
@@ -153,13 +155,16 @@ final class DraftIsolationTest extends ConcreteTestCase
     }
 
     /**
-     * Runs a tool of the Pages toolkit with the given inputs, as the current user.
+     * Runs a tool of the Pages toolkit with the given inputs, as the current user. Since P3.3-4 that is any of the three
+     * toolkits PagesToolkit was split into.
      *
      * @return string the tool's result
      */
     private function callPagesTool(string $name, array $inputs): string
     {
-        return $this->runTool((new PagesToolkit())->tools(), $name, $inputs);
+        $tools = array_merge((new PagesToolkit())->tools(), (new ContentToolkit())->tools(), (new BatchEditToolkit())->tools());
+
+        return $this->runTool($tools, $name, $inputs);
     }
 
     private function callVersionsTool(string $name, array $inputs): string

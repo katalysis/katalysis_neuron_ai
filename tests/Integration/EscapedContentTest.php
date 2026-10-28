@@ -8,6 +8,8 @@ use Concrete\Core\Database\Connection\Connection;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 
 /**
@@ -65,7 +67,7 @@ final class EscapedContentTest extends ConcreteTestCase
         [$b1] = $this->pages->blockIDs($cID);
         $before = $this->pages->state($cID);
 
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => self::CORRUPT],
             'changeMode' => 'scoped_text', 'textFields' => ['content'], 'replacedText' => ['Seed Heading Two Changed'],
         ]);
@@ -80,7 +82,7 @@ final class EscapedContentTest extends ConcreteTestCase
         $cID = $this->crlfPage();
         [$b1] = $this->pages->blockIDs($cID);
 
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $b1,
             'value' => ['content' => str_replace('Seed Heading Two Changed', 'Seed Heading Two Changed Again!', self::STORED_CRLF)],
             'changeMode' => 'scoped_text', 'textFields' => ['content'], 'replacedText' => ['Seed Heading Two Changed'],
@@ -94,7 +96,7 @@ final class EscapedContentTest extends ConcreteTestCase
         $cID = $this->crlfPage();
         [$b1] = $this->pages->blockIDs($cID);
 
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $output = ThrowawayPages::runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID, 'changeMode' => 'scoped_text',
             'blocks' => [['areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => self::CORRUPT], 'textFields' => ['content'], 'replacedText' => ['Seed Heading Two Changed']]],
         ]);
@@ -112,7 +114,7 @@ final class EscapedContentTest extends ConcreteTestCase
         $before = $this->pages->state($cID);
 
         foreach (['<h1>A further New Page Test<\/h1>', '<h1>A further New Page Test<p>Body</p>'] as $content) {
-            $output = ThrowawayPages::runTool(new PagesToolkit(), 'add_block_to_page_area', [
+            $output = ThrowawayPages::runTool(new ContentToolkit(), 'add_block_to_page_area', [
                 'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'content', 'value' => ['content' => $content],
             ]);
 

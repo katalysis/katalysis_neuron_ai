@@ -13,6 +13,8 @@ use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use NeuronAI\Tools\ToolInterface;
 
 /**
@@ -51,7 +53,7 @@ final class BlockFieldNamesTest extends ConcreteTestCase
     {
         $cID = (int) $this->newPage()->getCollectionID();
 
-        $this->json($this->tryTool(new PagesToolkit(), 'add_block_to_page_area', [
+        $this->json($this->tryTool(new ContentToolkit(), 'add_block_to_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'hero_image',
             'value' => ['title' => 'Welcome aboard', 'body' => '<p>A short welcome.</p>'],
         ]));
@@ -72,14 +74,14 @@ final class BlockFieldNamesTest extends ConcreteTestCase
         $cID = $this->startAsEditor($page);
         $bID = (int) $block->getBlockID();
 
-        $refused = $this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $refused = $this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['title' => 'Search this site'],
         ]);
         $this->assertStringContainsString('Search the site', $refused);
         $this->assertStringContainsString('Nothing was changed', $refused);
 
-        $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['title' => 'Search this site'],
             'changeMode' => 'scoped_text',
@@ -98,7 +100,7 @@ final class BlockFieldNamesTest extends ConcreteTestCase
         $block = $page->addBlock(BlockType::getByHandle('testimonial'), 'Main', ['name' => 'Sam Smith', 'paragraph' => 'Very helpful.']);
         $cID = $this->startAsEditor($page);
 
-        $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => (int) $block->getBlockID(),
             'value' => ['name' => 'Sam Smith-Jones', 'paragraph' => 'Very helpful.'],
         ]));
@@ -112,7 +114,7 @@ final class BlockFieldNamesTest extends ConcreteTestCase
         $block = $page->addBlock(BlockType::getByHandle('feature'), 'Main', ['title' => 'Fast', 'paragraph' => 'It is quick.', 'link__which' => 'none']);
         $cID = $this->startAsEditor($page);
 
-        $result = $this->json($this->tryTool(new PagesToolkit(), 'batch_update_page_content', [
+        $result = $this->json($this->tryTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'blocks' => [['areaHandle' => 'Main', 'blockID' => (int) $block->getBlockID(), 'value' => ['title' => 'Fast and simple', 'paragraph' => 'It is quick.', 'link__which' => 'none']]],
         ]));
@@ -131,7 +133,7 @@ final class BlockFieldNamesTest extends ConcreteTestCase
         ]);
         $cID = $this->startAsEditor($page);
 
-        $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => (int) $block->getBlockID(),
             'value' => [
                 'title' => ['New question'], 'linkTitle' => ['new'], 'description' => ['<p>New answer.</p>'], 'sortOrder' => [0],
@@ -156,7 +158,7 @@ final class BlockFieldNamesTest extends ConcreteTestCase
         // As the superuser, as for the hero image.
         $cID = (int) $this->newPage()->getCollectionID();
 
-        $this->json($this->tryTool(new PagesToolkit(), 'add_block_to_page_area', [
+        $this->json($this->tryTool(new ContentToolkit(), 'add_block_to_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'katalysis_feature_list',
             'value' => ['entries' => [
                 ['linkTitle' => 'First feature', 'linkDescription' => 'One', 'sortOrder' => 0],

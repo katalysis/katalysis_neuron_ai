@@ -11,7 +11,7 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\GlobalAreaFixture;
-use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 
 /**
  * BF-2: delete_block_from_page_area reports only what happened. Before BF-2 it answered `deleted: true` whatever the
@@ -43,7 +43,7 @@ final class DeleteBlockReportTest extends ConcreteTestCase
         $blockID = (int) $page->addBlock(BlockType::getByHandle('content'), 'Main', ['content' => '<p>Keep me</p>'])->getBlockID();
         $elsewhere = $this->fixture->page();
 
-        $toolkit = new class ($elsewhere) extends PagesToolkit {
+        $toolkit = new class ($elsewhere) extends ContentToolkit {
             public function __construct(private readonly Page $elsewhere)
             {
             }
@@ -65,12 +65,12 @@ final class DeleteBlockReportTest extends ConcreteTestCase
         $page = $this->fixture->page();
         $blockID = (int) $page->addBlock(BlockType::getByHandle('content'), 'Main', ['content' => '<p>Delete me</p>'])->getBlockID();
 
-        $output = $this->runDelete(new PagesToolkit(), ['pageID' => (int) $page->getCollectionID(), 'areaHandle' => 'Main', 'blockID' => $blockID]);
+        $output = $this->runDelete(new ContentToolkit(), ['pageID' => (int) $page->getCollectionID(), 'areaHandle' => 'Main', 'blockID' => $blockID]);
 
         $this->assertStringContainsString('"deleted":true', $output);
     }
 
-    private function runDelete(PagesToolkit $toolkit, array $inputs): string
+    private function runDelete(ContentToolkit $toolkit, array $inputs): string
     {
         foreach ($toolkit->tools() as $tool) {
             if ($tool->getName() === 'delete_block_from_page_area') {

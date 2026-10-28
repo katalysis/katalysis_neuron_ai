@@ -9,7 +9,9 @@ use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Database\Connection\Connection;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
+use Katalysis\NeuronAi\Tests\Support\ToolByName;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 
 /**
@@ -133,7 +135,7 @@ final class WriteChecksTest extends ConcreteTestCase
 
         // neuron_editor may edit the page's blocks but has no add-block grant on a new area.
         ThrowawayPages::actAs('neuron_editor');
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'move_block_between_areas', [
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'move_block_between_areas', [
             'pageID' => $cID, 'fromAreaHandle' => 'Main', 'toAreaHandle' => 'P3.3-2 Destination', 'blockID' => $bID,
         ]);
 
@@ -225,7 +227,7 @@ final class WriteChecksTest extends ConcreteTestCase
     {
         ThrowawayPages::actAs('superuser');
 
-        return ThrowawayPages::runTool(new PagesToolkit(), $name, $inputs);
+        return ToolByName::run($name, $inputs); // P3.3-4: whichever of the split toolkits has it
     }
 
     private function areaCount(int $cID): int

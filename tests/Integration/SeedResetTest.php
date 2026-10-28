@@ -20,8 +20,8 @@ use Katalysis\NeuronAi\Tests\Eval\SnapshotBuilder;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\DatabaseSnapshot;
 use Katalysis\NeuronAi\Tests\Support\SeedProcess;
+use Katalysis\NeuronAi\Tests\Support\ToolByName;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
-use NeuronAI\Tools\ToolInterface;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
@@ -649,16 +649,11 @@ final class SeedResetTest extends TestCase
 
     private function tool(string $name, array $inputs): string
     {
-        foreach ((new PagesToolkit())->tools() as $tool) {
-            /** @var ToolInterface $tool */
-            if ($tool->getName() === $name) {
-                $tool = clone $tool;
-                $tool->setInputs($inputs)->execute();
+        // P3.3-4: whichever of the split toolkits has it (batch_update_page_content is BatchEditToolkit's).
+        $tool = clone ToolByName::tool($name);
+        $tool->setInputs($inputs)->execute();
 
-                return (string) $tool->getResult();
-            }
-        }
-        $this->fail("No tool named {$name}");
+        return (string) $tool->getResult();
     }
 
     // ---- The fingerprint -------------------------------------------------------

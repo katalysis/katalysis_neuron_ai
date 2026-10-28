@@ -16,6 +16,8 @@ use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
@@ -59,13 +61,13 @@ final class DraftStateResultTest extends ConcreteTestCase
     public static function draftWriteProvider(): array
     {
         return [
-            'batch_update_page_content' => [PagesToolkit::class, 'batch_update_page_content'],
-            'batch_update_content_headings' => [PagesToolkit::class, 'batch_update_content_headings'],
+            'batch_update_page_content' => [BatchEditToolkit::class, 'batch_update_page_content'],
+            'batch_update_content_headings' => [BatchEditToolkit::class, 'batch_update_content_headings'],
             'update_page' => [PagesToolkit::class, 'update_page'],
-            'add_block_to_page_area' => [PagesToolkit::class, 'add_block_to_page_area'],
-            'update_block_in_page_area' => [PagesToolkit::class, 'update_block_in_page_area'],
-            'delete_block_from_page_area' => [PagesToolkit::class, 'delete_block_from_page_area'],
-            'move_block_between_areas' => [PagesToolkit::class, 'move_block_between_areas'],
+            'add_block_to_page_area' => [ContentToolkit::class, 'add_block_to_page_area'],
+            'update_block_in_page_area' => [ContentToolkit::class, 'update_block_in_page_area'],
+            'delete_block_from_page_area' => [ContentToolkit::class, 'delete_block_from_page_area'],
+            'move_block_between_areas' => [ContentToolkit::class, 'move_block_between_areas'],
             'set_page_attribute_value, PageAttributesToolkit' => [PageAttributesToolkit::class, 'set_page_attribute_value'],
         ];
     }
@@ -152,7 +154,7 @@ final class DraftStateResultTest extends ConcreteTestCase
 
         $found = [];
         $toolkits = [
-            new PagesToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
+            new PagesToolkit(), new ContentToolkit(), new BatchEditToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
             new UserAttributesToolkit(), new FileAttributesToolkit(), new AttributeSetsToolkit(), new TopicsToolkit(),
             new PeopleToolkit(), new VersionsToolkit(),
         ];

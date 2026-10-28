@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Support;
 
 use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -41,11 +43,11 @@ final class ToolBaseline
      * @var array<string, string> "Toolkit::tool" => reason
      */
     public const DELIBERATE_CHANGES = [
-        'PagesToolkit::update_block_in_page_area' => 'BF-5: changeMode, textFields and replacedText inputs; the description says existing text is kept',
-        'PagesToolkit::batch_update_page_content' => 'BF-5: changeMode keep_text by default, freeform removed; replacedText per block; BF-3: changeMode per block, every item checked before saving, continueOnError described',
+        'ContentToolkit::update_block_in_page_area' => 'BF-5: changeMode, textFields and replacedText inputs; the description says existing text is kept',
+        'BatchEditToolkit::batch_update_page_content' => 'BF-5: changeMode keep_text by default, freeform removed; replacedText per block; BF-3: changeMode per block, every item checked before saving, continueOnError described',
         'PagesToolkit::get_page' => 'BF-10: reads the newest version by default; version takes "newest" or "published"',
         'PagesToolkit::get_page_content' => 'BF-10: reads the newest version by default; version takes "newest" or "published"; P3.3-1: pagePath input, pageID no longer required',
-        'PagesToolkit::get_page_blocks' => 'BF-10: version takes "newest" (default) or "published"; the description no longer calls it a draft',
+        'ContentToolkit::get_page_blocks' => 'BF-10: version takes "newest" (default) or "published"; the description no longer calls it a draft',
         'PagesToolkit::get_current_page_context' => 'BF-10: the description says it shows the newest version',
         'BlocksToolkit::get_block_data' => 'BF-10: versionID defaults to the newest version',
         'BlocksToolkit::list_page_blocks_by_type' => 'BF-10: version (newest by default) replaces includeInactive',
@@ -97,8 +99,21 @@ final class ToolBaseline
     ];
 
     /**
+     * P3.3-4: toolkits split out of a captured one, with the tools they took, in the order the agent registers them
+     * (straight after the toolkit they came from). The tools are unchanged; they are compared under their new toolkit,
+     * which has no guidelines. The capture is never edited.
+     *
+     * @var array<string, array{from: string, tools: list<string>}>
+     */
+    public const SPLIT = [
+        'ContentToolkit' => ['from' => 'PagesToolkit', 'tools' => ['get_page_blocks', 'add_block_to_page_area', 'update_block_in_page_area', 'delete_block_from_page_area', 'move_block_between_areas']],
+        'BatchEditToolkit' => ['from' => 'PagesToolkit', 'tools' => ['batch_update_page_content', 'batch_update_content_headings']],
+    ];
+
+    /**
      * The capture's offered list without the tools in DISABLED_SINCE and REMOVED (P3.4: a removed tool that was
-     * offered, get_doc_download_files_on_page, is no longer offered either).
+     * offered, get_doc_download_files_on_page, is no longer offered either), with the SPLIT toolkits' tools offered
+     * by their own toolkit, straight after the one they came from.
      *
      * @param list<array{guidelines: ?string, tools: list<string>}> $offered the capture's "offered"
      * @return list<array{guidelines: ?string, tools: list<string>}>
@@ -110,11 +125,22 @@ final class ToolBaseline
             array_merge(array_keys(self::DISABLED_SINCE), array_keys(self::REMOVED))
         );
 
-        return array_map(static function (array $entry) use ($disabled): array {
+        $result = [];
+        foreach ($offered as $entry) {
             $entry['tools'] = array_values(array_diff($entry['tools'], $disabled));
+            $split = [];
+            foreach (self::SPLIT as $toolkit) {
+                $taken = array_values(array_intersect($entry['tools'], $toolkit['tools']));
+                if ($taken !== []) {
+                    $split[] = ['guidelines' => null, 'tools' => $taken];
+                    $entry['tools'] = array_values(array_diff($entry['tools'], $taken));
+                }
+            }
+            $result[] = $entry;
+            array_push($result, ...$split);
+        }
 
-            return $entry;
-        }, $offered);
+        return $result;
     }
 
     /**
@@ -134,7 +160,8 @@ final class ToolBaseline
     }
 
     /**
-     * The v3 capture's definitions without the tools in REMOVED and the toolkits in REMOVED_TOOLKITS.
+     * The v3 capture's definitions without the tools in REMOVED and the toolkits in REMOVED_TOOLKITS, with the SPLIT
+     * toolkits' tools under their own toolkit (no guidelines), straight after the one they came from.
      *
      * @return list<array{toolkit: string, guidelines: ?string, tools: list<array<string, mixed>>}>
      */
@@ -150,7 +177,17 @@ final class ToolBaseline
                 $toolkit['tools'],
                 static fn (array $tool): bool => !isset(self::REMOVED[$toolkit['toolkit'] . '::' . $tool['name']])
             ));
+            $split = [];
+            foreach (self::SPLIT as $name => $into) {
+                if ($into['from'] !== $toolkit['toolkit']) {
+                    continue;
+                }
+                $taken = array_values(array_filter($toolkit['tools'], static fn (array $tool): bool => in_array($tool['name'], $into['tools'], true)));
+                $toolkit['tools'] = array_values(array_filter($toolkit['tools'], static fn (array $tool): bool => !in_array($tool['name'], $into['tools'], true)));
+                $split[] = ['toolkit' => $name, 'guidelines' => null, 'tools' => $taken];
+            }
             $definitions[] = $toolkit;
+            array_push($definitions, ...$split);
         }
 
         return $definitions;
@@ -166,6 +203,8 @@ final class ToolBaseline
     {
         return [
             new PagesToolkit(),
+            new ContentToolkit(),
+            new BatchEditToolkit(),
             new BlocksToolkit(),
             new FilesToolkit(),
             new UsersToolkit(),

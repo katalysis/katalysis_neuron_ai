@@ -15,6 +15,8 @@ use Katalysis\NeuronAi\Tests\Eval\Html;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use NeuronAI\Tools\ToolInterface;
 
 /**
@@ -68,7 +70,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         if (!str_ends_with($payload, '>')) {
             $payload .= '</h2>'; // as the model closed the cut heading
         }
-        $this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['content' => $payload],
         ]);
 
@@ -81,7 +83,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         [$cID, $bID] = $this->newHeadingsPage();
         $versions = $this->versionCount($cID);
 
-        $output = $this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $output = $this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['content' => '<h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p><h2>Seed Heading Three A...</h2>'],
         ]);
@@ -97,7 +99,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         [$cID, $bID] = $this->newHeadingsPage();
         $versions = $this->versionCount($cID);
 
-        $output = $this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $output = $this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['content' => '<h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p>'
                 . '<h2>Seed Heading Three A</h2><p>Body text continues under the updated heading level.</p>'],
@@ -113,7 +115,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         [$cID, $bID] = $this->newHeadingsPage();
         $before = $this->pageText($cID);
 
-        $result = $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $result = $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['content' => str_replace(['<h3>', '</h3>'], ['<h2>', '</h2>'], self::BLOCK_ONE)],
         ]));
@@ -134,13 +136,13 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
             . '<h3>Seed Heading Three A</h3><p>Text under the first h3 heading.</p>';
 
         // Since P3.3-2 (BF-5 decision 7) keep_text refuses a reorder, before any draft.
-        $refused = $this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $refused = $this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['content' => $reordered],
         ]);
         $this->assertStringContainsString('changes the order of the existing text', $refused);
         $this->assertSame($versions, $this->versionCount($cID), 'A refused update must not make a draft');
 
-        $result = $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $result = $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['content' => $reordered],
             'changeMode' => 'scoped_text', 'textFields' => ['content'],
         ]));
@@ -154,7 +156,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
     {
         [$cID, $bID] = $this->newHeadingsPage();
 
-        $result = $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $result = $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['content' => str_replace('Text under the first h3 heading.', 'A rewritten paragraph.', self::BLOCK_ONE)],
             'changeMode' => 'scoped_text',
@@ -171,7 +173,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         [$cID, $bID] = $this->newHeadingsPage();
         $versions = $this->versionCount($cID);
 
-        $output = $this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $output = $this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['content' => str_replace('Text under the first h3 heading.', 'A rewritten paragraph.', self::BLOCK_ONE)],
             'changeMode' => 'scoped_text',
@@ -196,7 +198,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         $bID = (int) $block->getBlockID();
         $this->assertSame('Search the site', (string) $this->newestSearch($cID)['title']);
 
-        $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID,
             'value' => ['buttonText' => 'Find it now'],
         ]));
@@ -206,7 +208,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
 
         // buttonText, not title: before BF-8 the tool renamed a `title` input to `Title` for every block type (an EPRA
         // alias, found in BF-5). BF-8 limits that to EPRA blocks; BlockFieldNamesTest sets a core block's title.
-        $this->json($this->tryTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $this->json($this->tryTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => (int) $row['bID'],
             'value' => ['buttonText' => ''],
             'changeMode' => 'scoped_text',
@@ -225,7 +227,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
         [$cID, $bID] = $this->newHeadingsPage();
         $before = $this->pageText($cID);
 
-        $result = $this->json($this->tryTool(new PagesToolkit(), 'batch_update_page_content', [
+        $result = $this->json($this->tryTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'blocks' => [['areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['content' => str_replace('<p>Text under the first h3 heading.</p>', '', self::BLOCK_ONE)]]],
         ]));
@@ -240,7 +242,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
     {
         [$cID, $bID] = $this->newHeadingsPage();
 
-        $output = $this->tryTool(new PagesToolkit(), 'batch_update_page_content', [
+        $output = $this->tryTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'changeMode' => 'freeform',
             'blocks' => [['areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['content' => '<p>Everything replaced.</p>']]],
@@ -254,7 +256,7 @@ final class BlockTextIntegrityTest extends ConcreteTestCase
     {
         [$cID, $bID] = $this->newHeadingsPage();
 
-        $result = $this->json($this->tryTool(new PagesToolkit(), 'batch_update_page_content', [
+        $result = $this->json($this->tryTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'changeMode' => 'scoped_text',
             'blocks' => [[

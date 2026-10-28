@@ -20,6 +20,8 @@ use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
@@ -78,17 +80,17 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
     public static function writeToolProvider(): array
     {
         return [
-            'batch_update_page_content' => [PagesToolkit::class, 'batch_update_page_content', 'pageID'],
-            'batch_update_content_headings' => [PagesToolkit::class, 'batch_update_content_headings', 'pageID'],
+            'batch_update_page_content' => [BatchEditToolkit::class, 'batch_update_page_content', 'pageID'],
+            'batch_update_content_headings' => [BatchEditToolkit::class, 'batch_update_content_headings', 'pageID'],
             'create_page (parent)' => [PagesToolkit::class, 'create_page', 'parentID'],
             'update_page' => [PagesToolkit::class, 'update_page', 'pageID'],
             'move_page (page)' => [PagesToolkit::class, 'move_page', 'pageID'],
             'move_page (new parent)' => [PagesToolkit::class, 'move_page', 'newParentID'],
             'delete_page' => [PagesToolkit::class, 'delete_page', 'pageID'],
-            'add_block_to_page_area' => [PagesToolkit::class, 'add_block_to_page_area', 'pageID'],
-            'update_block_in_page_area' => [PagesToolkit::class, 'update_block_in_page_area', 'pageID'],
-            'delete_block_from_page_area' => [PagesToolkit::class, 'delete_block_from_page_area', 'pageID'],
-            'move_block_between_areas' => [PagesToolkit::class, 'move_block_between_areas', 'pageID'],
+            'add_block_to_page_area' => [ContentToolkit::class, 'add_block_to_page_area', 'pageID'],
+            'update_block_in_page_area' => [ContentToolkit::class, 'update_block_in_page_area', 'pageID'],
+            'delete_block_from_page_area' => [ContentToolkit::class, 'delete_block_from_page_area', 'pageID'],
+            'move_block_between_areas' => [ContentToolkit::class, 'move_block_between_areas', 'pageID'],
             'set_page_attribute_value, PageAttributesToolkit (pageID)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pageID'],
             'set_page_attribute_value, PageAttributesToolkit (pagePath)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pagePath'],
             'set_page_attribute_value, PageAttributesToolkit (pageName)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pageName'],
@@ -334,7 +336,7 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
     private function allToolkits(): array
     {
         return [
-            new PagesToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
+            new PagesToolkit(), new ContentToolkit(), new BatchEditToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
             new UserAttributesToolkit(), new FileAttributesToolkit(), new AttributeSetsToolkit(), new TopicsToolkit(),
             new PeopleToolkit(), new VersionsToolkit(),
         ];

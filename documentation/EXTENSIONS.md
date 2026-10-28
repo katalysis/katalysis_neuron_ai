@@ -10,7 +10,7 @@ The core package should handle anything in Concrete core (pages, core blocks, fi
 - how to read and write them safely
 - what extra operations they offer
 
-Today, that knowledge has leaked into the core as guesswork. `normalizeCustomBlockPayload()` tries nine alias names for repeatable rows. `inferRepeatableLinkContract()` guesses link types from field prefixes. `loadEpraResourceEntries()` queries `btEpraResourcesListEntries` by name. The system prompt carries EPRA rules. All of this is fragile, it can't be tested in general, and none of it would work on someone else's site.
+Until P3.4 (October 2026, PR #83), that knowledge had leaked into the core as guesswork. `normalizeCustomBlockPayload()` tried nine alias names for repeatable rows. `inferRepeatableLinkContract()` guessed link types from field prefixes. `loadEpraResourceEntries()` queried `btEpraResourcesListEntries` by name. The system prompt carried EPRA rules. All of this was fragile, couldn't be tested in general, and wouldn't have worked on someone else's site. P3.4 deleted it from the core; the EPRA package below is where it would come back.
 
 ## Principles
 
