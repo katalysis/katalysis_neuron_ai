@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Unit;
 
+use Katalysis\NeuronAi\Extension\Tier;
 use Katalysis\NeuronAi\Extension\ToolDefinition;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
@@ -325,5 +326,60 @@ final class ExternalToolkitRegistryTest extends TestCase
         $registered = true;
         $tool->execute();
         $this->assertSame('{"ok":true,"review":4}', $tool->getResult());
+    }
+
+    // P3.2-1 (B-ACC-8): every external tool's tier, declared or by default.
+
+    public function testADeclaredTierIsRecorded(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('tiered', static fn (): array => [
+            ToolDefinition::make('create_review_type', 'Defines a review type.')->tier(Tier::CONFIGURE)->writes()
+                ->handler(static fn (array $in): array => []),
+            ToolDefinition::make('update_review', 'Edits a review.')->tier(Tier::CONTENT)->writes()
+                ->handler(static fn (array $in): array => []),
+        ]);
+
+        $tiers = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true)->tiers();
+
+        $this->assertSame(['create_review_type' => Tier::CONFIGURE, 'update_review' => Tier::CONTENT], $tiers);
+    }
+
+    public function testAnUndeclaredWriteNeedsTierThreeAndAnUndeclaredReadIsTierOne(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('untiered', static fn (): array => [
+            ToolDefinition::make('get_review', 'A review.')->handler(static fn (array $in): array => []),
+            ToolDefinition::make('add_review', 'Adds a review.')->writes()->handler(static fn (array $in): array => []),
+            // Not marked writes(), but its name says it writes: treated as a write.
+            ToolDefinition::make('delete_review', 'Deletes a review.')->handler(static fn (array $in): array => []),
+        ]);
+
+        $tiers = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true)->tiers();
+
+        $this->assertSame(Tier::CONTENT, $tiers['get_review']);
+        $this->assertSame(Tier::GENERATE, $tiers['add_review']);
+        $this->assertSame(Tier::GENERATE, $tiers['delete_review']);
+    }
+
+    public function testAnOlderToolkitsToolsGetTheSameDefaults(): void
+    {
+        ExternalToolkitRegistry::registerToolkitFactory('older', static fn (): array => [new class () extends AbstractToolkit {
+            public function provide(): array
+            {
+                return [new CallableTool('get_review', 'A review.'), new CallableTool('remove_review', 'Removes one.')];
+            }
+        }]);
+
+        $tiers = ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true)->tiers();
+
+        $this->assertSame(['get_review' => Tier::CONTENT, 'remove_review' => Tier::GENERATE], $tiers);
+    }
+
+    public function testASkippedProviderRecordsNoTiers(): void
+    {
+        ExternalToolkitRegistry::registerToolDefinitions('broken_defs', static function (): array {
+            throw new \RuntimeException('no database');
+        });
+
+        $this->assertSame([], ExternalToolkitRegistry::build($this->logger(), static fn (): bool => true)->tiers());
     }
 }

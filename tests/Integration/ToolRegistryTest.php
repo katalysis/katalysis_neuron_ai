@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Integration;
 
+use Concrete\Core\Http\Request;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\KatalysisPro;
+use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tests\Support\ToolListChecks;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use NeuronAI\Tools\PropertyType;
@@ -31,6 +33,19 @@ final class ToolRegistryTest extends ConcreteTestCase
 {
     /** @var ToolInterface[]|null */
     private ?array $tools = null;
+
+    // P3.2-1: the agent offers each user only their tier's tools. The super user is Tier 3, so it is offered every tool.
+    protected function setUp(): void
+    {
+        parent::setUp();
+        ThrowawayPages::actAs('superuser');
+    }
+
+    protected function tearDown(): void
+    {
+        Request::getInstance()->setCustomRequestUser(-1);
+        parent::tearDown();
+    }
 
     /**
      * @return ToolInterface[]

@@ -1,7 +1,7 @@
 id: 25-people-photo-links
 title: "People with photo links"
 tier: 1
-user: neuron_editor
+user: neuron_content_editor
 current_page: /neuron-test/people
 rules: [B-TRU-1, B-TRU-9]
 known_to_fail_today: "New in BF-12. Found in BF-11's browser check 4: katalysis_pro's list_people returned an image only as a site-relative path, and the reply gave https://your-domain/application/files/… links. Before BF-12 the reply may invent a host (fail) or give the path; after it the tools return an absolute imageUrl."

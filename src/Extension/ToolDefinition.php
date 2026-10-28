@@ -22,8 +22,11 @@ use NeuronAI\Tools\ToolProperty;
  * {ok: true, data: <result>}. An exception is left to the agent's tool error handler, which redacts and logs it.
  * Only the core calls toNeuronTool(); an extension never sees a Neuron class.
  *
- * Not yet here: group(), tier(), permission() and the handler's context argument (EXTENSIONS.md), which need
- * the tier and permission design of Phase 3. writes() is recorded but does not yet ask for approval (P3.6).
+ * tier() (P3.2-1) says which tier the tool needs. A tool that declares none is Tier 1 if it reads, and needs the Tier 3
+ * key if it writes (B-ACC-8; ExternalToolkitRegistry applies it).
+ *
+ * Not yet here: group(), permission() and the handler's context argument (EXTENSIONS.md; P5.0). writes() is
+ * recorded but does not yet ask for approval (P3.6).
  */
 final class ToolDefinition
 {
@@ -50,6 +53,8 @@ final class ToolDefinition
     private ?\Closure $handler = null;
 
     private bool $writes = false;
+
+    private ?Tier $tier = null;
 
     private function __construct(private readonly string $name, private readonly string $description)
     {
@@ -99,6 +104,13 @@ final class ToolDefinition
         return $this;
     }
 
+    public function tier(Tier $tier): self
+    {
+        $this->tier = $tier;
+
+        return $this;
+    }
+
     public function name(): string
     {
         return $this->name;
@@ -107,6 +119,14 @@ final class ToolDefinition
     public function isWrite(): bool
     {
         return $this->writes;
+    }
+
+    /**
+     * The tier the package declared, or null if it declared none.
+     */
+    public function declaredTier(): ?Tier
+    {
+        return $this->tier;
     }
 
     /**

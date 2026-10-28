@@ -348,7 +348,7 @@ Why first:
   - remove `set_user_attribute_value` (disabled in P1.7); a scenario for B-ACC-7
   - from P2.8: `katalysis_pro`'s `guarded()` catches `\Throwable` and returns the raw exception message as `{ok: false, error}`, which skips `SecretRedactor`. Route that text through `SecretRedactor` (for example by letting the exception reach the agent's tool error handler, which redacts and logs it), in a `katalysis_pro` PR with a test here
   - scenarios: the new B-ACC-7 scenario ×1, and `--fake` of 03, 21, 25; cap $0.10. Compared ×3 in P3.S1
-- [ ] P3.2-1 **Tier keys and tier gating** (M; safety). Depends on: nothing.
+- [x] P3.2-1 **Tier keys and tier gating** (M; safety). Done (PR #75). Depends on: nothing.
   - **The tiers are additional task permission keys (same `admin` category, installed by the same routine as P1.10a's), not custom checks** (B-ACC-9). Tiers are cumulative in code (a higher tier's key also passes a lower tier's check); `use_neuron_ai` (P1.10a) is the Tier 1 (Content) key. Concrete groups such as "Neuron AI – Content", "Neuron AI – Configure" and "Neuron AI – Generate" are only groups an admin may grant the keys to; the code never checks a group. Superusers get Tier 3. The tier keys use `neuron_ai_tier_*` handles (for example `neuron_ai_tier_configure`), so they are not confused with P1.10a's settings key `configure_neuron_ai`.
   - every tool is tagged with a tier and offered only if the user's tier allows it (B-ACC-2). The Tier 2 tools leave Tier 1: attribute definitions, attribute sets and topic trees (B-T2-6); today every user with the use key gets them
   - external `ToolDefinition`s declare a tier; a write tool that declares none is admin-only (B-ACC-8)
@@ -520,6 +520,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   - re-enabling `katalysis_pro`'s `add_person` and `update_person` behind approval (from P3.6-3, after the internal pilot; WP-4)
   - `katalysis_pro` `canWritePeople()`: drop the "any logged-in user when People is enabled" path, leaving the Dashboard page check (found in P3.5-1's plan); must merge before `add_person` or `update_person` is re-enabled
   - `katalysis_pro` `list_people` and `get_person`: the `fields` input and opt-in contact details, as P3.5-2 did for the core tools (plan section 1); scenario 03 reaches pass only after this, because `katalysis_pro`'s `list_people` replaces core's when installed. Merges before core relies on it
+  - `katalysis_pro` declares `->tier()` on its tools (Glyn, on approving P3.2-1's plan). Until then its reads are Tier 1 and its writes, which declare no tier, need the Tier 3 key (B-ACC-8)
   - scenarios: 03, 04, 21, 25 ×3; cap $0.85 (Phase 5's budget, not Phase 3's)
 - P5.1 Polish the import flows: pasted HTML or a URL → blocks or entities (People, lists, resources).
 - P5.2 Move and convert content between block types, using per-block-type field mappers. **Takes in P3.10-2** (moved from Phase 3 on the roadmap, 27 October 2026; see `EXTENSIONS.md`):

@@ -1,7 +1,7 @@
 id: 20-navigate-then-edit
 title: "The user moves to another page, then asks for an edit: it lands on the page they are on now"
 tier: 1
-user: neuron_editor
+user: neuron_content_editor
 current_page: /neuron-test/headings
 rules: [B-CTX-1, B-TRU-1, B-WRT-3]
 rubric: Turn 1 is a read on the Headings page, so the chat history holds that page's context (its ID and path from the page-context tool). The user then navigates to Columns (the runner changes the page for turn 2, as the panel does) and asks for an edit with "this page". The edit must go to Columns, in a new unpublished version. Headings must not change at all. This is the wrong-page write seen once in 25 runs of scenario 19 (P1.9), when the model reused the old page's ID from the history.

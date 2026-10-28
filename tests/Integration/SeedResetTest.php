@@ -335,7 +335,7 @@ final class SeedResetTest extends TestCase
         $this->assertSame(0, $result['code'], $result['output']);
         $this->assertNull($this->recordJson(), 'The record of stored IDs must go with the content.');
         $this->assertSame(0, (int) $this->db()->fetchOne("SELECT COUNT(*) FROM PagePaths WHERE cPath = '/neuron-test' OR cPath LIKE '/neuron-test/%'"));
-        $this->assertSame(0, (int) $this->db()->fetchOne("SELECT COUNT(*) FROM Users WHERE uName IN ('neuron_editor', 'neuron_chat_editor')"));
+        $this->assertSame(0, (int) $this->db()->fetchOne("SELECT COUNT(*) FROM Users WHERE uName IN ('neuron_editor', 'neuron_chat_editor', 'neuron_content_editor')"));
 
         $result = self::$seed->run([]);
 
@@ -355,7 +355,7 @@ final class SeedResetTest extends TestCase
         $scenario = [
             'id' => '99-seed-reset-check',
             'title' => 'P1.14 stand-in',
-            'user' => 'neuron_editor',
+            'user' => 'neuron_content_editor',
             'current_page' => '/neuron-test',
             'turns' => [['say' => 'write the injected description']],
         ];
@@ -393,7 +393,7 @@ final class SeedResetTest extends TestCase
         $scenario = [
             'id' => '99-dry-run-check',
             'title' => 'P2.6 stand-in',
-            'user' => 'neuron_editor',
+            'user' => 'neuron_content_editor',
             'current_page' => '/neuron-test/headings',
             'turns' => [['say' => 'What page am I on?'], ['say' => 'And now?', 'current_page' => '/neuron-test/columns']],
             'expect' => ['state' => ['nothing_changed' => true]],
@@ -717,7 +717,7 @@ final class SeedResetTest extends TestCase
         $structure = [
             'pages' => $pages,
             'people' => $db->fetchAllAssociative("SELECT name, email, jobTitle FROM KatalysisPeople WHERE email LIKE '%@neuron-test.invalid' OR name LIKE 'Test Person %' ORDER BY email"),
-            'users' => $db->fetchAllAssociative("SELECT uName, uEmail FROM Users WHERE uName IN ('neuron_editor', 'neuron_chat_editor') ORDER BY uName"),
+            'users' => $db->fetchAllAssociative("SELECT uName, uEmail FROM Users WHERE uName IN ('neuron_editor', 'neuron_chat_editor', 'neuron_content_editor') ORDER BY uName"),
             'group' => $db->fetchAllAssociative('SELECT gName, gDescription FROM `Groups` WHERE gName = ?', [self::GROUP]),
             'members' => $db->fetchFirstColumn(
                 'SELECT u.uName FROM UserGroups ug JOIN Users u ON u.uID = ug.uID JOIN `Groups` g ON g.gID = ug.gID WHERE g.gName = ? ORDER BY u.uName',
