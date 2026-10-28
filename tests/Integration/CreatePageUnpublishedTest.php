@@ -10,6 +10,8 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\Page\PageList;
 use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 
 /**
@@ -57,11 +59,12 @@ final class CreatePageUnpublishedTest extends ConcreteTestCase
     }
 
     /**
-     * Runs a Pages toolkit tool as the current user and returns the decoded result.
+     * Runs a Pages toolkit tool as the current user and returns the decoded result. Since P3.3-4 that is any of the
+     * three toolkits PagesToolkit was split into (add_block_to_page_area is ContentToolkit's).
      */
     private function callTool(string $name, array $inputs): array
     {
-        foreach ((new PagesToolkit())->tools() as $tool) {
+        foreach (array_merge((new PagesToolkit())->tools(), (new ContentToolkit())->tools(), (new BatchEditToolkit())->tools()) as $tool) {
             if ($tool->getName() === $name) {
                 $tool = clone $tool;
                 $tool->setInputs($inputs)->execute();

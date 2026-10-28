@@ -18,6 +18,8 @@ use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
@@ -97,7 +99,9 @@ final class GlobalAreaWriteRefusalTest extends ConcreteTestCase
             'blocks' => ['pageID' => $pageID, 'blocks' => [['areaHandle' => $handle, 'blockID' => $stackBlockID, 'value' => ['content' => '<p>Batch</p>']]]],
         };
 
-        $output = $this->runTool(new PagesToolkit(), $tool, $inputs);
+        // P3.3-4: the batch tool is in BatchEditToolkit, the block tools in ContentToolkit.
+        $toolkit = $tool === 'batch_update_page_content' ? new BatchEditToolkit() : new ContentToolkit();
+        $output = $this->runTool($toolkit, $tool, $inputs);
 
         $this->assertStringContainsString(self::REFUSAL, $output, "{$tool} did not refuse a global area. It returned: {$output}");
         $this->assertStringContainsString('Nothing was changed', $output);
@@ -111,7 +115,7 @@ final class GlobalAreaWriteRefusalTest extends ConcreteTestCase
         $page = $this->fixture->page([$handle]);
         $stackBefore = $this->fixture->versions($stackID);
 
-        $this->runTool(new PagesToolkit(), 'batch_update_content_headings', [
+        $this->runTool(new BatchEditToolkit(), 'batch_update_content_headings', [
             'pageID' => (int) $page->getCollectionID(),
             'headingTexts' => ['Global Heading'],
             'targetTag' => 'h2',
@@ -124,7 +128,9 @@ final class GlobalAreaWriteRefusalTest extends ConcreteTestCase
     {
         [$handle, , $stackBlockID] = $this->fixture->globalArea();
         $page = $this->fixture->page([$handle]);
-        $toolkit = new PagesToolkit();
+        // P3.3-4: both lookups are ContentToolkit's (getBlockToEdit through BlockWriteSupport, which BatchEditToolkit
+        // shares).
+        $toolkit = new ContentToolkit();
 
         foreach (['getBlockToWorkWith', 'getBlockToEdit'] as $method) {
             try {
@@ -201,7 +207,7 @@ final class GlobalAreaWriteRefusalTest extends ConcreteTestCase
     private function allToolkits(): array
     {
         return [
-            new PagesToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
+            new PagesToolkit(), new ContentToolkit(), new BatchEditToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
             new UserAttributesToolkit(), new FileAttributesToolkit(), new AttributeSetsToolkit(), new TopicsToolkit(),
             new PeopleToolkit(), new VersionsToolkit(),
         ];

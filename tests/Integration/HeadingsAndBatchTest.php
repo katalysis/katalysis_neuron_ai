@@ -9,6 +9,7 @@ use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Page\Page;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
+use Katalysis\NeuronAi\Tests\Support\ToolByName;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 
@@ -150,7 +151,7 @@ final class HeadingsAndBatchTest extends ConcreteTestCase
     {
         ThrowawayPages::actAs('superuser');
 
-        return ThrowawayPages::runTool(new PagesToolkit(), $name, $inputs);
+        return ToolByName::run($name, $inputs); // P3.3-4: whichever of the split toolkits has it
     }
 
     /** The Content blocks' stored text in Main of a version of the page. */

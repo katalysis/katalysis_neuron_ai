@@ -7,12 +7,15 @@ namespace Katalysis\NeuronAi\Tests\Integration;
 use Concrete\Core\Database\Connection\Connection;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
+use Katalysis\NeuronAi\Tests\Support\ToolByName;
 use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
@@ -66,15 +69,15 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
     public static function writeToolProvider(): array
     {
         return [
-            'batch_update_page_content' => [PagesToolkit::class, 'batch_update_page_content', 'pageID'],
-            'batch_update_content_headings' => [PagesToolkit::class, 'batch_update_content_headings', 'pageID'],
+            'batch_update_page_content' => [BatchEditToolkit::class, 'batch_update_page_content', 'pageID'],
+            'batch_update_content_headings' => [BatchEditToolkit::class, 'batch_update_content_headings', 'pageID'],
             'update_page' => [PagesToolkit::class, 'update_page', 'pageID'],
             'move_page (page)' => [PagesToolkit::class, 'move_page', 'pageID'],
             'delete_page' => [PagesToolkit::class, 'delete_page', 'pageID'],
-            'add_block_to_page_area' => [PagesToolkit::class, 'add_block_to_page_area', 'pageID'],
-            'update_block_in_page_area' => [PagesToolkit::class, 'update_block_in_page_area', 'pageID'],
-            'delete_block_from_page_area' => [PagesToolkit::class, 'delete_block_from_page_area', 'pageID'],
-            'move_block_between_areas' => [PagesToolkit::class, 'move_block_between_areas', 'pageID'],
+            'add_block_to_page_area' => [ContentToolkit::class, 'add_block_to_page_area', 'pageID'],
+            'update_block_in_page_area' => [ContentToolkit::class, 'update_block_in_page_area', 'pageID'],
+            'delete_block_from_page_area' => [ContentToolkit::class, 'delete_block_from_page_area', 'pageID'],
+            'move_block_between_areas' => [ContentToolkit::class, 'move_block_between_areas', 'pageID'],
             'set_page_attribute_value, PageAttributesToolkit (pageID)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pageID'],
             'set_page_attribute_value, PageAttributesToolkit (pagePath)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pagePath'],
             'set_page_attribute_value, PageAttributesToolkit (pageName)' => [PageAttributesToolkit::class, 'set_page_attribute_value', 'pageName'],
@@ -111,7 +114,7 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
     public static function sameUserProvider(): array
     {
         return [
-            'update_block_in_page_area' => [PagesToolkit::class, 'update_block_in_page_area'],
+            'update_block_in_page_area' => [ContentToolkit::class, 'update_block_in_page_area'],
             'update_page' => [PagesToolkit::class, 'update_page'],
             'set_page_attribute_value' => [PageAttributesToolkit::class, 'set_page_attribute_value'],
         ];
@@ -141,7 +144,7 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
         $checkout = $this->pages->checkoutRow($cID);
 
         ThrowawayPages::actAs('superuser');
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID));
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID));
 
         $this->assertTrue(ToolKind::succeeded($output), $output);
         $this->assertSame($checkout, $this->pages->checkoutRow($cID), 'the check only reads the checkout; it does not check the page in');
@@ -154,7 +157,7 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
         $this->pages->checkOut($cID, ThrowawayPages::actAs('neuron_editor'), null);
 
         ThrowawayPages::actAs('superuser');
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID));
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID));
 
         $this->assertStringContainsString('is editing this page', $output);
     }
@@ -227,7 +230,7 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
         EditModeGuard::setOpenBlocks($cID, [$open]);
         $before = $this->pages->state($cID);
 
-        $output = ThrowawayPages::runTool(new PagesToolkit(), $toolName, $this->workingInputs($toolName, $cID, $open));
+        $output = ToolByName::run($toolName, $this->workingInputs($toolName, $cID, $open));
 
         $this->assertSame($before, $this->pages->state($cID), "{$toolName} changed a block open in the user's editor.");
         $this->assertStringContainsString("Block {$open} on this page is open in the user's editor", $output, $output);
@@ -245,12 +248,12 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
 
         // The editor is open on block one of the first page: block two there may change.
         EditModeGuard::setOpenBlocks($cID, [$open]);
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID, $other));
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID, $other));
         $this->assertTrue(ToolKind::succeeded($output), $output);
 
         // The IDs the panel sends belong to the page it is on, not to any page.
         EditModeGuard::setOpenBlocks($cID, [$first]);
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID2, $first));
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID2, $first));
         $this->assertTrue(ToolKind::succeeded($output), $output);
     }
 
@@ -264,7 +267,7 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
         [$open] = $this->pages->blockIDs($cID);
         EditModeGuard::setOpenBlocks($cID, [$open]);
 
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'batch_update_content_headings', [
+        $output = ThrowawayPages::runTool(new BatchEditToolkit(), 'batch_update_content_headings', [
             'pageID' => $cID,
             'headingTexts' => ['Heading In The Open Block', 'Heading In The Closed Block'],
             'targetTag' => 'h2',
@@ -287,7 +290,7 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
         $covered[] = 'batch_update_content_headings';
 
         $found = [];
-        foreach ((new PagesToolkit())->tools() as $tool) {
+        foreach (array_merge((new PagesToolkit())->tools(), (new ContentToolkit())->tools(), (new BatchEditToolkit())->tools()) as $tool) { // P3.3-4: the split toolkits
             if (!ToolKind::isWrite($tool->getName())) {
                 continue;
             }
@@ -367,7 +370,7 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
     private function allToolkits(): array
     {
         return [
-            new PagesToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
+            new PagesToolkit(), new ContentToolkit(), new BatchEditToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
             new UserAttributesToolkit(), new FileAttributesToolkit(), new AttributeSetsToolkit(), new TopicsToolkit(),
             new PeopleToolkit(), new VersionsToolkit(),
         ];

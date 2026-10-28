@@ -16,7 +16,9 @@ use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
+use Katalysis\NeuronAi\Tests\Support\ToolByName;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ToolCallMessage;
@@ -121,7 +123,7 @@ final class StaleBlockIDTest extends ConcreteTestCase
         $before = $this->pages->state($cID);
 
         // Tab 2, the same user: the model read the published version, so it names the old ID.
-        $output = ThrowawayPages::runTool(new PagesToolkit(), $tool, $inputs($cID, $b1, '<p>Block one edited by hand.</p>'));
+        $output = ToolByName::run($tool, $inputs($cID, $b1, '<p>Block one edited by hand.</p>'));
 
         $this->assertFalse(ToolKind::succeeded($output), $output);
         $this->assertSame($before, $this->pages->state($cID), 'nothing changed');
@@ -131,7 +133,7 @@ final class StaleBlockIDTest extends ConcreteTestCase
         $this->assertStringNotContainsString('is editing this page', $output, 'the same user is not refused');
 
         // The retry with the new ID works, and keeps the hand edit.
-        $retry = ThrowawayPages::runTool(new PagesToolkit(), $tool, $inputs($cID, $newID, '<p>Block one edited by hand.</p>'));
+        $retry = ToolByName::run($tool, $inputs($cID, $newID, '<p>Block one edited by hand.</p>'));
         $this->assertTrue(ToolKind::succeeded($retry), $retry);
         if (in_array($tool, ['update_block_in_page_area', 'batch_update_page_content'], true)) {
             $this->assertSame('<p><strong>Block one edited by hand.</strong></p>', $this->html($this->pages->blockIDs($cID)[0]));
@@ -145,7 +147,7 @@ final class StaleBlockIDTest extends ConcreteTestCase
         [$b1] = $this->pages->blockIDs($cID);
         ThrowawayPages::actAs('superuser');
 
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Sidebar', 'blockID' => $b1, 'value' => ['content' => '<p><strong>Block one original text.</strong></p>'], 'changeMode' => 'formatting_only',
         ]);
 
@@ -161,7 +163,7 @@ final class StaleBlockIDTest extends ConcreteTestCase
         [$elsewhere] = $this->pages->blockIDs($other);
         ThrowawayPages::actAs('superuser');
 
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'delete_block_from_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $elsewhere]);
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'delete_block_from_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $elsewhere]);
 
         $this->assertFalse(ToolKind::succeeded($output), $output);
         $this->assertStringContainsString("Block {$elsewhere} not found: it is not on page {$cID}", $output);

@@ -28,6 +28,7 @@ use Katalysis\NeuronAi\Tests\Support\TaskKeyFixture;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
@@ -165,7 +166,7 @@ final class NewestVersionReadTest extends ConcreteTestCase
         $this->assertStringContainsString('Block one edited by hand.', $read['text']);
 
         $first = self::contentBlockIDs($read)[0];
-        $write = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $write = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $first,
             'value' => ['content' => "<h2>Hand edited heading</h2>\r\n\r\n<p><strong>Block one edited by hand.</strong>&nbsp; In edit mode.</p>\r\n"],
             'changeMode' => 'formatting_only',
@@ -254,7 +255,7 @@ final class NewestVersionReadTest extends ConcreteTestCase
         $this->assertContains($new, self::snapshotBlockIDs($page['areas']), 'get_page');
         $this->assertNotContains($old, self::snapshotBlockIDs($page['areas']));
 
-        $blocks = $this->json(ThrowawayPages::runTool(new PagesToolkit(), 'get_page_blocks', ['pageID' => $cID]));
+        $blocks = $this->json(ThrowawayPages::runTool(new ContentToolkit(), 'get_page_blocks', ['pageID' => $cID]));
         $this->assertContains($new, self::snapshotBlockIDs($blocks['areas']), 'get_page_blocks');
         $this->assertSame('newest', $blocks['version']['shows'] ?? null);
 

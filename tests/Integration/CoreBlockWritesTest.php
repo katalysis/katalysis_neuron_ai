@@ -12,6 +12,8 @@ use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 
 /**
@@ -109,7 +111,7 @@ final class CoreBlockWritesTest extends ConcreteTestCase
 
         // The batch tool keeps them too.
         $batchBlock = (int) json_decode($output, true)['blockID'];
-        $batch = ThrowawayPages::runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $batch = ThrowawayPages::runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID, 'blocks' => [['areaHandle' => 'Main', 'blockID' => $batchBlock, 'value' => ['initialState' => 'open']]],
         ]);
         $this->assertTrue(ToolKind::succeeded($batch), $batch);
@@ -202,14 +204,14 @@ final class CoreBlockWritesTest extends ConcreteTestCase
         }
         ThrowawayPages::actAs('superuser');
 
-        return ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', $inputs);
+        return ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', $inputs);
     }
 
     private function add(int $cID, string $handle, array $value): string
     {
         ThrowawayPages::actAs('superuser');
 
-        return ThrowawayPages::runTool(new PagesToolkit(), 'add_block_to_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => $handle, 'value' => $value]);
+        return ThrowawayPages::runTool(new ContentToolkit(), 'add_block_to_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => $handle, 'value' => $value]);
     }
 
     /**

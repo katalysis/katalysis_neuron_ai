@@ -18,6 +18,8 @@ use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
+use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use NeuronAI\Tools\ToolInterface;
 
 /**
@@ -109,7 +111,7 @@ final class GetPageContentTest extends ConcreteTestCase
 
         $this->actAs('neuron_editor');
         $first = $active['blocks'][0];
-        $this->callTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $this->callTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID,
             'areaHandle' => 'Main',
             'blockID' => $first['blockID'],
@@ -256,7 +258,7 @@ final class GetPageContentTest extends ConcreteTestCase
         return $decoded;
     }
 
-    private function callTool(PagesToolkit $toolkit, string $name, array $inputs): string
+    private function callTool(ToolkitInterface $toolkit, string $name, array $inputs): string
     {
         /** @var ToolInterface $tool */
         foreach ($toolkit->tools() as $tool) {

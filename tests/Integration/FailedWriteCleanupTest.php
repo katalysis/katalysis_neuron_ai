@@ -13,6 +13,8 @@ use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
@@ -57,13 +59,13 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
     public static function draftToolProvider(): array
     {
         return [
-            'batch_update_page_content' => ['pages', 'batch_update_page_content'],
-            'batch_update_content_headings' => ['pages', 'batch_update_content_headings'],
+            'batch_update_page_content' => ['batch', 'batch_update_page_content'],
+            'batch_update_content_headings' => ['batch', 'batch_update_content_headings'],
             'update_page' => ['pages', 'update_page'],
-            'add_block_to_page_area' => ['pages', 'add_block_to_page_area'],
-            'update_block_in_page_area' => ['pages', 'update_block_in_page_area'],
-            'delete_block_from_page_area' => ['pages', 'delete_block_from_page_area'],
-            'move_block_between_areas' => ['pages', 'move_block_between_areas'],
+            'add_block_to_page_area' => ['content', 'add_block_to_page_area'],
+            'update_block_in_page_area' => ['content', 'update_block_in_page_area'],
+            'delete_block_from_page_area' => ['content', 'delete_block_from_page_area'],
+            'move_block_between_areas' => ['content', 'move_block_between_areas'],
             'set_page_attribute_value, PageAttributesToolkit' => ['page_attributes', 'set_page_attribute_value'],
         ];
     }
@@ -154,7 +156,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         [$first] = $this->pages->blockIDs($cID);
 
         // Row E1: the block is copied into the draft, then the update fails.
-        $faulty = $this->faulty('pages', afterCopy: static function (): void {
+        $faulty = $this->faulty('content', afterCopy: static function (): void {
             throw new \RuntimeException('Simulated failure after the copy.');
         });
         $output = $this->runTool($faulty, 'update_block_in_page_area', $this->workingInputs('update_block_in_page_area', $cID, $first));
@@ -171,7 +173,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         $cID = $this->newPage(['<h3>Only Heading</h3><p>Body.</p>']);
         $before = $this->pages->state($cID);
 
-        $output = $this->runTool(new PagesToolkit(), 'batch_update_content_headings', [
+        $output = $this->runTool(new BatchEditToolkit(), 'batch_update_content_headings', [
             'pageID' => $cID, 'headingTexts' => ['No Such Heading'], 'targetTag' => 'h2',
         ]);
 
@@ -204,7 +206,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         $cID = $this->newPage();
         [$first] = $this->pages->blockIDs($cID);
 
-        $output = $this->runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $output = $this->runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'blocks' => [[
                 'areaHandle' => 'Main', 'blockID' => $first, 'value' => ['content' => '<p>Block one rewritten.</p>'],
@@ -228,7 +230,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         $before = $this->pages->state($cID);
 
         // keep_text (the default) refuses losing the old text.
-        $refused = $this->runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $refused = $this->runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'blocks' => [['areaHandle' => 'Main', 'blockID' => $first, 'value' => ['content' => '<p>Block one rewritten.</p>']]],
         ]);
@@ -239,7 +241,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         $this->assertArrayNotHasKey('versionState', $result);
         $this->assertSame($before, $this->pages->state($cID), 'A refused batch left a draft or copied a block.');
 
-        $retry = $this->runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $retry = $this->runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'changeMode' => 'scoped_text',
             'blocks' => [[
@@ -256,7 +258,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         [$first] = $this->pages->blockIDs($cID);
         $before = $this->pages->state($cID);
 
-        $output = $this->runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $output = $this->runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'blocks' => [['areaHandle' => 'Main', 'blockID' => $first, 'value' => ['content' => '<h2>Block one original text.</h2>'], 'changeMode' => 'freeform']],
         ]);
@@ -271,7 +273,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         [$first] = $this->pages->blockIDs($cID);
         $before = $this->pages->state($cID);
 
-        $output = $this->runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $output = $this->runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'blocks' => [[
                 'areaHandle' => 'Main', 'blockID' => $first,
@@ -292,7 +294,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         $cID = $this->newPage();
         [$first, $second] = $this->pages->blockIDs($cID);
 
-        $output = $this->runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $output = $this->runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'blocks' => [
                 ['areaHandle' => 'Main', 'blockID' => $first, 'value' => ['content' => '<h2>Block one original text.</h2>'], 'changeMode' => 'formatting_only'],
@@ -313,7 +315,7 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         [$first, $second] = $this->pages->blockIDs($cID);
         $before = $this->pages->state($cID);
 
-        $output = $this->runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $output = $this->runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID,
             'continueOnError' => false,
             'blocks' => [
@@ -396,8 +398,13 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
         $covered = array_map(static fn (array $case): string => $case[1], array_values(self::draftToolProvider()));
 
         $found = [];
-        foreach ([new PagesToolkit(), new PageAttributesToolkit()] as $toolkit) {
-            $source = (string) file_get_contents((new \ReflectionClass($toolkit))->getFileName());
+        foreach ([new PagesToolkit(), new ContentToolkit(), new BatchEditToolkit(), new PageAttributesToolkit()] as $toolkit) {
+            // P3.3-4: the split toolkits share guarded() (and its DraftCleanup::run) through a trait, so its source counts.
+            $class = new \ReflectionClass($toolkit);
+            $source = (string) file_get_contents($class->getFileName());
+            foreach ($class->getTraits() as $trait) {
+                $source .= (string) file_get_contents($trait->getFileName());
+            }
             if (preg_match('/PageDraft::of\(|getDraftOf\(/', $source) === 1) {
                 $this->assertStringContainsString('DraftCleanup::run(', $source, $toolkit::class . ' makes drafts but its tools do not run through DraftCleanup.');
             }
@@ -465,6 +472,45 @@ final class FailedWriteCleanupTest extends ConcreteTestCase
     {
         $toolkit = match ($kind) {
             'pages' => new class extends PagesToolkit {
+                public ?\Closure $afterDraft = null;
+                public ?\Closure $afterCopy = null;
+
+                protected function getDraftOf(Page $page): Page
+                {
+                    $draft = parent::getDraftOf($page);
+                    if ($this->afterDraft !== null) {
+                        ($this->afterDraft)($draft);
+                    }
+
+                    return $draft;
+                }
+            },
+            // P3.3-4: the block and batch tools left PagesToolkit, with the block copy (BlockWriteSupport).
+            'content' => new class extends ContentToolkit {
+                public ?\Closure $afterDraft = null;
+                public ?\Closure $afterCopy = null;
+
+                protected function getDraftOf(Page $page): Page
+                {
+                    $draft = parent::getDraftOf($page);
+                    if ($this->afterDraft !== null) {
+                        ($this->afterDraft)($draft);
+                    }
+
+                    return $draft;
+                }
+
+                public function getBlockToEdit(Page $page, \Concrete\Core\Area\Area $area, string $areaHandle, $blockID): ?Block
+                {
+                    $block = parent::getBlockToEdit($page, $area, $areaHandle, $blockID);
+                    if ($this->afterCopy !== null) {
+                        ($this->afterCopy)($block);
+                    }
+
+                    return $block;
+                }
+            },
+            'batch' => new class extends BatchEditToolkit {
                 public ?\Closure $afterDraft = null;
                 public ?\Closure $afterCopy = null;
 

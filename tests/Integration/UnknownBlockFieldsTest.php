@@ -9,6 +9,8 @@ use Concrete\Core\Database\Connection\Connection;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\BatchEditToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
 
 /**
@@ -42,7 +44,7 @@ final class UnknownBlockFieldsTest extends ConcreteTestCase
         $versions = $this->versionCount($cID);
 
         // Scenario 30, run 3.
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'add_block_to_page_area', [
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'add_block_to_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'feature',
             'value' => ['heading' => 'Study Space', 'content' => 'Quiet desks on the first floor.'],
         ]);
@@ -62,7 +64,7 @@ final class UnknownBlockFieldsTest extends ConcreteTestCase
         $versions = $this->versionCount($cID);
 
         // Scenario 30, run 2's field name, on an update.
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['description' => 'Quiet desks.'],
         ]);
 
@@ -79,7 +81,7 @@ final class UnknownBlockFieldsTest extends ConcreteTestCase
         $versions = $this->versionCount($cID);
 
         // Scenario 07, run 2's field name for an HTML block.
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'batch_update_page_content', [
+        $output = ThrowawayPages::runTool(new BatchEditToolkit(), 'batch_update_page_content', [
             'pageID' => $cID, 'blocks' => [['areaHandle' => 'Main', 'blockID' => $bID, 'value' => ['html' => '<p>New HTML.</p>']]],
         ]);
 
@@ -94,7 +96,7 @@ final class UnknownBlockFieldsTest extends ConcreteTestCase
         [$cID] = $this->pageWith('feature', ['title' => 'Reading Room', 'paragraph' => '<p>Desks.</p>', 'link__which' => 'none']);
 
         // Concrete's destination picker input, which the Feature block's save() reads.
-        $output = ThrowawayPages::runTool(new PagesToolkit(), 'add_block_to_page_area', [
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'add_block_to_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'feature',
             'value' => ['title' => 'Study Space', 'paragraph' => '<p>Quiet desks.</p>', 'link__which' => 'none'],
         ]);

@@ -18,6 +18,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
 use NeuronAI\Tools\ToolInterface;
 
@@ -84,7 +85,7 @@ final class TruncatedReadTest extends ConcreteTestCase
     {
         [$cID, $long, $short] = $this->newPageWithBlocks();
 
-        $result = $this->json($this->runTool(new PagesToolkit(), 'get_page_blocks', ['pageID' => $cID]));
+        $result = $this->json($this->runTool(new ContentToolkit(), 'get_page_blocks', ['pageID' => $cID]));
         $blocks = $this->blocksByID($result['areas']);
 
         $this->assertSame(['fullLength' => mb_strlen($this->plain(self::LONG)), 'fullTextTool' => 'get_block_data'], $blocks[$long]['contentPreviewShortened']);
@@ -110,7 +111,7 @@ final class TruncatedReadTest extends ConcreteTestCase
     {
         [$cID, $long] = $this->newPageWithBlocks();
 
-        $result = $this->json($this->runTool(new PagesToolkit(), 'update_block_in_page_area', [
+        $result = $this->json($this->runTool(new ContentToolkit(), 'update_block_in_page_area', [
             'pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $long, 'value' => ['content' => self::LONG . '<p>Added.</p>'],
         ]));
 
@@ -123,7 +124,7 @@ final class TruncatedReadTest extends ConcreteTestCase
     {
         $cID = $this->newPageWithAContainer();
 
-        $blocks = $this->json($this->runTool(new PagesToolkit(), 'get_page_blocks', ['pageID' => $cID]));
+        $blocks = $this->json($this->runTool(new ContentToolkit(), 'get_page_blocks', ['pageID' => $cID]));
         $this->assertSame(1, $blocks['subAreaBlocks']);
         $this->assertStringContainsString('get_page_content', $blocks['subAreaNote']);
 
@@ -137,7 +138,7 @@ final class TruncatedReadTest extends ConcreteTestCase
     {
         [$cID] = $this->newPageWithBlocks();
 
-        $blocks = $this->json($this->runTool(new PagesToolkit(), 'get_page_blocks', ['pageID' => $cID]));
+        $blocks = $this->json($this->runTool(new ContentToolkit(), 'get_page_blocks', ['pageID' => $cID]));
 
         $this->assertSame(0, $blocks['subAreaBlocks']);
         $this->assertArrayNotHasKey('subAreaNote', $blocks);
