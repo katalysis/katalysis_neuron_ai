@@ -376,7 +376,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
   - the tools stay on `CallableTool` (the subclass conversion is dropped)
   - scenarios: `--fake` of the write scenarios; none new or changed, so no paid run. Compared ×3 in P3.S2
-- [ ] P3.3-7 **Level 0 generic block adapter** (M; Glyn, on P3.3-6's recommendation and review, 27 October 2026). Depends on: P3.3-4.
+- [x] P3.3-7 **Level 0 generic block adapter** (M; Glyn, on P3.3-6's recommendation and review, 27 October 2026). Done (PR #85). Depends on: P3.3-4.
   - P5.2's item 1 only: export metadata, child tables and import-mode `save()`, so any core or package block type's fields can be read and written without hand-written knowledge, failing clearly when a field can't be mapped
   - the six hand-written fixes from P3.3-6 (`BlockSaveInputs`) move onto the generic path where it covers them; their tests (`CoreBlockWritesTest`) stay
   - its generic field list replaces BF-17's unknown-field check's hand-written list (columns plus each covered block's other `save()` inputs)
