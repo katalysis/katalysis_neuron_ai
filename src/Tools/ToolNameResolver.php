@@ -89,8 +89,8 @@ final class ToolNameResolver
      *
      * Note: for toolkits this calls tools() once more than Neuron does when it
      * builds the list. That is harmless for in-process toolkits, but an MCP
-     * connector (McpServerIntegration) would connect once more. None is
-     * registered today.
+     * connector toolkit would connect once more. None is registered (the
+     * unused McpServerIntegration was deleted in P3.3-3).
      *
      * @param callable(ToolInterface): bool $keep
      */

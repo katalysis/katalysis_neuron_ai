@@ -118,8 +118,8 @@ final class DisabledTools
                 }
                 // Note: tools() is called here as well as by Neuron when it builds the
                 // tool list. That is harmless for in-process toolkits, but an MCP
-                // connector (McpServerIntegration) would connect once more. None is
-                // registered today.
+                // connector toolkit would connect once more. None is registered
+                // (the unused McpServerIntegration was deleted in P3.3-3).
                 $result[] = $removed ? FilteredToolkit::from($item, $kept) : $item;
             } else {
                 $result[] = $item;
