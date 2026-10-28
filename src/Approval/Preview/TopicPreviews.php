@@ -17,9 +17,13 @@ final class TopicPreviews
     {
         $name = PreviewSupport::string($inputs, 'tree_name');
 
+        $exists = $name !== '' && TopicTree::getByName($name) !== null;
+
         return [
             PreviewSupport::entry('Create the topic tree', '"' . $name . '"', '', [], PreviewSupport::LIVE_NOTE),
-            ['exists' => $name !== '' && TopicTree::getByName($name) !== null],
+            ['exists' => $exists],
+            // P3.6-2: create_topic_tree's own words (CallCheck).
+            $exists ? "A topic tree named '{$name}' already exists: use it (list_topic_trees), or choose another name. Nothing was changed." : null,
         ];
     }
 
@@ -33,9 +37,18 @@ final class TopicPreviews
             ? ($parentID > 0 ? '"' . $parent->getTreeNodeDisplayName() . '" in ' : 'the top of ') . 'the tree "' . $treeName . '"'
             : 'a place that was not found';
 
+        $refusal = null;
+        if ($treeName !== '' && $tree === null) {
+            $refusal = "There is no topic tree '{$treeName}'. list_topic_trees lists them. Nothing was changed.";
+        } elseif ($parentID > 0 && !$parent instanceof TopicNode) {
+            $refusal = "Topic {$parentID} not found: it may have been deleted, or the ID is wrong. get_topic_tree_structure gives the IDs. Nothing was changed.";
+        }
+
         return [
             PreviewSupport::entry('Add the topic', '"' . PreviewSupport::string($inputs, 'topic_name') . '" under ' . $where, '', [], PreviewSupport::LIVE_NOTE),
             ['parent' => $parent instanceof Node ? (int) $parent->getTreeNodeID() : 0, 'children' => self::children($parent)],
+            // P3.6-2: create_topic's own words (CallCheck).
+            $refusal,
         ];
     }
 
@@ -48,6 +61,8 @@ final class TopicPreviews
         return [
             PreviewSupport::entry('Rename the topic', $old !== null ? '"' . $old . '"' : 'topic ' . $id, '', [PreviewSupport::change('Name', $old, PreviewSupport::string($inputs, 'new_name'))], PreviewSupport::LIVE_NOTE),
             ['node' => $id, 'name' => $old],
+            // P3.6-2: rename_topic's own words (CallCheck).
+            $id > 0 && $old === null ? "Topic {$id} not found: it may have been deleted, or the ID is wrong. get_topic_tree_structure gives the IDs. Nothing was changed." : null,
         ];
     }
 

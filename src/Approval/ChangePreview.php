@@ -17,6 +17,9 @@ use Katalysis\NeuronAi\Approval\Preview\TopicPreviews;
 use Katalysis\NeuronAi\Approval\Preview\VersionPreviews;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\PageByName;
+use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
+use Katalysis\NeuronAi\Tools\PagesToolkit;
+use Katalysis\NeuronAi\ConcreteCmsAgent;
 
 /**
  * What a gated call would change, read before it runs (P3.6-1, plans/P3.6-1.md §1, §4, §5): the change entry the
@@ -64,25 +67,33 @@ final class ChangePreview
 
     /**
      * @param array<string, mixed> $inputs the call's inputs
-     * @return array{entry: array{action: string, target: string, path: string, details: list<string>, note: string, warnings: list<string>}, fingerprint: string}
+     * @return array{entry: array{action: string, target: string, path: string, details: list<string>, note: string, warnings: list<string>}, fingerprint: string, refusal: ?string}
+     *     refusal: the tool's own refusal of the call, as the model would get it, when it can't succeed (P3.6-2)
      */
     public static function of(string $tool, array $inputs): array
     {
+        $refusal = null;
         try {
-            [$entry, $state] = match (true) {
+            $result = match (true) {
                 $tool === 'update_page' => self::updatePage($inputs),
                 $tool === 'set_page_attribute_value' => self::setAttribute($inputs),
                 $tool === 'create_page' => self::createPage($inputs),
                 isset(self::PREVIEWS[$tool]) => (self::PREVIEWS[$tool])($inputs),
                 default => GenericPreview::of($tool, $inputs),
             };
+            [$entry, $state] = $result;
+            // P3.6-2: a preview that can tell the call would be refused says so in the tool's own words (CallCheck).
+            $refusal = isset($result[2]) ? ConcreteCmsAgent::toolErrorText(new \RuntimeException((string) $result[2])) : null;
         } catch (\Throwable $e) {
             // A preview that can't read what it needs still asks; the call itself refuses what it can't do.
             [$entry, $state] = GenericPreview::of($tool, $inputs);
             $state['previewFailed'] = get_class($e);
         }
 
-        return ['entry' => $entry, 'fingerprint' => self::hash($tool, $state)];
+        // P3.6-2: a draft-writing tool runs its own checks, stopping before the draft (CallCheck).
+        $refusal ??= CallCheck::dryRun($tool, $inputs);
+
+        return ['entry' => $entry, 'fingerprint' => self::hash($tool, $state), 'refusal' => $refusal];
     }
 
     /** Whether a write tool has a preview of its own (not GenericPreview). */
@@ -183,7 +194,11 @@ final class ChangePreview
 
         $parent = self::newest(is_numeric($inputs['parentID'] ?? null) ? (int) $inputs['parentID'] : 0);
         if ($parent === null) {
-            return [self::entry('Create page', '"' . $name . '" under a page that was not found', '', $details, $note), ['missing' => $inputs['parentID'] ?? null]];
+            return [
+                self::entry('Create page', '"' . $name . '" under a page that was not found', '', $details, $note),
+                ['missing' => $inputs['parentID'] ?? null],
+                WriteRefusal::pageNotFound((int) ($inputs['parentID'] ?? 0), 'Parent page'),
+            ];
         }
 
         $visible = self::canView($parent);
@@ -196,7 +211,11 @@ final class ChangePreview
             'canAdd' => ObjectPermissions::addSubpage($parent, $type ?: null) === null,
         ];
 
-        return [self::entry('Create page', '"' . $name . '" under ' . self::name($parent, $visible), self::path($parent, $visible), $details, $note), $state];
+        return [
+            self::entry('Create page', '"' . $name . '" under ' . self::name($parent, $visible), self::path($parent, $visible), $details, $note),
+            $state,
+            $name !== '' ? PagesToolkit::duplicatePathRefusal($parent, $name) : null,
+        ];
     }
 
     private const VERSION_NOTE = 'Saved in a new unpublished version; nothing goes live until someone publishes it.';

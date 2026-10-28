@@ -522,11 +522,8 @@ class PagesToolkit extends AbstractToolkit
 
             // P3.6-2: a page already at this path is refused. Concrete would quietly add "-1" and make a second page
             // (scenario 09's wrong-page write).
-            if ($existing = self::childWithPathOf($parent, $name)) {
-                throw new \RuntimeException(
-                    "A page '{$existing->getCollectionName()}' already exists at {$existing->getCollectionPath()} (ID "
-                    . "{$existing->getCollectionID()}), so nothing was created. Use that page."
-                );
+            if ($refusal = self::duplicatePathRefusal($parent, $name)) {
+                throw new \RuntimeException($refusal);
             }
 
             // No approved version: the page is not live until a person approves it from Page Versions (P1.13, B-WRT-3).
@@ -567,6 +564,18 @@ class PagesToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * create_page's refusal of a page whose path already exists under $parent, or null. Public for its approval check
+     * (ChangePreview), so the card says it with the tool's own words.
+     */
+    public static function duplicatePathRefusal(Page $parent, string $name): ?string
+    {
+        $existing = self::childWithPathOf($parent, $name);
+
+        return $existing === null ? null : "A page '{$existing->getCollectionName()}' already exists at {$existing->getCollectionPath()} (ID "
+            . "{$existing->getCollectionID()}), so nothing was created. Use that page.";
     }
 
     /**

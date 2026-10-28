@@ -19,6 +19,7 @@ use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\Utilities\TextIntegrity;
+use Katalysis\NeuronAi\Tools\Utilities\DryRunReached;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
 use NeuronAI\Tools\Tool;
@@ -244,6 +245,9 @@ class BatchEditToolkit extends AbstractToolkit
             // Create new version
             try {
                 $pageToModify = $this->getDraftOf($page);
+            } catch (DryRunReached $e) {
+                // An approval check's dry run stops here (P3.6-2).
+                throw $e;
             } catch (\Exception $e) {
                 throw new \RuntimeException("Failed to create new page version: " . $e->getMessage() . ". This may indicate a database or permissions issue.");
             }

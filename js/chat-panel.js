@@ -312,6 +312,10 @@
         // server wrote, null when there is none, shown as it comes), and any calls now waiting for a decision (P3.6-1).
         showTurn(data) {
             this.settleApprovalCards(data.settledApprovals);
+            // P3.6-2: calls never put to the user, because their own checks would refuse them: shown, with the reason.
+            if (Array.isArray(data.settledApprovals)) {
+                this.showApprovalCards(data.settledApprovals.filter((card) => card && card.status === 'refused'));
+            }
             if (typeof data.response === 'string') {
                 // The "waiting for your approval" reply isn't stored by the server, so it isn't kept here either.
                 this.addMessage(data.response, 'assistant', !data.awaitingApproval, data.notice, data.changesLine);

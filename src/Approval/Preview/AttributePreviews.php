@@ -65,9 +65,15 @@ final class AttributePreviews
         $set = PreviewSupport::string($inputs, 'set_handle');
         $attribute = PreviewSupport::string($inputs, 'attribute_handle');
 
+        $members = self::setMembers($category, $set);
+
         return [
             PreviewSupport::entry('Add the attribute ' . $attribute . ' to the set', $set, '', [], PreviewSupport::LIVE_NOTE),
-            ['category' => $category, 'set' => self::setMembers($category, $set), 'attribute' => self::exists($category, $attribute)],
+            ['category' => $category, 'set' => $members, 'attribute' => self::exists($category, $attribute)],
+            // P3.6-2: add_attribute_to_set's own words (CallCheck).
+            $attribute !== '' && $set !== '' && !self::exists($category, $attribute)
+                ? "Attribute '{$attribute}' not found in category '{$category}'"
+                : ($set !== '' && $members === null ? "There is no attribute set '{$set}'. list_attribute_sets lists them. Nothing was changed." : null),
         ];
     }
 
@@ -90,7 +96,17 @@ final class AttributePreviews
                 PreviewSupport::LIVE_NOTE
             ),
             ['category' => $category, 'handle' => $handle, 'exists' => self::exists($category, $handle)],
+            // P3.6-2: the create tools' own words (CallCheck).
+            self::exists($category, $handle) ? self::existsRefusal($category, $handle) : null,
         ];
+    }
+
+    private static function existsRefusal(string $category, string $handle): string
+    {
+        $name = self::CATEGORY_NAMES[$category];
+        $details = ['collection' => 'get_page_attribute_details', 'user' => 'get_user_attribute_details', 'file' => 'get_file_attribute_details'][$category];
+
+        return "There is already a {$name} attribute '{$handle}': use it ({$details}), or choose another handle. Nothing was changed.";
     }
 
     private static function category(array $inputs): string

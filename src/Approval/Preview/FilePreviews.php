@@ -24,9 +24,16 @@ final class FilePreviews
         $label = $key ? (string) $key->getAttributeKeyName() : $handle;
         $value = PreviewSupport::text($inputs['value'] ?? '');
         if ($file === null) {
+            $fID = PreviewSupport::int($inputs, 'fileID');
+            $name = PreviewSupport::string($inputs, 'filename');
+
             return [
                 PreviewSupport::entry('Set ' . $label . ' on', 'a file that was not found', '', [PreviewSupport::change($label, null, $value)], PreviewSupport::LIVE_NOTE),
                 ['missing' => [$inputs['fileID'] ?? null, $inputs['filename'] ?? null]],
+                // P3.6-2: set_file_attribute_value's own words (CallCheck). A name matching several files is left to it.
+                $fID > 0
+                    ? "File {$fID} not found: it may have been deleted, or the ID is wrong. Find it with list_files. Nothing was changed."
+                    : ($name !== '' && self::filesNamed($name) === 0 ? "No file is named '{$name}'. Find it with list_files and send its fileID. Nothing was changed." : null),
             ];
         }
 
@@ -42,6 +49,9 @@ final class FilePreviews
                 'Files have no draft: this is live at once.'
             ),
             ['fID' => (int) $file->getFileID(), 'fvID' => $version ? (int) $version->getFileVersionID() : 0, 'handle' => $handle, 'value' => $current],
+            $handle !== '' && $key === null
+                ? "File attribute '{$handle}' not found: there is no attribute with that handle. list_file_attributes lists the handles. Nothing was changed."
+                : null,
         ];
     }
 
@@ -64,7 +74,18 @@ final class FilePreviews
         return [
             PreviewSupport::entry('Create the folder', '"' . $name . '" under ' . $parentName, '', $details, PreviewSupport::LIVE_NOTE),
             ['parent' => $parent instanceof FileFolder ? (int) $parent->getTreeNodeID() : 0, 'children' => $children],
+            $parentID > 0 && !$parent instanceof FileFolder
+                ? "Folder {$parentID} not found: it may have been deleted, or the ID is wrong. list_file_folders lists the folders and their IDs. Nothing was changed."
+                : null,
         ];
+    }
+
+    private static function filesNamed(string $name): int
+    {
+        $list = new FileList();
+        $list->filterByFilename($name);
+
+        return count($list->getResults());
     }
 
     private static function file(array $inputs): ?\Concrete\Core\Entity\File\File

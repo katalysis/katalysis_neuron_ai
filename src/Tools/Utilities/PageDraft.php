@@ -30,6 +30,11 @@ final class PageDraft
      */
     public static function of(Page $page, ?bool &$created = null): Page
     {
+        // P3.6-2: an approval check's dry run stops here, before anything is written (CallCheck).
+        if (self::$dryRun) {
+            throw new DryRunReached('The call passed its checks; the dry run stops before the draft.');
+        }
+
         $latest = Page::getByID($page->getCollectionID(), 'RECENT');
         $draft = $latest->getVersionToModify();
         $created = $draft !== $latest;
@@ -40,6 +45,24 @@ final class PageDraft
         }
 
         return $draft;
+    }
+
+    /** P3.6-2: set while CallCheck runs a call's own checks; of() then throws DryRunReached instead of making a draft. */
+    private static bool $dryRun = false;
+
+    /**
+     * Runs $call with the draft step stopped (CallCheck): every check a write tool makes before its draft runs, and
+     * nothing is written.
+     */
+    public static function dryRun(callable $call): mixed
+    {
+        $outer = self::$dryRun;
+        self::$dryRun = true;
+        try {
+            return $call();
+        } finally {
+            self::$dryRun = $outer;
+        }
     }
 
     /**

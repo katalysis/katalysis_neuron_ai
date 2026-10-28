@@ -36,6 +36,14 @@ final class ApprovalService
     public const DENIED = 'denied';
     public const STALE = 'stale';
     public const NOT_APPROVED = 'not_approved';
+    /** P3.6-2: never put to the user, because the call's own checks would refuse it (CallCheck). */
+    public const REFUSED = 'refused';
+
+    /**
+     * Before a rejection reason: the rest is the tool's own refusal, which ApprovalToolNode gives the model as the call's
+     * result, word for word, instead of Neuron's "the user rejected this action".
+     */
+    public const REFUSED_PREFIX = "\u{1}refused-by-check\u{1}";
 
     /**
      * The fixed reason the policy returns for the page tools (P3.6-1). Since P3.6-2 every write tool is gated
@@ -61,6 +69,7 @@ final class ApprovalService
         self::DENIED => 'Denied',
         self::STALE => 'Not done: the page changed since you saw the preview.',
         self::NOT_APPROVED => "Not approved: you sent a new message, so this wasn't done.",
+        self::REFUSED => 'Not asked: this would be refused: ',
     ];
 
     private const TABLE = 'KatalysisNeuronAiApprovals';
@@ -130,9 +139,11 @@ final class ApprovalService
     {
         foreach ($actions as $action) {
             $preview = ChangePreview::of($action->name, $action->inputs);
+            // P3.6-2: a call its own checks would refuse is decided at once, with that refusal (CallCheck).
+            $refused = $preview['refusal'] ?? null;
             $this->db->executeStatement(
-                'INSERT INTO ' . self::TABLE . ' (chatId, callId, toolName, inputs, preview, fingerprint, status, requestedBy, requestedAt)'
-                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id',
+                'INSERT INTO ' . self::TABLE . ' (chatId, callId, toolName, inputs, preview, fingerprint, status, note, requestedBy, requestedAt, decidedBy, decidedAt)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id',
                 [
                     $chatId,
                     $action->id,
@@ -140,9 +151,12 @@ final class ApprovalService
                     SecretRedactor::redact((string) json_encode($action->inputs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR)),
                     (string) json_encode($preview['entry'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR),
                     $preview['fingerprint'],
-                    self::PENDING,
+                    $refused === null ? self::PENDING : self::REFUSED,
+                    $refused === null ? null : SecretRedactor::redact($refused),
                     $userId,
                     date('Y-m-d H:i:s'),
+                    $refused === null ? null : 0,
+                    $refused === null ? null : date('Y-m-d H:i:s'),
                 ]
             );
         }
@@ -204,7 +218,9 @@ final class ApprovalService
             'note' => (string) ($entry['note'] ?? ''),
             'warnings' => array_values(array_map('strval', (array) ($entry['warnings'] ?? []))),
             'status' => $status,
-            'statusText' => self::STATUS_TEXT[$status] ?? '',
+            'statusText' => $status === self::REFUSED
+                ? self::STATUS_TEXT[self::REFUSED] . self::refusalText((string) ($row['note'] ?? ''))
+                : (self::STATUS_TEXT[$status] ?? ''),
         ];
     }
 
@@ -344,8 +360,19 @@ final class ApprovalService
         return $statuses;
     }
 
+    /** The tool's refusal for the card: without the wrapper the model gets, shortened. */
+    private static function refusalText(string $refusal): string
+    {
+        $text = (string) preg_replace(['/^Error executing tool:\s*/', '/\.\s*Please try a different approach or ask for clarification\.$/'], ['', '.'], trim($refusal));
+
+        return mb_strlen($text) > 300 ? mb_substr($text, 0, 300) . '…' : $text;
+    }
+
     private static function rejectionFor(array $row): string
     {
+        if ($row['status'] === self::REFUSED) {
+            return self::REFUSED_PREFIX . (string) $row['note'];
+        }
         $note = trim((string) ($row['note'] ?? ''));
 
         return $note === '' ? self::DENY_REASON : 'The user chose Deny and said: ' . $note;
