@@ -292,6 +292,8 @@ final class ObjectPermissions
      */
     private static function check(Checker $checker, string $method, array $args, ?string $handle, string $doing, string $grant, bool $write = true): ?string
     {
+        // BF-19: without the aliases loaded, Concrete refuses View and Edit Block in page-inherited areas.
+        CoreAliases::load();
         if ((bool) $checker->{$method}(...$args)) {
             return null;
         }

@@ -19,6 +19,7 @@ use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Access\CoreAliases;
 use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\PageContextResolver;
 use Katalysis\NeuronAi\Security\SecretRedactor;
@@ -1148,8 +1149,8 @@ class PagesToolkit extends AbstractToolkit
         $hidden = 0;
 
         // Area::getListOnPage() is typed against the global `Page` alias. PHP does not
-        // autoload an alias for a type check, so load it first.
-        class_exists('Page');
+        // autoload an alias for a type check, so load it first (BF-19: with the others).
+        CoreAliases::load();
 
         try {
             $areas = Area::getListOnPage($page);

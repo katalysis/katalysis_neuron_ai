@@ -40,6 +40,7 @@ use Katalysis\NeuronAi\Tools\DisabledTools;
 use Katalysis\NeuronAi\Tools\FilteredToolkit;
 use Katalysis\NeuronAi\Tools\ToolNameResolver;
 use Katalysis\NeuronAi\Tools\ToolTiers;
+use Katalysis\NeuronAi\Access\CoreAliases;
 use Katalysis\NeuronAi\Access\NeuronPermissions;
 use Katalysis\NeuronAi\Access\TierGate;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
@@ -66,6 +67,9 @@ class ConcreteCmsAgent extends Agent
     public function __construct(?int $chatId = null)
     {
         parent::__construct();
+
+        // BF-19: Concrete's permission checks type-check against lazily loaded class aliases; load them for every turn.
+        CoreAliases::load();
 
         $this->setChatId($chatId);
 

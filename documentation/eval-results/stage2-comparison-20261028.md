@@ -51,6 +51,12 @@ The reference for each scenario is its most recent recorded multi-run label. Tha
 
 ## Every pass → fail, partial → fail, and failed run in a passing scenario, with its cause
 
+> **Correction (BF-19, the same day):** 06's cause below is wrong in one respect. Nothing in the data changed.
+> - **The real cause:** Concrete 9.5.5's `BlockAssignment` tests `instanceof Page` against the global `Page` alias, which Concrete loads lazily. Until something in the PHP process has used the name `Page`, block checks in page-inherited areas are refused.
+> - **Why the runs differed:** P3.S1's 06 ran after scenarios that read pages, which loads the alias. P3.S2's 06 ran right after 04, which doesn't. 23 passed later in the same run, for the same reason.
+> - **Why the P3.S1-code check failed:** my check on P3.S1's code was a fresh script, so it failed the same way, and I read that as "the data changed".
+> - **Fix:** BF-19 loads the aliases before permission checks (`CoreAliases`). A draft Concrete issue is in `documentation/upstream/`.
+
 - **06, partial 3/3 → fail 3/3 (regression; data, not Stage 2's code).** `batch_update_content_headings` refused the Column 1 block in every run: "Permission denied: you can't edit block … It needs Concrete's 'Edit Block' permission". In P3.S1 the same call, with the same inputs, converted both headings. What I found:
   - **Reproduced without the model:** the same tool call, as `neuron_content_editor` on today's data, is refused.
   - **Not Stage 2's code:** the same call on **P3.S1's code (8df5f90)**, against today's data, is refused the same way.

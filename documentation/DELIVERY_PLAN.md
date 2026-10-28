@@ -274,7 +274,7 @@ Rollback: the upgrade lives on `integration/neuron4`. If it has to be rolled bac
 - **"Depends on"** names the tasks that must be merged first.
 - **Sizes:** S, M and L as in the §5 intro, but relative. Phases 1 and 2 were each sized M and took 2 to 3 days.
 - **Scenarios (WP-4):** each task runs a free `--fake` run of the scenarios it touches and ×1 of its own new or changed ones, within its cap. Each stage ends with a ×3 comparison task (P3.S1–P3.S4), where the merge rule is applied. P3.5-1, P3.2-1, P3.6-1, P3.6-2 and P3.6a keep their own ×3 runs before merge. Price basis: about $0.07 a run on gpt-4o (P2.9 measured $0.063).
-- **Budget (recomputed with P3.3-7, 27 October 2026; actual spend for the tasks done):** the phase budget is **$60**. Stage 1 $13.70 (P3.3-1 spent $2.17, P3.3-2 $0, P3.3-6 $0.98; the rest are caps, P3.S1 $6.60 of them), Stage 2 $7.00 (P3.3-7 $0.60, P3.S2 $6.40), Stage 3 $8.20 (P3.S3 $0.80), Stage 4 $10.60 (P3.S4 $10.10), alongside $0.25, and P3.12 $10.10: **about $49.90, leaving about $10.10** for re-runs, with Glyn's agreement each time. If no task merges after P3.S4, its run is the exit run and P3.12 costs nothing more: about $39.80, leaving about $20.20. In WP-4 (caps only, before P3.3-7) it was about $46.90, leaving $13.10. P5.0's $0.85 is in Phase 5's budget.
+- **Budget (recomputed with P3.3-7, 27 October 2026; actual spend for the tasks done):** the phase budget is **$60**. Stage 1 $13.70 (P3.3-1 spent $2.17, P3.3-2 $0, P3.3-6 $0.98; the rest are caps, P3.S1 $6.60 of them), Stage 2 $7.00 (P3.3-7 $0.60, P3.S2 $6.40), Stage 3 $8.20 (P3.S3 $0.80), Stage 4 $10.60 (P3.S4 $10.10), alongside $0.25, and P3.12 $10.10: **about $49.90, leaving about $10.10** for re-runs, with Glyn's agreement each time. If no task merges after P3.S4, its run is the exit run and P3.12 costs nothing more: about $39.80, leaving about $20.20. **After P3.S2 (Glyn):** P3.S4's run is the exit run; the $60 budget stands and is reassessed after P3.2-2. P3.S2 measured $0.095 a run; with P3.12's $10.10 gone, about $18.32 is left at the caps, or about $11.60 if the remaining caps are repriced at $0.095 (`eval-results/stage2-comparison-20261028.md`). In WP-4 (caps only, before P3.3-7) it was about $46.90, leaving $13.10. P5.0's $0.85 is in Phase 5's budget.
 - **Every Phase 3 comparison runs on gpt-4o.** A model change gets its own comparison run (P3.8-1).
 - **From P3.6-1 on, the write scenarios gain approve and deny steps.** Each change to a scenario's expected values goes in its own commit with the reason, as the merge rule says.
 - **Internal pilot (WP-4, Glyn):** once Stage 3 is merged (including P3.6a), Glyn uses Neuron on Katalysis's own sites, subject to §6's "before any non-dev install" line. Stage 4 continues during the pilot, and each pilot failure becomes a scenario. Client use waits for the Phase 3 exit.
@@ -463,7 +463,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `VersionsToolkit::guidelines()` (BF-10)
   - rules with no code yet: B-LNG-1 and B-LNG-3 (with scenarios), B-SCP-1, B-SCP-3, B-INJ-6, B-TRU-8
   - scenarios: the new language scenarios ×1, and `--fake` of the full suite; cap $0.20. Compared ×3 in P3.S4
-- [ ] P3.S4 **Stage 4 comparison** (S; WP-4). Depends on: every Stage 4 task. The full suite (about 43 scenarios by then) ×3, the unstable ones ×5, from a reset, on gpt-4o. The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $10.10 (about 143 runs).
+- [ ] P3.S4 **Stage 4 comparison** (S; WP-4). Depends on: every Stage 4 task. The full suite (about 43 scenarios by then) ×3, the unstable ones ×5, from a reset, on gpt-4o. The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $10.10 (about 143 runs). **This run is the Phase 3 exit run** (Glyn, after P3.S2): P3.12 doesn't repeat it.
 
 #### Alongside, at any point
 - [ ] P3.8-1 **Provider and model from settings** (M). Depends on: nothing.
@@ -483,7 +483,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `show_prompt.php` in SETUP (P2.4's question)
 
 #### Last
-- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: full run (×3, the unstable ones ×5, about 143 runs by then); cap $10.10 (was $7.70, for a smaller suite). **If nothing merges after P3.S4, P3.S4's run is the exit run and P3.12 doesn't repeat it** (Glyn, after WP-4); the cap is for a run only when something merged after P3.S4.
+- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: **P3.S4's run is the exit run, and P3.12 doesn't repeat it** (Glyn, after P3.S2: at P3.S2's $0.095 a run the phase couldn't afford two full runs). P3.12 reviews that run against the exit criteria; anything merged after P3.S4 runs its own scenarios, as any task does. (Was: a full run of its own, cap $10.10, unless nothing merged after P3.S4.)
 
 #### Removed, merged or moved (on the roadmap, 27 October 2026)
 - **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).
@@ -699,6 +699,11 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - a red-first test
   - with it, in its own commit (Glyn approved): `no_false_success` no longer counts a sentence that describes existing data ("were created for tests", "was added by", "has been set up as") as a claim of a change made in this run; unit-tested with scenario 25's flagged reply (must pass), the existing false-success cases still fail
   - scenarios: `--fake` of 15 only; P3.S2 compares it
+- [x] BF-19 **Edit Block refused for fixture users on page-inherited areas** (small; Done (PR #88); its own PR into `development`; no plan stop unless the cause is in our code; Glyn, after P3.S2; before Stage 3). P3.S2's regression: scenario 06 went partial → fail because Concrete's Edit Block (and View Block) check is false for every fixture user on blocks in areas that inherit the page's permissions, while the page and area checks are true. It reproduces with P3.S1's code on today's data, so the data changed after P3.S1. Scope:
+  - read-only investigation first: compare the permission tables (`PermissionAccessEntities`, `PermissionAccessList`, `PermissionAssignments`, `AreaPermissionAssignments`, `BlockPermissionAssignments`, `PagePermissionAssignments`, `Areas`' `arOverrideCollectionPermissions` and `arInheritPermissionsFromAreaOnCID`, `CollectionVersionBlocks`' `cbOverrideAreaPermissions`) between P3.S1's backup and today's database, for the `/neuron-test` pages and their areas and blocks
+  - find which task, test or seed step since P3.S1 made the change, and why scenario 23 passed during the run
+  - fix the cause, not the symptom: if a test or the seed leaves permission rows behind, fix that and make the leak check catch it; red-first test where possible. **If the cause is in our code rather than the data, stop and tell Glyn before fixing**
+  - scenarios: 06 ×3 after a reset; cap $0.35
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
