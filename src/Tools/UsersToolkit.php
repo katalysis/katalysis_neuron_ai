@@ -17,6 +17,7 @@ use NeuronAI\Tools\ArrayProperty;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
+use Katalysis\NeuronAi\Tools\Utilities\PermittedWindow;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -91,12 +92,12 @@ class UsersToolkit extends AbstractToolkit
                 $list->filterByIsActive(true);
             }
 
-            // BF-6: getResults() ignores setItemsPerPage() and returns every match, so the permitted matches are counted
-            // here and the window is sliced from them. BF-14: only the ones the requester may view.
-            $results = self::viewable($list);
-            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo, (array) $fields), $window->slice($results));
+            // BF-6: the permitted matches are counted here. BF-14: only the ones the requester may view. P3.3-5: only until
+            // the window is full and the check limit is reached (PermittedWindow).
+            $found = self::viewable($list, $window);
+            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo, (array) $fields), $found['items']);
 
-            return ['users' => $users] + $window->summary(count($results), count($users), 'list_users', 'activeOnly, or search_users');
+            return ['users' => $users] + $window->summary($found['total'], count($users), 'list_users', 'activeOnly, or search_users', $found['exact']);
         }));
 
         return $tool;
@@ -240,14 +241,14 @@ class UsersToolkit extends AbstractToolkit
             $list->filterByKeywords($query);
             $list->getQueryObject()->addOrderBy('u.uID', 'asc');
 
-            // BF-6: every match the user may view, counted here; the window is sliced.
-            $results = self::viewable($list);
-            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo, (array) $fields), $window->slice($results));
+            // BF-6: every match the user may view, counted here; P3.3-5: up to the check limit.
+            $found = self::viewable($list, $window);
+            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo, (array) $fields), $found['items']);
 
             return [
                 'query' => $query,
                 'users' => $users,
-            ] + $window->summary(count($results), count($users), 'search_users', 'a more specific query');
+            ] + $window->summary($found['total'], count($users), 'search_users', 'a more specific query', $found['exact']);
         }));
 
         return $tool;
@@ -256,16 +257,13 @@ class UsersToolkit extends AbstractToolkit
     /**
      * BF-14 (B-PII-1): the list's matches the requester may view (Concrete's canViewUser, as get_user checks).
      * UserList::getResults() never calls a permission checker set on the list (only Concrete's pagination does), so
-     * each user is checked here.
+     * each user is checked here. P3.3-5: in the window, counted up to PermittedWindow's check limit.
      *
-     * @return list<UserInfo>
+     * @return array{items: list<UserInfo>, total: int, exact: bool}
      */
-    private static function viewable(UserList $list): array
+    private static function viewable(UserList $list, ListWindow $window): array
     {
-        return array_values(array_filter(
-            $list->getResults(),
-            static fn (UserInfo $userInfo): bool => (bool) (new Checker($userInfo))->canViewUser()
-        ));
+        return PermittedWindow::of($list, $window, static fn (UserInfo $userInfo): bool => (bool) (new Checker($userInfo))->canViewUser());
     }
 
     /**

@@ -22,6 +22,8 @@ use Katalysis\NeuronAi\Tools\Utilities\TextIntegrity;
 use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use NeuronAI\Tools\ArrayProperty;
+use NeuronAI\Tools\ObjectProperty;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -57,11 +59,19 @@ class BatchEditToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->addProperty(new ToolProperty(
+        // P3.3-5: the items are declared (P2.3's list of arrays without items).
+        $tool->addProperty(new ArrayProperty(
             'blocks',
-            PropertyType::ARRAY,
             'Array of block updates. Each item must have: areaHandle (string), blockID (number from current version), value (object with block data). An item may have its own changeMode, which applies to that block instead of the top-level one. With changeMode "scoped_text", the item also has textFields (fields whose text may change) and replacedText (the stored text the change replaces or removes, word for word). Fields left out of value keep their stored values. Every item is checked before anything is saved: a refused item is left unchanged and keeps its block ID.',
-            true
+            true,
+            new ObjectProperty('block', 'One block update', true, null, [
+                new ToolProperty('areaHandle', PropertyType::STRING, 'Handle of the area containing the block', true),
+                new ToolProperty('blockID', PropertyType::INTEGER, 'ID of an existing block, from the current version', true),
+                new ToolProperty('value', PropertyType::OBJECT, BlockImportSave::VALUE_DESCRIPTION, true),
+                new ToolProperty('changeMode', PropertyType::STRING, 'This block\'s text safety mode, instead of the top-level one', false),
+                new ArrayProperty('textFields', 'With changeMode "scoped_text": the fields whose text may change', false, new ToolProperty('field', PropertyType::STRING, 'A field name of the block', true)),
+                new ArrayProperty('replacedText', 'With changeMode "scoped_text": the stored text the change replaces or removes, word for word', false, new ToolProperty('text', PropertyType::STRING, 'Stored text', true)),
+            ])
         ));
 
         $tool->addProperty(new ToolProperty(
@@ -108,7 +118,9 @@ class BatchEditToolkit extends AbstractToolkit
                 }
 
                 if (!is_int($block['blockID']) || $block['blockID'] <= 0) {
-                    throw new \RuntimeException("blocks[{$index}].blockID must be a positive integer, got: " . var_export($block['blockID'], true));
+                    // P3.3-5 (scenario 27 in P3.3-7): a new block sent as a batch item, then reported as added.
+                    throw new \RuntimeException("blocks[{$index}].blockID must be the ID of an existing block, got: " . var_export($block['blockID'], true)
+                        . '. This tool only changes blocks that exist; to add a new block, use add_block_to_page_area. Nothing was changed.');
                 }
 
                 if (!is_array($block['value'])) {
@@ -477,11 +489,11 @@ class BatchEditToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->addProperty(new ToolProperty(
+        $tool->addProperty(new ArrayProperty(
             'headingTexts',
-            PropertyType::ARRAY,
             'Optional heading texts to find in Content blocks (exact text match after normalization). Required when matchMode="explicit".',
-            false
+            false,
+            new ToolProperty('text', PropertyType::STRING, 'One heading text', true)
         ));
 
         $tool->addProperty(new ToolProperty(
@@ -506,13 +518,6 @@ class BatchEditToolkit extends AbstractToolkit
         ));
 
         $tool->addProperty(new ToolProperty(
-            'includeInactive',
-            PropertyType::BOOLEAN,
-            'Ignored. This tool always works on the blocks of the new draft version, never on the live version.',
-            false
-        ));
-
-        $tool->addProperty(new ToolProperty(
             'continueOnError',
             PropertyType::BOOLEAN,
             'Continue processing remaining headings after an error (default: true)',
@@ -525,7 +530,6 @@ class BatchEditToolkit extends AbstractToolkit
             ?string $matchMode = 'explicit',
             ?string $areaHandleContains = null,
             ?string $targetTag = 'h3',
-            ?bool $includeInactive = true,
             ?bool $continueOnError = true
         ): array {
             if (!$pageID) {

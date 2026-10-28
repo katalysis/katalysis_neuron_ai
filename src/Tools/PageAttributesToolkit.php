@@ -21,6 +21,7 @@ use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use NeuronAI\Tools\ArrayProperty;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -219,11 +220,11 @@ class PageAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->addProperty(new ToolProperty(
+        $tool->addProperty(new ArrayProperty(
             'options',
-            PropertyType::ARRAY,
             'For select type: array of option values (e.g., ["option1", "option2"]). Optional for other types.',
-            false
+            false,
+            new ToolProperty('option', PropertyType::STRING, 'One option value', true)
         ));
 
         $tool->addProperty(new ToolProperty(
@@ -403,11 +404,11 @@ class PageAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->addProperty(new ToolProperty(
+        $tool->addProperty(new ArrayProperty(
             'options',
-            PropertyType::ARRAY,
             'For select type: array of option values (e.g., ["New", "Live", "Updated"])',
-            false
+            false,
+            new ToolProperty('option', PropertyType::STRING, 'One option value', true)
         ));
 
         $tool->addProperty(new ToolProperty(
@@ -597,11 +598,11 @@ class PageAttributesToolkit extends AbstractToolkit
             true
         ));
 
-        $tool->addProperty(new ToolProperty(
+        $tool->addProperty(new ArrayProperty(
             'options',
-            PropertyType::ARRAY,
             'Array of option values to set (e.g., ["option1", "option2"]). This replaces all existing options.',
-            true
+            true,
+            new ToolProperty('option', PropertyType::STRING, 'One option value', true)
         ));
 
         $tool->setHandler($this->guarded(function (
