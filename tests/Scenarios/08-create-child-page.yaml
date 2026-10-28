@@ -15,6 +15,10 @@ expect:
     page_type: {page: /neuron-test/scenario-child, handle: page}
     changed_pages:
       exactly: [/neuron-test/scenario-child]
+  tools:
+    # P3.6-1/P3.6-2: the page is made only after the user approves it in the chat.
+    approval_asked: [create_page]
+    no_write_without_approval: true
   reply:
     matches_all:
       - 'neuron-test/scenario-child|Scenario Child'
