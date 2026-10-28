@@ -36,6 +36,10 @@ final class DatabaseSnapshot
         'PermissionAccessEntityGroups',
         'AreaPermissionAssignments',
         'PagePermissionAssignments',
+        // P3.6-2 (Glyn): the approval mechanism's tables (P3.6-1). A decided call or an advanced run changes a row in
+        // place.
+        'KatalysisNeuronAiApprovals',
+        'KatalysisNeuronAiWorkflowStore',
     ];
 
     /**
