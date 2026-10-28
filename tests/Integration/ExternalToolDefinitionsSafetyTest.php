@@ -63,6 +63,10 @@ final class ExternalToolDefinitionsSafetyTest extends ConcreteTestCase
             ToolDefinition::make('get_p28_broken', 'Throws.')
                 ->handler(static fn (array $in): never => throw new \RuntimeException('provider said no to ' . self::KEY)),
         ], 'Use get_p28_note to read the note.', 'P28SafetyToolkit');
+
+        // P3.2-1: the agent offers each user only their tier's tools. The super user is Tier 3, so it is offered every
+        // tool, delete_person included were it not disabled (an undeclared write needs Tier 3).
+        $this->actAs('superuser');
     }
 
     protected function tearDown(): void
@@ -149,9 +153,10 @@ final class ExternalToolDefinitionsSafetyTest extends ConcreteTestCase
 
     public function testAGuestIsRefused(): void
     {
+        // The tool is built for a user with a tier (a guest is offered none, P3.2-1); the login check runs when it runs.
         $agent = new ConcreteCmsAgent();
-        $this->actAs('guest');
         $tool = $this->tools($agent)['get_p28_counted'];
+        $this->actAs('guest');
 
         try {
             $tool->setInputs(['itemID' => 1])->execute();

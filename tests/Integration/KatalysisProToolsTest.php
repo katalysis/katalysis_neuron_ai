@@ -12,6 +12,7 @@ use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Extension\ToolDefinition;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\KatalysisPro;
+use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tests\Support\ToolBaseline;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -145,6 +146,8 @@ final class KatalysisProToolsTest extends ConcreteTestCase
 
     public function testTheAgentOffersTheSevenToolsInV3sOrderAndNotTheDisabledOnes(): void
     {
+        // P3.2-1: katalysis_pro declares no tiers, so its reads are Tier 1: the seeded Content-tier user is offered them.
+        ThrowawayPages::actAs('neuron_content_editor');
         $agent = new ConcreteCmsAgent();
         $kit = null;
         foreach ($agent->getTools() as $item) {

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Integration;
 
+use Concrete\Core\Http\Request;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Security\InjectionNotice;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Chat\Messages\AssistantMessage;
@@ -42,11 +44,15 @@ final class AgentToolResultScanningTest extends ConcreteTestCase
         $property = new \ReflectionProperty(ExternalToolkitRegistry::class, 'factories');
         $this->savedFactories = $property->getValue();
         $property->setValue(null, []);
+        // P3.2-1: the agent offers each user only their tier's tools, and a tool with no tier (this test's) only at
+        // Tier 3: the super user.
+        ThrowawayPages::actAs('superuser');
     }
 
     protected function tearDown(): void
     {
         (new \ReflectionProperty(ExternalToolkitRegistry::class, 'factories'))->setValue(null, $this->savedFactories);
+        Request::getInstance()->setCustomRequestUser(-1);
     }
 
     private function agent(FakeAIProvider $provider): ConcreteCmsAgent
