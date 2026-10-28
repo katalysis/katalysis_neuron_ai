@@ -54,6 +54,35 @@ final class ListWindowTest extends TestCase
         );
     }
 
+    /**
+     * P3.3-5 (Glyn, starting BF-8): scenario 15 run 4 paged list_pages one item at a time (limit 1, ten calls). A small
+     * limit with more to come suggests a larger one.
+     */
+    public function testASmallLimitWithMoreToComeSuggestsALargerOne(): void
+    {
+        $note = ListWindow::of(1, 0, 20, 100)->note(10, 1, 'list_pages');
+
+        $this->assertSame('Showing 1–1 of 10. For more, call list_pages again with offset 1, with a larger limit (up to 100) rather than a few at a time.', $note);
+        $this->assertStringNotContainsString('larger limit', (string) ListWindow::of(20, 0, 20, 100)->note(45, 20, 'list_pages'));
+    }
+
+    /**
+     * P3.3-5 (large sites): a list that stopped counting reports what it counted as a lower bound, and that there is more.
+     */
+    public function testATotalCountedOnlyInPartSaysAtLeast(): void
+    {
+        $summary = ListWindow::of(20, 0, 20, 100)->summary(500, 20, 'list_pages', 'parentPath or pageType', false);
+
+        $this->assertSame(500, $summary['total']);
+        $this->assertTrue($summary['totalIsAtLeast']);
+        $this->assertTrue($summary['more']);
+        $this->assertSame(
+            'Showing 1–20 of at least 500 (counting stopped there, so there may be more). For more, call list_pages again with offset 20, or narrow with parentPath or pageType.',
+            $summary['note']
+        );
+        $this->assertArrayNotHasKey('totalIsAtLeast', ListWindow::of(20, 0, 20, 100)->summary(312, 20, 'list_pages'));
+    }
+
     public function testTheNoteNamesTheNextOffsetFromTheCurrentOne(): void
     {
         $note = ListWindow::of(20, 20, 20, 100)->note(45, 20, 'list_users');
