@@ -403,7 +403,7 @@ class ContentToolkit extends AbstractToolkit
             $fields = BlockFields::ofController($handle, $controller);
             $prepared = BlockImportSave::prepareUpdate($fields, (int) $block->getBlockID(), $beforeRecord, $body);
             $body = $prepared['value'];
-            $textPolicy = TextIntegrity::evaluate($prepared['checkBefore'], $prepared['checkAfter'], $mode, BlockImportSave::textFields($fields, $textFields), $replacedText);
+            $textPolicy = TextIntegrity::evaluate($prepared['checkBefore'], $prepared['checkAfter'], $mode, BlockImportSave::textFields($fields, $textFields, array_keys($prepared['checkBefore'] + $prepared['checkAfter'])), $replacedText);
             if (!$textPolicy['ok']) {
                 throw new \RuntimeException($textPolicy['message']);
             }
