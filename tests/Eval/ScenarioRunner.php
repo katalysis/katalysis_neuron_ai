@@ -116,7 +116,7 @@ final class ScenarioRunner
                 // false notices show up everywhere.
                 $notice = $agent->getTurnNotice();
                 // P3.6-1: a paused turn is answered as the user would, through the panel's path (ConcreteCmsAgent::decide()).
-                [$reply, $agent, $approvals] = $this->answerApprovals($agent, $chatId, $page, $reply, (string) ($turn['approval'] ?? 'approve'));
+                [$reply, $agent, $approvals] = $this->answerApprovals($agent, $chatId, $page, $reply, $turn['approval'] ?? 'approve');
                 $notice ??= $agent->getTurnNotice();
                 $turnSeconds = microtime(true) - $turnStarted;
 
@@ -197,13 +197,13 @@ final class ScenarioRunner
 
     /**
      * P3.6-1: while the turn waits for approval, answers every waiting call with the turn's `approval` (approve by
-     * default, tests/Scenarios/README.md), each answer as a new request with a new agent, as the panel's buttons are.
-     * At most MAX_APPROVAL_ROUNDS pauses per turn.
+     * default, tests/Scenarios/README.md; per tool since P3.6-3, ApprovalAnswer), each answer as a new request with a
+     * new agent, as the panel's buttons are. At most MAX_APPROVAL_ROUNDS pauses per turn.
      *
      * @return array{string, ConcreteCmsAgent, list<array{tool: string, callId: string, decision: string, status: string}>}
      *     the turn's final reply, the agent that ended it, and the calls it waited on
      */
-    private function answerApprovals(ConcreteCmsAgent $agent, int $chatId, string $page, string $reply, string $decision): array
+    private function answerApprovals(ConcreteCmsAgent $agent, int $chatId, string $page, string $reply, mixed $answer): array
     {
         $approvals = [];
         for ($round = 0; $agent->isAwaitingApproval() && $round < self::MAX_APPROVAL_ROUNDS; $round++) {
@@ -219,6 +219,8 @@ final class ScenarioRunner
                 $agent = ($this->agentFactory)();
                 $agent->setChatId($chatId);
                 $this->setPageContext($agent, $page);
+                // P3.6-3: the answer may differ by tool (ApprovalAnswer).
+                $decision = ApprovalAnswer::for($answer, (string) $card['tool']);
                 $result = $agent->decide((string) $card['callId'], $decision === 'approve');
                 // P3.6-3: the page each card named, for approvals_cover_children (scenario 17).
                 $approvals[] = ['tool' => (string) $card['tool'], 'callId' => (string) $card['callId'], 'decision' => $decision, 'status' => '', 'path' => (string) ($card['path'] ?? '')];

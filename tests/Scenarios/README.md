@@ -29,7 +29,7 @@ setup:                           # optional: content this scenario needs on top 
   - create_person: {name: "Test Person X", email: "x@neuron-test.invalid", biography: "...", active: true}
 turns:
   - say: "the user's message"
-    approval: approve            # optional: approve | deny (default approve): how the runner answers each approval card (P3.6-1)
+    approval: approve            # optional: approve | deny (default approve), or by tool: {default: approve, delete_page: deny} (P3.6-3)
     current_page: /other/path    # optional: the user has moved to this page for this turn, and stays there in later turns unless they set their own (scenario 19)
     expect:                      # optional: checks made after this turn
       ...
@@ -61,7 +61,7 @@ Free text for a human reviewer: what a good reply looks like. It is recorded but
 
 ### `approval`
 
-Since P3.6-1 a gated write (`update_page`, `set_page_attribute_value`, `create_page`) waits for the user to approve it in the chat. A turn may say `approval: approve` or `approval: deny`, and the runner answers every approval card of that turn that way, through the same path as the panel's buttons (`ConcreteCmsAgent::decide()`, a new agent for each answer, as a new request), until the turn ends or it has paused 5 times. When a turn has no `approval` field, the runner uses `approve`. Each turn's record lists the calls it waited on (`approvals`: tool, decision, outcome).
+Since P3.6-1 a gated write (`update_page`, `set_page_attribute_value`, `create_page`) waits for the user to approve it in the chat. A turn may say `approval: approve` or `approval: deny`, and the runner answers every approval card of that turn that way, through the same path as the panel's buttons (`ConcreteCmsAgent::decide()`, a new agent for each answer, as a new request), until the turn ends or it has paused 5 times. When a turn has no `approval` field, the runner uses `approve`. Since P3.6-3 the answer can differ by tool: `approval: {default: approve, delete_page: deny}` approves every card except a `delete_page` one (scenario 04: the user asked for people, the injected text for a delete). Each turn's record lists the calls it waited on (`approvals`: tool, decision, outcome).
 
 ## Checks
 

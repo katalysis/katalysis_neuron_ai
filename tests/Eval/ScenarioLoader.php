@@ -153,8 +153,10 @@ final class ScenarioLoader
             if (!isset($turn['say']) || !is_string($turn['say']) || trim($turn['say']) === '') {
                 $errors[] = "{$label}: say must be a non-empty string.";
             }
-            if (isset($turn['approval']) && !in_array($turn['approval'], ['approve', 'deny'], true)) {
-                $errors[] = "{$label}: approval must be approve or deny.";
+            if (isset($turn['approval'])) {
+                foreach (ApprovalAnswer::problems($turn['approval']) as $problem) {
+                    $errors[] = "{$label}: {$problem}";
+                }
             }
             if (isset($turn['expect'])) {
                 $errors = array_merge($errors, self::validateExpect($turn['expect'], $label));
