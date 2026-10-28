@@ -437,4 +437,28 @@ final class ApprovalFlowTest extends ConcreteTestCase
         $this->assertSame('Still here.', $this->agent($chatId, new FakeAIProvider(new AssistantMessage('Still here.')))->handleUserMessage('Hello?'));
         $this->assertSame(0, $this->runRows($chatId));
     }
+
+    public function testTwoApprovedUpdatesToOneBlockInOneResponseAreBothApplied(): void
+    {
+        // P3.6-2 (C): both calls name the block's live ID. The first copies it into the draft; the second follows the
+        // copy instead of being refused as "not in the newest version".
+        $page = $this->pages->create('Approval same block');
+        $cID = (int) $page->getCollectionID();
+        [$b1] = $this->pages->blockIDs($cID);
+        $chatId = $this->newChat();
+        $first = self::call('update_block_in_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => '<p>Block one original text. Added A.</p>']]);
+        $second = self::call('update_block_in_page_area', ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $b1, 'value' => ['content' => '<p>Block one original text. Added A. Added B.</p>']]);
+
+        $this->agent($chatId, new FakeAIProvider(self::calls($first, $second)))->handleUserMessage('Add two sentences.');
+        $this->agent($chatId, new FakeAIProvider())->decide((string) $first->getCallId(), true);
+        $provider = new FakeAIProvider(new AssistantMessage('Both added.'));
+        $this->assertSame(['recorded' => true, 'reply' => 'Both added.'], $this->agent($chatId, $provider)->decide((string) $second->getCallId(), true));
+
+        $this->assertStringNotContainsString('Error executing tool', self::sentResults($provider), 'neither call was refused');
+        [$copy] = $this->pages->blockIDs($cID);
+        $this->assertNotSame($b1, $copy, 'changed in a draft copy');
+        $this->assertSame('<p>Block one original text. Added A. Added B.</p>', trim((string) $this->db()->fetchOne('SELECT content FROM btContentLocal WHERE bID = ?', [$copy])));
+        $this->assertSame('<p>Block one original text.</p>', trim((string) $this->db()->fetchOne('SELECT content FROM btContentLocal WHERE bID = ?', [$b1])), 'the live block is unchanged');
+        $this->assertSame(2, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM CollectionVersions WHERE cID = ?', [$cID]), 'one draft');
+    }
 }
