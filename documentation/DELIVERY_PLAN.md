@@ -709,6 +709,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - `list_pages` names the parent page (path and title) in its result, so the model can't take a child for the home page (scenario 15's wrong-place write); red-first test
   - `batch_update_content_headings`' description says it changes heading levels only, and that renaming a heading's text uses `update_block_in_page_area` (scenario 24); recorded in `ToolBaseline` as deliberate
   - scenarios: `--fake` of 15, 24 and 29; P3.S3 compares them
+- [ ] BF-21 **`add_attribute_to_set` without `category`** (small; Tier 2; after the internal pilot starts; Glyn, after P3.6-2). Found in P3.6-2: `add_attribute_to_set` fails with "Invalid category ''" when `category` is omitted, because Neuron passes null for an omitted input and the tool doesn't fall back to its default (`collection`).
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
