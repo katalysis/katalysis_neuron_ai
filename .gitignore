@@ -7,6 +7,8 @@ documentation/eval-results/*
 !documentation/eval-results/baseline-*
 !documentation/eval-results/phase1-exit-*
 !documentation/eval-results/phase2-exit-*
+# WP-4: each Phase 3 stage's comparison report (P3.S1 to P3.S4)
+!documentation/eval-results/stage*-comparison-*
 
 # WP-2: the shared fixture lock (tests/Support/FixtureLock.php). Only its holder's details; the lock itself is an flock.
 /.fixture-lock
