@@ -156,6 +156,34 @@ final class BlockImportSave
     }
 
     /**
+     * textFields as the text check sees them: a child row or a row's field ("btImageSliderEntries[1].title", scenario
+     * 36) is its table, whose rows the check compares as one field.
+     *
+     * @param list<string>|null $textFields
+     *
+     * @return list<string>|null
+     */
+    public static function textFields(BlockFields $fields, ?array $textFields): ?array
+    {
+        if ($textFields === null) {
+            return null;
+        }
+        $named = [];
+        foreach ($textFields as $field) {
+            $field = (string) $field;
+            foreach ($fields->childTables() as $table) {
+                if (preg_match('/^' . preg_quote($table, '/') . '(\[\d+\])?(\..+)?$/', $field) === 1) {
+                    $field = $table;
+                    break;
+                }
+            }
+            $named[] = $field;
+        }
+
+        return array_values(array_unique($named));
+    }
+
+    /**
      * Adds the block to the draft in import mode, as AddBlockToPageCommandHandler adds it, then its child rows.
      *
      * @param array{value: array<string, mixed>, rows: array<string, list<array<string, mixed>>>} $prepared

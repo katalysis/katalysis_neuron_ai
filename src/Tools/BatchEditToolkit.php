@@ -358,7 +358,7 @@ class BatchEditToolkit extends AbstractToolkit
         $fields = BlockFields::ofController($handle, $controller);
         $prepared = BlockImportSave::prepareUpdate($fields, $blockID, $beforeRecord, $value);
 
-        $textPolicy = TextIntegrity::evaluate($prepared['checkBefore'], $prepared['checkAfter'], $update['changeMode'], $update['textFields'], $update['replacedText']);
+        $textPolicy = TextIntegrity::evaluate($prepared['checkBefore'], $prepared['checkAfter'], $update['changeMode'], BlockImportSave::textFields($fields, $update['textFields']), $update['replacedText']);
         if (!$textPolicy['ok']) {
             throw new \RuntimeException($textPolicy['message']);
         }
