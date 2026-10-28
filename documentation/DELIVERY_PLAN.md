@@ -348,7 +348,7 @@ Why first:
   - remove `set_user_attribute_value` (disabled in P1.7); a scenario for B-ACC-7
   - from P2.8: `katalysis_pro`'s `guarded()` catches `\Throwable` and returns the raw exception message as `{ok: false, error}`, which skips `SecretRedactor`. Route that text through `SecretRedactor` (for example by letting the exception reach the agent's tool error handler, which redacts and logs it), in a `katalysis_pro` PR with a test here
   - scenarios: the new B-ACC-7 scenario ×1, and `--fake` of 03, 21, 25; cap $0.10. Compared ×3 in P3.S1
-- [ ] P3.2-1 **Tier keys and tier gating** (M; safety). Depends on: nothing.
+- [x] P3.2-1 **Tier keys and tier gating** (M; safety). Done (PR #75). Depends on: nothing.
   - **The tiers are additional task permission keys (same `admin` category, installed by the same routine as P1.10a's), not custom checks** (B-ACC-9). Tiers are cumulative in code (a higher tier's key also passes a lower tier's check); `use_neuron_ai` (P1.10a) is the Tier 1 (Content) key. Concrete groups such as "Neuron AI – Content", "Neuron AI – Configure" and "Neuron AI – Generate" are only groups an admin may grant the keys to; the code never checks a group. Superusers get Tier 3. The tier keys use `neuron_ai_tier_*` handles (for example `neuron_ai_tier_configure`), so they are not confused with P1.10a's settings key `configure_neuron_ai`.
   - every tool is tagged with a tier and offered only if the user's tier allows it (B-ACC-2). The Tier 2 tools leave Tier 1: attribute definitions, attribute sets and topic trees (B-T2-6); today every user with the use key gets them
   - external `ToolDefinition`s declare a tier; a write tool that declares none is admin-only (B-ACC-8)
