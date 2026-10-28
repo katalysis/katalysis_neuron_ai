@@ -343,7 +343,7 @@ Why first:
   - one PHPUnit test per write tool for the denied case, calling the tool by name, so the tests survive P3.3-4
   - B-ACC-5: check that no tool elevates (today "Not verified"); B-ACC-6: tests that a refused write isn't reached by the obvious other routes
   - scenarios (keeps its own ×3 before merge, WP-4): 11 ×5; 02, 03, 08, 10, 18 ×3; a new denied-write scenario ×3; cap $1.75 (Glyn, on approving the plan: $1.61 plus one re-run)
-- [ ] P3.5-2 **Personal data** (S–M; safety). Depends on: P3.5-1's helper.
+- [x] P3.5-2 **Personal data** (S–M; safety). Done (PR #73). Depends on: P3.5-1's helper.
   - `get_user` and the people tools return only the fields the request needs (B-PII-2; scenario 03 is partial on this)
   - remove `set_user_attribute_value` (disabled in P1.7); a scenario for B-ACC-7
   - from P2.8: `katalysis_pro`'s `guarded()` catches `\Throwable` and returns the raw exception message as `{ok: false, error}`, which skips `SecretRedactor`. Route that text through `SecretRedactor` (for example by letting the exception reach the agent's tool error handler, which redacts and logs it), in a `katalysis_pro` PR with a test here
