@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { renderApprovalCard, renderChangesLine } = require('../../js/chat-format.js');
+const { renderApprovalCard, renderBatchHeader, renderChangesLine } = require('../../js/chat-format.js');
 
 /** A fake document that records what is made and throws if markup is ever written. */
 function fakeDocument() {
@@ -104,4 +104,51 @@ test('the changes line is text only', () => {
     const line = doc.made[1];
     assert.equal(line.text, 'Changed: ' + PAYLOAD + '.');
     assert.deepEqual(line.attributes, { role: 'note' });
+});
+
+// ---- P3.6-2: warnings, and "Approve all" / "Deny all" -------------------------------------------------------------
+
+test('a card shows its warnings first, as text', () => {
+    const doc = fakeDocument();
+    const container = doc.createElement('div');
+
+    renderApprovalCard(container, card({ warnings: ['This page already has unpublished changes by ' + PAYLOAD, 42] }), doc);
+
+    const warnings = doc.made.filter((el) => el.className === 'neuron-approval-warning');
+    assert.equal(warnings.length, 1, 'only strings are shown');
+    assert.equal(warnings[0].text, 'This page already has unpublished changes by ' + PAYLOAD);
+    const cardEl = doc.made[1];
+    assert.equal(cardEl.children[1], warnings[0], 'right after the title');
+});
+
+test('the batch header has Approve all and Deny all, and lists the pages when there are several', () => {
+    const doc = fakeDocument();
+    const container = doc.createElement('div');
+    const cards = [
+        card({ callId: 'a', target: 'Headings', path: '/neuron-test/headings' }),
+        card({ callId: 'b', target: 'Columns', path: '/neuron-test/columns' }),
+        card({ callId: 'c', status: 'approved', target: 'Other', path: '/other' }),
+    ];
+
+    const { buttons } = renderBatchHeader(container, cards, doc);
+
+    assert.deepEqual([buttons.approve.textContent, buttons.deny.textContent], ['Approve all', 'Deny all']);
+    for (const b of [buttons.approve, buttons.deny]) {
+        assert.equal(b.tag, 'button');
+        assert.deepEqual(b.attributes, { type: 'button' });
+    }
+    assert.ok(container.textContent.startsWith('2 changes wait for your decision, on 2 pages: Headings (/neuron-test/headings); Columns (/neuron-test/columns).'));
+    assert.equal(container.textContent.includes('/other'), false, 'only the waiting cards');
+});
+
+test('the batch header names no pages when every card is on one page, and builds no markup', () => {
+    const doc = fakeDocument();
+    const container = doc.createElement('div');
+
+    renderBatchHeader(container, [card({ callId: 'a', target: PAYLOAD }), card({ callId: 'b', target: PAYLOAD })], doc);
+
+    assert.ok(container.textContent.startsWith('2 changes wait for your decision.'));
+    for (const el of doc.made) {
+        assert.ok(['div', 'button'].includes(el.tag), `unexpected element <${el.tag}>`);
+    }
 });
