@@ -49,6 +49,8 @@ final class DisabledTools
             . 're-enabled in P3.6 only behind approval',
         'delete_attribute_set' => 'deletes the set and ungroups its attributes live, no history (P1.13); '
             . 're-enabled in P3.6 only behind approval',
+        // BF-16: it calls getAttributeSet(), then setAttributeSet(null), which only adds a key to a set.
+        'remove_attribute_from_set' => 'in Concrete 9.5.5 the call it uses only adds to a set; fix in Phase 6',
         'update_person_specialisms' => 'replaces the person\'s specialisms live, no history (P1.13); core PeopleToolkit, '
             . 'removed in P3.10; re-enabled by the provider only behind approval (P3.6)',
         'update_person_topics' => 'replaces the person\'s topics live, no history (P1.13); core PeopleToolkit, '
