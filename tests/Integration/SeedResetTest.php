@@ -355,7 +355,7 @@ final class SeedResetTest extends TestCase
         $scenario = [
             'id' => '99-seed-reset-check',
             'title' => 'P1.14 stand-in',
-            'user' => 'neuron_editor',
+            'user' => 'neuron_content_editor',
             'current_page' => '/neuron-test',
             'turns' => [['say' => 'write the injected description']],
         ];
@@ -393,7 +393,7 @@ final class SeedResetTest extends TestCase
         $scenario = [
             'id' => '99-dry-run-check',
             'title' => 'P2.6 stand-in',
-            'user' => 'neuron_editor',
+            'user' => 'neuron_content_editor',
             'current_page' => '/neuron-test/headings',
             'turns' => [['say' => 'What page am I on?'], ['say' => 'And now?', 'current_page' => '/neuron-test/columns']],
             'expect' => ['state' => ['nothing_changed' => true]],
