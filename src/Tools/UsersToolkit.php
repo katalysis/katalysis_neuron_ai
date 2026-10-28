@@ -11,6 +11,9 @@ use Concrete\Core\User\UserList;
 use Concrete\Core\User\Search\ColumnSet\Column\DateAddedColumn;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
+use Concrete\Core\Attribute\Key\UserKey as UserAttributeKey;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
+use NeuronAI\Tools\ArrayProperty;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
@@ -68,10 +71,13 @@ class UsersToolkit extends AbstractToolkit
             false
         ));
 
+        $tool->addProperty(self::fieldsProperty(['email']));
+
         $tool->setHandler($this->guarded(function (
             ?int $limit = 20,
             ?bool $activeOnly = false,
-            ?int $offset = null
+            ?int $offset = null,
+            ?array $fields = null
         ): array {
             $window = ListWindow::of($limit, $offset, 20, 100);
             $list = new UserList();
@@ -92,7 +98,7 @@ class UsersToolkit extends AbstractToolkit
             // BF-6: getResults() ignores setItemsPerPage() and returns every match, and with a permission checker
             // Concrete has no count query, so the permitted matches are counted here and the window is sliced from them.
             $results = $list->getResults();
-            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo), $window->slice($results));
+            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo, (array) $fields), $window->slice($results));
 
             return ['users' => $users] + $window->summary(count($results), count($users), 'list_users', 'activeOnly, or search_users');
         }));
@@ -121,7 +127,10 @@ class UsersToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?int $userID = null, ?string $identifier = null): array {
+        $tool->addProperty(self::fieldsProperty(['email', 'lastLogin', 'timezone', 'attributes']));
+        $tool->addProperty(self::attributesProperty());
+
+        $tool->setHandler($this->guarded(function (?int $userID = null, ?string $identifier = null, ?array $fields = null, ?array $attributes = null): array {
             if (!$userID && (!$identifier || trim($identifier) === '')) {
                 throw new \RuntimeException("userID or identifier is required");
             }
@@ -158,7 +167,7 @@ class UsersToolkit extends AbstractToolkit
                 throw new \RuntimeException("Permission denied: Cannot view user {$userInfo->getUserID()}");
             }
             
-            return $this->serializeUser($userInfo, includeDetails: true);
+            return $this->serializeUser($userInfo, (array) $fields, (array) $attributes, dateAdded: true);
         }));
 
         return $tool;
@@ -171,7 +180,10 @@ class UsersToolkit extends AbstractToolkit
             'Get information about the currently logged in user'
         );
 
-        $tool->setHandler($this->guarded(function (): array {
+        $tool->addProperty(self::fieldsProperty(['lastLogin', 'timezone', 'attributes']));
+        $tool->addProperty(self::attributesProperty());
+
+        $tool->setHandler($this->guarded(function (?array $fields = null, ?array $attributes = null): array {
             $user = new User();
             
             if (!$user->isRegistered()) {
@@ -183,9 +195,10 @@ class UsersToolkit extends AbstractToolkit
             
             $userInfo = UserInfo::getByID($user->getUserID());
             
+            // Your own account: the email too, without asking.
             return [
                 'logged_in' => true,
-                'user' => $this->serializeUser($userInfo, includeDetails: true)
+                'user' => $this->serializeUser($userInfo, array_merge(['email'], (array) $fields), (array) $attributes),
             ];
         }));
 
@@ -220,7 +233,9 @@ class UsersToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?string $query = null, ?int $limit = 20, ?int $offset = null): array {
+        $tool->addProperty(self::fieldsProperty(['email']));
+
+        $tool->setHandler($this->guarded(function (?string $query = null, ?int $limit = 20, ?int $offset = null, ?array $fields = null): array {
             if (!$query) {
                 throw new \RuntimeException("query is required");
             }
@@ -231,7 +246,7 @@ class UsersToolkit extends AbstractToolkit
 
             // BF-6: every match the user may view (UserList checks canViewUser), counted here; the window is sliced.
             $results = $list->getResults();
-            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo), $window->slice($results));
+            $users = array_map(fn($userInfo) => $this->serializeUser($userInfo, (array) $fields), $window->slice($results));
 
             return [
                 'query' => $query,
@@ -242,29 +257,85 @@ class UsersToolkit extends AbstractToolkit
         return $tool;
     }
 
-    protected function serializeUser(UserInfo $userInfo, bool $includeDetails = false): array
+    /**
+     * P3.5-2 (B-PII-2): the optional details a request may ask for; the identity is always returned.
+     *
+     * @param list<string> $allowed
+     */
+    private static function fieldsProperty(array $allowed): ArrayProperty
+    {
+        return new ArrayProperty(
+            'fields',
+            'Details to add, only when the request needs them: ' . implode(', ', $allowed) . '. By default only the '
+            . 'identity is returned (ID, username, active).',
+            false,
+            new ToolProperty('field', PropertyType::STRING, 'One of: ' . implode(', ', $allowed), true)
+        );
+    }
+
+    private static function attributesProperty(): ArrayProperty
+    {
+        return new ArrayProperty(
+            'attributes',
+            'With fields ["attributes"]: the user attribute handles to read (list_user_attributes lists them). Each is '
+            . 'returned only if Concrete lets you view that attribute.',
+            false,
+            new ToolProperty('handle', PropertyType::STRING, 'A user attribute handle', true)
+        );
+    }
+
+    /**
+     * P3.5-2 (B-PII-2): the identity, and only the details asked for. An attribute must be named, and Concrete's View
+     * User Attributes must allow that key.
+     *
+     * @param list<string> $fields
+     * @param list<string> $attributeHandles
+     */
+    protected function serializeUser(UserInfo $userInfo, array $fields = [], array $attributeHandles = [], bool $dateAdded = false): array
     {
         $data = [
             'id' => $userInfo->getUserID(),
             'username' => $userInfo->getUserName(),
-            'email' => $userInfo->getUserEmail(),
-            'isActive' => $userInfo->isActive(),
         ];
-
-        if ($includeDetails) {
+        if (in_array('email', $fields, true)) {
+            $data['email'] = $userInfo->getUserEmail();
+        }
+        $data['isActive'] = $userInfo->isActive();
+        if ($dateAdded) {
             $data['dateAdded'] = $userInfo->getUserDateAdded();
+        }
+        if (in_array('lastLogin', $fields, true)) {
             $data['lastLogin'] = $userInfo->getLastLogin();
+        }
+        if (in_array('timezone', $fields, true)) {
             $data['timezone'] = $userInfo->getUserTimezone();
-            
-            // Get user attributes
+        }
+
+        if (in_array('attributes', $fields, true)) {
             $attributes = [];
-            $controller = $userInfo->getController();
-            if ($controller) {
-                foreach ($controller->getAttributes() as $ak) {
-                    $attributes[$ak->getAttributeKeyHandle()] = $userInfo->getAttribute($ak);
+            $notFound = [];
+            $withheld = [];
+            foreach ($attributeHandles as $handle) {
+                $ak = UserAttributeKey::getByHandle((string) $handle);
+                if (!$ak) {
+                    $notFound[] = (string) $handle;
+                } elseif (ObjectPermissions::viewUserAttribute($ak) !== null) {
+                    $withheld[] = (string) $handle;
+                } else {
+                    $attributes[(string) $handle] = $userInfo->getAttribute($ak);
                 }
             }
             $data['attributes'] = $attributes;
+            if ($attributeHandles === []) {
+                $data['attributesNote'] = 'Name the attribute handles in attributes; list_user_attributes lists them.';
+            }
+            if ($notFound !== []) {
+                $data['attributesNotFound'] = $notFound;
+            }
+            if ($withheld !== []) {
+                $data['attributesWithheld'] = $withheld;
+                $data['attributesWithheldReason'] = ObjectPermissions::viewUserAttribute(UserAttributeKey::getByHandle($withheld[0]));
+            }
         }
 
         return $data;

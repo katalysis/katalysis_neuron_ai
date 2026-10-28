@@ -38,7 +38,31 @@ final class SnapshotBuilder
             'pages' => $this->pages(),
             'files' => $this->files(),
             'people' => $this->people(),
+            'users' => $this->users(),
         ]);
+    }
+
+    /**
+     * P3.5-2 (B-ACC-7): every user account's username, email, active flag and groups, by user ID.
+     *
+     * @return array<string, array<string, string>>
+     */
+    private function users(): array
+    {
+        $users = [];
+        foreach ($this->db->fetchAllAssociative(
+            'SELECT u.uID, u.uName, u.uEmail, u.uIsActive, GROUP_CONCAT(ug.gID ORDER BY ug.gID) AS groups'
+            . ' FROM Users u LEFT JOIN UserGroups ug ON ug.uID = u.uID GROUP BY u.uID, u.uName, u.uEmail, u.uIsActive ORDER BY u.uID'
+        ) as $row) {
+            $users[(string) $row['uID']] = [
+                'username' => (string) $row['uName'],
+                'email' => (string) $row['uEmail'],
+                'active' => (string) $row['uIsActive'],
+                'groups' => (string) ($row['groups'] ?? ''),
+            ];
+        }
+
+        return $users;
     }
 
     /**

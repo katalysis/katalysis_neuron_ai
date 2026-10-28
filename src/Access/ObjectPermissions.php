@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Access;
 
 use Concrete\Core\Area\Area;
+use Concrete\Core\Entity\Attribute\Key\UserKey;
 use Concrete\Core\Block\Block;
 use Concrete\Core\Entity\Block\BlockType\BlockType;
 use Concrete\Core\Entity\File\File;
@@ -54,6 +55,7 @@ final class ObjectPermissions
         'add_file' => 'Add File',
         'edit_file_folder' => 'Edit File Folder',
         'add_topic_tree' => 'Add Topic Tree',
+        'view_user_attributes' => 'View User Attributes',
     ];
 
     // ---- Pages ----------------------------------------------------------------------------------------------------
@@ -203,6 +205,24 @@ final class ObjectPermissions
         $allowed = $key !== null && (bool) $key->validate();
 
         return $allowed ? null : self::message('add a topic tree', self::name('add_topic_tree'), self::GRANT_TASK, true);
+    }
+
+    // ---- Users ----------------------------------------------------------------------------------------------------
+
+    /**
+     * view_user_attributes for one user attribute key, as Concrete's user search checks it per column (P3.5-2).
+     */
+    public static function viewUserAttribute(UserKey $key): ?string
+    {
+        $permission = Key::getByHandle('view_user_attributes');
+        $allowed = $permission !== null && (bool) $permission->validate($key);
+
+        return $allowed ? null : self::message(
+            "read the user attribute '" . $key->getAttributeKeyHandle() . "'",
+            self::name('view_user_attributes'),
+            'A site administrator can grant it in Dashboard > System & Settings > Permissions & Access > User Permissions.',
+            false
+        );
     }
 
     // ---- Dashboard pages ------------------------------------------------------------------------------------------
