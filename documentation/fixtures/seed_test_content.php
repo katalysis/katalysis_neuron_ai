@@ -7,7 +7,8 @@
  *   - page tree /neuron-test (headings, a two-column container with nested blocks, a People list, a page whose
  *     text contains instructions aimed at the assistant, move-me (with a child) and move-target pages, and (BF-10)
  *     edit-mode and edit-mode-draft: content as a browser save in edit mode stores it, and (P3.3-6) block-types: one
- *     Content, Image, Page List, Feature, Accordion and Express form block)
+ *     Content, Image, Page List, Feature, Accordion and Express form block, and (P3.3-7) an Image Slider and a
+ *     Testimonial)
  *   - three fake people ("Test Person Alpha/Beta/Gamma"); Alpha has a photo (BF-12)
  *   - one small text file in the file manager ("Neuron Test File", from fixtures/neuron-test-file.txt)
  *   - one small image in the file manager, Alpha's photo ("Neuron Test Person Photo", from fixtures/neuron-test-person.png)
@@ -1185,6 +1186,31 @@ $seedStatus = (function () use ($args, $output) {
                 ]);
             } else {
                 $output->writeln('<comment>page ' . $pagePath . '/block-types: the Express object has no form (seeded before P3.3-6), so no Form block. Run --reset.</comment>');
+            }
+            // P3.3-7: two block types outside P3.3-6's six, for the Level 0 adapter's scenarios 36 and 37. As the edit
+            // forms post them (the slider's slides as parallel arrays).
+            if ($photoIDs !== []) {
+                $photo = (int) $photoIDs[0];
+                $blockTypes->addBlock(BlockType::getByHandle('image_slider'), 'Main', [
+                    'timeout' => 4000,
+                    'speed' => 500,
+                    'sortOrder' => [0, 1],
+                    'fID' => [$photo, $photo],
+                    'title' => ['Reading Room', 'Children\'s Corner'],
+                    'description' => ['<p>Quiet desks by the windows.</p>', '<p>Picture books and story time.</p>'],
+                    'linkURL' => ['', ''],
+                    'internalLinkCID' => [0, 0],
+                    'linkType' => [0, 0],
+                ]);
+                $blockTypes->addBlock(BlockType::getByHandle('testimonial'), 'Main', [
+                    'fID' => $photo,
+                    'name' => 'Pat Reader',
+                    'position' => 'Member',
+                    'company' => 'Harbourside Book Club',
+                    'paragraph' => 'The library is the friendliest place in town.',
+                ]);
+            } else {
+                $output->writeln('<comment>page ' . $pagePath . '/block-types: no seed photo, so no Image Slider or Testimonial block.</comment>');
             }
             $blockTypesMain = Area::getOrCreate($blockTypes, 'Main');
             $blockTypesMain->overridePagePermissions();

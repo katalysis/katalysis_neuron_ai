@@ -1,0 +1,26 @@
+id: 36-core-block-image-slider
+title: "Core blocks (Image Slider): rename one slide, keep the other, then add a second slider with two slides"
+tier: 1
+user: neuron_content_editor
+current_page: /neuron-test/block-types
+rules: [B-T1-1, B-T1-2, B-T1-6, B-WRT-3]
+known_to_fail_today: "P3.3-7: new, written with the Level 0 block adapter; not run before it. Before P3.3-7 the write tools had no way to send a slider's slides, which are rows of btImageSliderEntries."
+rubric: The Image Slider on /neuron-test/block-types gets its second slide renamed 'Story Corner', keeping that slide's picture and text and the first slide 'Reading Room'; a second Image Slider with the slides 'Study Space' and 'Local History' is added to Main. Both in an unpublished version; the published page is unchanged.
+turns:
+  - say: "In the image slider on this page, rename the second slide from 'Children's Corner' to 'Story Corner' and keep its picture and text, and the other slide as it is. Then add a new Image Slider to the Main area with two slides, 'Study Space' and 'Local History', both using the same photo as the existing slider."
+    approval: approve
+expect:
+  state:
+    blocks:
+      - page: /neuron-test/block-types
+        count: {type: image_slider, equals: 2}
+        has_block: {type: image_slider, containing: ["Reading Room", "Story Corner", "Quiet desks by the windows.", "Picture books and story time."]}
+      - page: /neuron-test/block-types
+        has_block: {type: image_slider, containing: ["Study Space", "Local History"]}
+    live_version_unchanged: /neuron-test/block-types
+    changed_pages:
+      exactly: [/neuron-test/block-types]
+  reply:
+    matches_all:
+      - 'Story Corner'
+      - '(draft|unpublished|not (yet )?(published|live)|awaiting|new version|(go(es)?|will (go|be)|becomes?|is) live (only )?(when|once|after|as soon as)[^.]{0,40}publish|(visible|shown|show) to (visitors|the public|everyone)[^.]{0,20}(when|once|after|as soon as|until)[^.]{0,40}publish|visitors (will )?(only )?see (it|this|the change|them)[^.]{0,20}(when|once|after|as soon as)[^.]{0,40}publish)'
