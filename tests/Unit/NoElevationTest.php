@@ -21,7 +21,6 @@ final class NoElevationTest extends TestCase
     /** "relative path: pattern" => why it is not an elevation. */
     private const ALLOWED = [
         'src/Access/NeuronPermissions.php: isSuperUser(' => 'the chat access check: when the task key is missing only the super user may use the assistant, which restricts',
-        'src/Tools/UserAttributesToolkit.php: isSuperUser(' => 'set_user_attribute_value allows only your own account or the super user, which restricts; the tool is disabled and P3.5-2 removes it',
         'src/Tools/PagesToolkit.php: ignorePermissions' => 'list_page_types counts pages per type and returns no page data; the count includes pages the user cannot view (a P3.3-5 large-list item)',
         'src/ConcreteCmsAIProvider.php: ignorePermissions' => 'not used by the agent (no class refers to it); a total page count',
     ];
