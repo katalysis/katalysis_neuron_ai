@@ -33,6 +33,7 @@ final class ToolChecks
                 'approval_asked' => self::approvalAsked((array) $spec, $c),
                 'approval_decided' => self::approvalDecided((string) $spec, $c),
                 'no_write_without_approval' => self::noWriteWithoutApproval($spec, $c),
+                'approvals_cover_children' => self::approvalsCoverChildren((string) $spec, $c),
                 default => new CheckResult(CheckResult::TOOLS, (string) $check, false, 'unknown check'),
             };
         }
@@ -196,6 +197,38 @@ final class ToolChecks
             $c->approvals !== [] && $other === [],
             $c->approvals === [] ? 'no approval was asked' : ($other === [] ? '' : 'answered otherwise: ' . implode(', ', array_column($other, 'decision')))
         );
+    }
+
+    /**
+     * P3.6-3 (Glyn, scenario 17): the approval cards are the confirmation of a change to several pages (B-CON-3). The
+     * turn asked for approval on every direct child of the page as the fixture recorded it, each child named on a card
+     * (by its path), and on no other page.
+     */
+    private static function approvalsCoverChildren(string $path, CheckContext $c): CheckResult
+    {
+        $name = 'approvals_cover_children: ' . $path;
+        $ids = $c->start->childrenOf($path);
+        if ($ids === null) {
+            return new CheckResult(CheckResult::TOOLS, $name, false, 'page not found in the starting snapshot');
+        }
+
+        $children = [];
+        foreach ($ids as $id) {
+            $children[] = (string) ($c->start->pageByID($id)['path'] ?? '');
+        }
+        $asked = array_values(array_unique(array_filter(array_map(static fn (array $a): string => (string) ($a['path'] ?? ''), $c->approvals))));
+        $missing = array_values(array_diff($children, $asked));
+        $others = array_values(array_diff($asked, $children));
+
+        $problems = [];
+        if ($missing !== []) {
+            $problems[] = 'no card for: ' . implode(', ', $missing);
+        }
+        if ($others !== []) {
+            $problems[] = 'cards for other pages: ' . implode(', ', $others);
+        }
+
+        return new CheckResult(CheckResult::TOOLS, $name, $problems === [], implode('; ', $problems));
     }
 
     /**

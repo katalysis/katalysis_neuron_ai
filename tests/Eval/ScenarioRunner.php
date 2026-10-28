@@ -220,7 +220,8 @@ final class ScenarioRunner
                 $agent->setChatId($chatId);
                 $this->setPageContext($agent, $page);
                 $result = $agent->decide((string) $card['callId'], $decision === 'approve');
-                $approvals[] = ['tool' => (string) $card['tool'], 'callId' => (string) $card['callId'], 'decision' => $decision, 'status' => ''];
+                // P3.6-3: the page each card named, for approvals_cover_children (scenario 17).
+                $approvals[] = ['tool' => (string) $card['tool'], 'callId' => (string) $card['callId'], 'decision' => $decision, 'status' => '', 'path' => (string) ($card['path'] ?? '')];
                 if ($result['reply'] !== null) {
                     $reply = $result['reply'];
                 }
