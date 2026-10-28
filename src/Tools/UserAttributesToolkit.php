@@ -88,13 +88,13 @@ class UserAttributesToolkit extends AbstractToolkit
 
         $tool->setHandler($this->guarded(function (?string $handle = null): array {
             if (!$handle) {
-                throw new \RuntimeException("Attribute handle is required");
+                throw new \RuntimeException('This tool needs handle: the attribute\'s handle, from list_user_attributes. Nothing was changed.');
             }
 
             $ak = UserAttributeKey::getByHandle($handle);
             
             if (!$ak) {
-                throw new \RuntimeException("User attribute with handle '{$handle}' not found");
+                throw new \RuntimeException("User attribute '{$handle}' not found: there is no attribute with that handle. list_user_attributes lists the handles. Nothing was changed.");
             }
 
             $type = $ak->getAttributeType();
@@ -187,30 +187,28 @@ class UserAttributesToolkit extends AbstractToolkit
             ?bool $searchable = false
         ): array {
             if (!$handle || !$name || !$type) {
-                throw new \RuntimeException("handle, name, and type are required");
+                throw new \RuntimeException('This tool needs handle, name and type. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can create attributes");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for user attributes, not super user only.
+            \Katalysis\NeuronAi\Access\ObjectPermissions::deny(\Katalysis\NeuronAi\Access\ObjectPermissions::viewDashboardPage('/dashboard/users/attributes', 'create a user attribute'));
 
             // Validate handle format
             if (!preg_match('/^[a-z][a-z0-9_]*$/', $handle)) {
-                throw new \RuntimeException("Invalid handle format. Use lowercase letters, numbers, and underscores only. Must start with a letter.");
+                throw new \RuntimeException('The handle must start with a lowercase letter and use only lowercase letters, numbers and underscores (for example "room_size"). Nothing was changed.');
             }
 
             // Check if attribute already exists
             $existing = UserAttributeKey::getByHandle($handle);
             if ($existing) {
-                throw new \RuntimeException("User attribute with handle '{$handle}' already exists");
+                throw new \RuntimeException("There is already a user attribute '{$handle}': use it (get_user_attribute_details), or choose another handle. Nothing was changed.");
             }
 
             // Get attribute type
             $attributeType = AttributeType::getByHandle($type);
             if (!$attributeType) {
-                throw new \RuntimeException("Invalid attribute type '{$type}'");
+                throw new \RuntimeException("There is no attribute type '{$type}'. list_attribute_types lists them. Nothing was changed.");
             }
 
             $app = Application::getFacadeApplication();
@@ -332,23 +330,21 @@ class UserAttributesToolkit extends AbstractToolkit
             ?array $options = null
         ): array {
             if (!$handle) {
-                throw new \RuntimeException("Attribute handle is required");
+                throw new \RuntimeException('This tool needs handle: the attribute\'s handle, from list_user_attributes. Nothing was changed.');
             }
 
             if (!is_array($options) || count($options) === 0) {
-                throw new \RuntimeException("Options array is required and must contain at least one option");
+                throw new \RuntimeException('options needs at least one option. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can update attributes");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for user attributes, not super user only.
+            \Katalysis\NeuronAi\Access\ObjectPermissions::deny(\Katalysis\NeuronAi\Access\ObjectPermissions::viewDashboardPage('/dashboard/users/attributes', 'change the options of a user attribute'));
 
             // Get the attribute
             $ak = UserAttributeKey::getByHandle($handle);
             if (!$ak) {
-                throw new \RuntimeException("User attribute with handle '{$handle}' not found");
+                throw new \RuntimeException("User attribute '{$handle}' not found: there is no attribute with that handle. list_user_attributes lists the handles. Nothing was changed.");
             }
 
             // Verify it's a select type
@@ -474,11 +470,11 @@ class UserAttributesToolkit extends AbstractToolkit
             }
 
             if (!$handle) {
-                throw new \RuntimeException("Attribute handle is required");
+                throw new \RuntimeException('This tool needs handle: the attribute\'s handle, from list_user_attributes. Nothing was changed.');
             }
 
             if ($value === null) {
-                throw new \RuntimeException("Value is required");
+                throw new \RuntimeException('This tool needs value: what to set the attribute to. Nothing was changed.');
             }
 
             // Get the user
@@ -504,7 +500,7 @@ class UserAttributesToolkit extends AbstractToolkit
             // Get the attribute
             $ak = UserAttributeKey::getByHandle($handle);
             if (!$ak) {
-                throw new \RuntimeException("User attribute with handle '{$handle}' not found");
+                throw new \RuntimeException("User attribute '{$handle}' not found: there is no attribute with that handle. list_user_attributes lists the handles. Nothing was changed.");
             }
 
             $app = Application::getFacadeApplication();

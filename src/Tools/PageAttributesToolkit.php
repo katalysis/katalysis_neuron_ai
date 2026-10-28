@@ -12,6 +12,7 @@ use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Tools\Utilities\PageByName;
 use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
@@ -136,13 +137,13 @@ class PageAttributesToolkit extends AbstractToolkit
 
         $tool->setHandler($this->guarded(function (?string $handle = null): array {
             if (!$handle) {
-                throw new \RuntimeException("Attribute handle is required");
+                throw new \RuntimeException('This tool needs handle: the attribute\'s handle, from list_page_attributes. Nothing was changed.');
             }
 
             $ak = PageAttributeKey::getByHandle($handle);
             
             if (!$ak) {
-                throw new \RuntimeException("Page attribute with handle '{$handle}' not found");
+                throw new \RuntimeException("Page attribute '{$handle}' not found: there is no attribute with that handle. list_page_attributes lists the handles. Nothing was changed.");
             }
 
             $type = $ak->getAttributeType();
@@ -244,30 +245,28 @@ class PageAttributesToolkit extends AbstractToolkit
             ?bool $indexed = false
         ): array {
             if (!$handle || !$name || !$type) {
-                throw new \RuntimeException("handle, name, and type are required");
+                throw new \RuntimeException('This tool needs handle, name and type. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can create attributes");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for page attributes, not super user only.
+            ObjectPermissions::deny(ObjectPermissions::viewDashboardPage('/dashboard/pages/attributes', 'create a page attribute'));
 
             // Validate handle format
             if (!preg_match('/^[a-z][a-z0-9_]*$/', $handle)) {
-                throw new \RuntimeException("Invalid handle format. Use lowercase letters, numbers, and underscores only. Must start with a letter.");
+                throw new \RuntimeException('The handle must start with a lowercase letter and use only lowercase letters, numbers and underscores (for example "room_size"). Nothing was changed.');
             }
 
             // Check if attribute already exists
             $existing = PageAttributeKey::getByHandle($handle);
             if ($existing) {
-                throw new \RuntimeException("Page attribute with handle '{$handle}' already exists");
+                throw new \RuntimeException("There is already a page attribute '{$handle}': use it (get_page_attribute_details), or choose another handle. Nothing was changed.");
             }
 
             // Get attribute type
             $attributeType = AttributeType::getByHandle($type);
             if (!$attributeType) {
-                throw new \RuntimeException("Invalid attribute type '{$type}'. Use list_attribute_types to see available types.");
+                throw new \RuntimeException("There is no attribute type '{$type}'. list_attribute_types lists them. Nothing was changed.");
             }
 
             $app = Application::getFacadeApplication();
@@ -431,14 +430,12 @@ class PageAttributesToolkit extends AbstractToolkit
             ?bool $indexed = false
         ): array {
             if (!$handle || !$name || !$type || !$set_handle) {
-                throw new \RuntimeException("Handle, name, type, and set_handle are all required");
+                throw new \RuntimeException('This tool needs handle, name, type and set_handle. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can create attributes");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for page attributes, not super user only.
+            ObjectPermissions::deny(ObjectPermissions::viewDashboardPage('/dashboard/pages/attributes', 'create a page attribute'));
 
             // Validate handle format
             if (!preg_match('/^[a-z][a-z0-9_]*$/', $handle)) {
@@ -448,7 +445,7 @@ class PageAttributesToolkit extends AbstractToolkit
             // Check if attribute already exists
             $existing = PageAttributeKey::getByHandle($handle);
             if ($existing) {
-                throw new \RuntimeException("Attribute with handle '{$handle}' already exists");
+                throw new \RuntimeException("There is already a page attribute '{$handle}': use it, or choose another handle. Nothing was changed.");
             }
 
             // Validate attribute type
@@ -459,13 +456,13 @@ class PageAttributesToolkit extends AbstractToolkit
 
             // For select type, options are required
             if ($type === 'select' && (!is_array($options) || count($options) === 0)) {
-                throw new \RuntimeException("Options array is required for select type attributes");
+                throw new \RuntimeException('A select attribute needs options: at least one. Nothing was changed.');
             }
 
             // Verify attribute set exists
             $attributeSet = AttributeSet::getByHandle($set_handle);
             if (!$attributeSet) {
-                throw new \RuntimeException("Attribute set '{$set_handle}' not found");
+                throw new \RuntimeException("There is no attribute set '{$set_handle}'. list_attribute_sets lists them. Nothing was changed.");
             }
 
             $app = Application::getFacadeApplication();
@@ -608,23 +605,21 @@ class PageAttributesToolkit extends AbstractToolkit
             ?array $options = null
         ): array {
             if (!$handle) {
-                throw new \RuntimeException("Attribute handle is required");
+                throw new \RuntimeException('This tool needs handle: the attribute\'s handle, from list_page_attributes. Nothing was changed.');
             }
 
             if (!is_array($options) || count($options) === 0) {
-                throw new \RuntimeException("Options array is required and must contain at least one option");
+                throw new \RuntimeException('options needs at least one option. Nothing was changed.');
             }
 
             // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException("Permission denied: Only super users can update attributes");
-            }
+            // P3.5-1 decision 1: Concrete's own gate for page attributes, not super user only.
+            ObjectPermissions::deny(ObjectPermissions::viewDashboardPage('/dashboard/pages/attributes', 'change the options of a page attribute'));
 
             // Get the attribute
             $ak = PageAttributeKey::getByHandle($handle);
             if (!$ak) {
-                throw new \RuntimeException("Page attribute with handle '{$handle}' not found");
+                throw new \RuntimeException("Page attribute '{$handle}' not found: there is no attribute with that handle. list_page_attributes lists the handles. Nothing was changed.");
             }
 
             // Verify it's a select type
@@ -746,15 +741,15 @@ class PageAttributesToolkit extends AbstractToolkit
             ?string $value = null
         ): array {
             if (!$pageID && !$pagePath && !$pageName) {
-                throw new \RuntimeException("Either pageID, pagePath, or pageName is required");
+                throw new \RuntimeException('This tool needs pageID, pagePath or pageName. Nothing was changed.');
             }
 
             if (!$handle) {
-                throw new \RuntimeException("Attribute handle is required");
+                throw new \RuntimeException('This tool needs handle: the attribute\'s handle, from list_page_attributes. Nothing was changed.');
             }
 
             if ($value === null) {
-                throw new \RuntimeException("Value is required");
+                throw new \RuntimeException('This tool needs value: what to set the attribute to. Nothing was changed.');
             }
 
             // Get the page
@@ -769,18 +764,18 @@ class PageAttributesToolkit extends AbstractToolkit
             }
             
             if (!$page || $page->isError()) {
-                throw new \RuntimeException("Page not found");
+                throw new \RuntimeException('Page not found: it may have been deleted, or the ID, path or name is wrong. Find it with get_current_page_context or list_pages. Nothing was changed.');
             }
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
 
             // P3.5-1 decision 2: an attribute is a page property (Edit Properties, as Concrete's Page Properties dialog).
-            \Katalysis\NeuronAi\Access\ObjectPermissions::deny(\Katalysis\NeuronAi\Access\ObjectPermissions::editPageProperties($page));
+            ObjectPermissions::deny(ObjectPermissions::editPageProperties($page));
 
             // Get the attribute
             $ak = PageAttributeKey::getByHandle($handle);
             if (!$ak) {
-                throw new \RuntimeException("Page attribute with handle '{$handle}' not found");
+                throw new \RuntimeException("Page attribute '{$handle}' not found: there is no attribute with that handle. list_page_attributes lists the handles. Nothing was changed.");
             }
 
             $app = Application::getFacadeApplication();

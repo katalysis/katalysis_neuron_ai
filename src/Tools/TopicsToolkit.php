@@ -8,6 +8,7 @@ use Concrete\Core\Tree\Type\Topic as TopicTree;
 use Concrete\Core\Tree\Node\Type\Category as CategoryNode;
 use Concrete\Core\Tree\Node\Type\Topic as TopicNode;
 use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
@@ -274,26 +275,23 @@ class TopicsToolkit extends AbstractToolkit
 
         $tool->setHandler($this->guarded(function (?string $tree_name = null): array {
             if (!$tree_name) {
-                throw new \RuntimeException('tree_name is required');
+                throw new \RuntimeException('create_topic_tree needs tree_name: the new tree\'s name. Nothing was changed.');
             }
 
-            // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException('Permission denied: Only super users can create topic trees');
-            }
+            // P3.5-1: Concrete's own check before adding a tree (the add_topic_tree task permission).
+            ObjectPermissions::deny(ObjectPermissions::addTopicTree());
 
             // Check if tree already exists
             $existingTree = TopicTree::getByName($tree_name);
             if ($existingTree) {
-                throw new \RuntimeException("Topic tree '{$tree_name}' already exists");
+                throw new \RuntimeException("A topic tree named '{$tree_name}' already exists: use it (list_topic_trees), or choose another name. Nothing was changed.");
             }
 
             // Create the new topic tree
             $tree = TopicTree::add($tree_name);
-            
+
             if (!$tree || !$tree instanceof TopicTree) {
-                throw new \RuntimeException("Failed to create topic tree '{$tree_name}'");
+                throw new \RuntimeException("Concrete did not create the topic tree '{$tree_name}'. Tell the user; a site administrator can add it in Dashboard > System & Settings > Topics.");
             }
 
             return [
@@ -343,18 +341,12 @@ class TopicsToolkit extends AbstractToolkit
             ?int $parent_topic_id = null
         ): array {
             if (!$tree_name || !$topic_name) {
-                throw new \RuntimeException('Both tree_name and topic_name are required');
-            }
-
-            // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException('Permission denied: Only super users can create topics');
+                throw new \RuntimeException('create_topic needs tree_name and topic_name. Nothing was changed.');
             }
 
             $tree = TopicTree::getByName($tree_name);
             if (!$tree) {
-                throw new \RuntimeException("Topic tree '{$tree_name}' not found");
+                throw new \RuntimeException("There is no topic tree '{$tree_name}'. list_topic_trees lists them. Nothing was changed.");
             }
 
             // Determine parent node
@@ -362,15 +354,18 @@ class TopicsToolkit extends AbstractToolkit
             if ($parent_topic_id) {
                 $parentNode = TopicNode::getByID($parent_topic_id);
                 if (!$parentNode || !$parentNode instanceof TopicNode) {
-                    throw new \RuntimeException("Parent topic with ID {$parent_topic_id} not found");
+                    throw new \RuntimeException("Topic {$parent_topic_id} not found: it may have been deleted, or the ID is wrong. get_topic_tree_structure gives the IDs. Nothing was changed.");
                 }
             } else {
                 // Use tree root as parent for top-level topics
                 $parentNode = $tree->getRootTreeNodeObject();
                 if (!$parentNode) {
-                    throw new \RuntimeException("Could not load root node for tree '{$tree_name}'");
+                    throw new \RuntimeException("The topic tree '{$tree_name}' has no root in Concrete, so nothing can be added to it. Tell the user. Nothing was changed.");
                 }
             }
+
+            // P3.5-1: Concrete's own check on the parent (access to Dashboard > Topics), not super user only.
+            ObjectPermissions::deny(ObjectPermissions::addTopicTreeNode($parentNode));
 
             // Create the new topic node
             // Topic class overrides TreeNode::add() with signature: add($topicName, $parent)
@@ -434,19 +429,16 @@ class TopicsToolkit extends AbstractToolkit
             ?string $new_name = null
         ): array {
             if (!$topic_id || !$new_name) {
-                throw new \RuntimeException('Both topic_id and new_name are required');
-            }
-
-            // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException('Permission denied: Only super users can rename topics');
+                throw new \RuntimeException('rename_topic needs topic_id and new_name. Nothing was changed.');
             }
 
             $node = TopicNode::getByID($topic_id);
             if (!$node || !$node instanceof TopicNode) {
-                throw new \RuntimeException("Topic with ID {$topic_id} not found");
+                throw new \RuntimeException(self::topicNotFound((int) $topic_id));
             }
+
+            // P3.5-1: Concrete's own check on the node (access to Dashboard > Topics), not super user only.
+            ObjectPermissions::deny(ObjectPermissions::editTopicTreeNode($node));
 
             $oldName = $node->getTreeNodeDisplayName('text');
             
@@ -483,19 +475,16 @@ class TopicsToolkit extends AbstractToolkit
 
         $tool->setHandler($this->guarded(function (?int $topic_id = null): array {
             if (!$topic_id) {
-                throw new \RuntimeException('topic_id is required');
-            }
-
-            // Check if user has permission
-            $u = new User();
-            if (!$u->isSuperUser()) {
-                throw new \RuntimeException('Permission denied: Only super users can delete topics');
+                throw new \RuntimeException('delete_topic needs topic_id. Nothing was changed.');
             }
 
             $node = TopicNode::getByID($topic_id);
             if (!$node || !$node instanceof TopicNode) {
-                throw new \RuntimeException("Topic with ID {$topic_id} not found");
+                throw new \RuntimeException(self::topicNotFound((int) $topic_id));
             }
+
+            // P3.5-1: Concrete's own check on the node (access to Dashboard > Topics), not super user only.
+            ObjectPermissions::deny(ObjectPermissions::deleteTopicTreeNode($node));
 
             $topicName = $node->getTreeNodeDisplayName();
             
@@ -657,6 +646,15 @@ class TopicsToolkit extends AbstractToolkit
         }
 
         return $path;
+    }
+
+    /**
+     * P3.5-1 (P3.3-2's standard): what is wrong, the next step, and that nothing was changed.
+     */
+    private static function topicNotFound(int $topicID): string
+    {
+        return "Topic {$topicID} not found: it may have been deleted, or the ID is wrong. get_topic_tree_structure gives "
+            . 'the IDs. Nothing was changed.';
     }
 
     /**

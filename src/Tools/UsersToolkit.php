@@ -274,6 +274,11 @@ class UsersToolkit extends AbstractToolkit
     {
         return function (...$args) use ($callback): array {
             try {
+                // P3.5-1: a login check, as every other toolkit's guarded() makes (this one checked nothing; a guest
+                // was given every user's email address under the CLI).
+                if (!(new User())->isRegistered()) {
+                    throw new \RuntimeException('Authentication required: Please log in to use this tool.');
+                }
                 $result = $callback(...$args);
 
                 return $this->normalizeToolResult($result);

@@ -11,6 +11,8 @@ use Concrete\Core\File\Importer;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Tree\Node\Type\FileFolder;
 use Concrete\Core\Support\Facade\Database;
+use Concrete\Core\User\User;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
@@ -66,10 +68,10 @@ class FilesToolkit extends AbstractToolkit
 
         $tool->setHandler($this->guarded(function (?string $fileID = null, ?int $folderID = null): array {
             if (!$fileID || trim($fileID) === '') {
-                throw new \RuntimeException('fileID is required');
+                throw new \RuntimeException('move_file_to_folder needs fileID: the file\'s ID or UUID, from list_files. Nothing was changed.');
             }
             if (!$folderID || $folderID <= 0) {
-                throw new \RuntimeException('folderID is required');
+                throw new \RuntimeException('move_file_to_folder needs folderID: the target folder\'s ID, from list_file_folders. Nothing was changed.');
             }
 
             $fileID = trim($fileID);
@@ -79,27 +81,21 @@ class FilesToolkit extends AbstractToolkit
             }
 
             if (!$file || $file->isError()) {
-                throw new \RuntimeException("File with ID {$fileID} not found");
+                throw new \RuntimeException(self::fileNotFound($fileID));
             }
 
             $destinationFolder = FileFolder::getByID((int) $folderID);
             if (!$destinationFolder) {
-                throw new \RuntimeException("Destination folder {$folderID} not found");
+                throw new \RuntimeException(self::folderNotFound((int) $folderID));
             }
 
-            $destinationPermissions = new Checker($destinationFolder);
-            if (!$destinationPermissions->canAddTreeSubNode()) {
-                throw new \RuntimeException('Permission denied: Cannot move files into destination folder');
-            }
+            // P3.5-1: the file manager's own checks: the file's Edit File Properties, the target's Add File.
+            ObjectPermissions::deny(ObjectPermissions::editFileProperties($file));
+            ObjectPermissions::deny(ObjectPermissions::addFile($destinationFolder));
 
             $sourceNode = $file->getFileNodeObject();
             if (!$sourceNode) {
-                throw new \RuntimeException('Unable to resolve source file node');
-            }
-
-            $sourcePermissions = new Checker($sourceNode);
-            if (!$sourcePermissions->canEditTreeNode()) {
-                throw new \RuntimeException('Permission denied: Cannot move this file');
+                throw new \RuntimeException("File {$fileID} has no place in the file manager's folders, so it can't be moved. Nothing was changed.");
             }
 
             $currentFolder = $file->getFileFolderObject();
@@ -164,28 +160,25 @@ class FilesToolkit extends AbstractToolkit
         ): array {
             $name = trim((string) $name);
             if ($name === '') {
-                throw new \RuntimeException('name is required');
+                throw new \RuntimeException('create_file_folder needs name: the new folder\'s name. Nothing was changed.');
             }
 
             $filesystem = new \Concrete\Core\File\Filesystem();
             $root = $filesystem->getRootFolder();
             if (!$root) {
-                throw new \RuntimeException('File Manager root folder not found');
+                throw new \RuntimeException('The file manager has no root folder on this site, so no folder can be made. Tell the user. Nothing was changed.');
             }
 
             $parent = $root;
             if ($parentFolderID !== null && $parentFolderID > 0) {
                 $candidate = FileFolder::getByID((int) $parentFolderID);
                 if (!$candidate) {
-                    throw new \RuntimeException("Parent folder {$parentFolderID} not found");
+                    throw new \RuntimeException(self::folderNotFound((int) $parentFolderID));
                 }
                 $parent = $candidate;
             }
 
-            $permissions = new Checker($parent);
-            if (!$permissions->canAddTreeSubNode()) {
-                throw new \RuntimeException('Permission denied: Cannot create folders in the selected parent folder');
-            }
+            ObjectPermissions::deny(ObjectPermissions::addFile($parent));
 
             $segments = array_values(array_filter(
                 explode('/', str_replace('\\\\', '/', $name)),
@@ -193,11 +186,11 @@ class FilesToolkit extends AbstractToolkit
             ));
 
             if ($segments === []) {
-                throw new \RuntimeException('Invalid folder name/path');
+                throw new \RuntimeException("'{$name}' is not a folder name: give a name, or a path like \"Media/People\". Nothing was changed.");
             }
 
             if (($createParents ?? false) !== true && count($segments) > 1) {
-                throw new \RuntimeException('Nested path provided. Set createParents=true to create nested folders.');
+                throw new \RuntimeException("'{$name}' is a nested path. Send createParents=true to make the missing folders too. Nothing was changed.");
             }
 
             $createdAny = false;
@@ -206,7 +199,7 @@ class FilesToolkit extends AbstractToolkit
             foreach ($segments as $index => $segment) {
                 $clean = trim($segment);
                 if ($clean === '' || $clean === '.' || $clean === '..') {
-                    throw new \RuntimeException('Invalid folder segment in path');
+                    throw new \RuntimeException("'{$segment}' can't be a folder name. " . ($createdAny ? 'The folders before it were made.' : 'Nothing was changed.'));
                 }
 
                 $existing = $current->getChildFolderByName($clean, false);
@@ -216,9 +209,11 @@ class FilesToolkit extends AbstractToolkit
                 }
 
                 if ($index > 0 && ($createParents ?? false) !== true) {
-                    throw new \RuntimeException('Parent path does not exist and createParents is false');
+                    throw new \RuntimeException("The folder above '{$clean}' doesn't exist. Send createParents=true to make it. Nothing was changed.");
                 }
 
+                // P3.5-1: Add File on every folder a new one goes into, not only the first.
+                ObjectPermissions::deny(ObjectPermissions::addFile($current));
                 $current = $filesystem->addFolder($current, $clean);
                 $createdAny = true;
             }
@@ -518,20 +513,16 @@ class FilesToolkit extends AbstractToolkit
 
         $tool->setHandler($this->guarded(function (?int $fileID = null): array {
             if (!$fileID) {
-                throw new \RuntimeException("fileID is required");
+                throw new \RuntimeException('delete_file needs fileID: the file\'s ID, from list_files. Nothing was changed.');
             }
             $file = File::getByID($fileID);
-            
+
             if (!$file || $file->isError()) {
-                throw new \RuntimeException("File with ID {$fileID} not found");
+                throw new \RuntimeException(self::fileNotFound((string) $fileID));
             }
-            
-            // Check permissions
-            $checker = new Checker($file);
-            if (!$checker->canDeleteFile()) {
-                throw new \RuntimeException("Permission denied: Cannot delete file {$fileID}");
-            }
-            
+
+            ObjectPermissions::deny(ObjectPermissions::deleteFile($file));
+
             $file->delete();
             
             return [
@@ -618,10 +609,29 @@ class FilesToolkit extends AbstractToolkit
         return $data;
     }
 
+    /**
+     * P3.5-1 (P3.3-2's standard): what is wrong, the next step, and that nothing was changed.
+     */
+    private static function fileNotFound(string $fileID): string
+    {
+        return "File {$fileID} not found: it may have been deleted, or the ID is wrong. Find it with list_files or "
+            . 'resolve_file_id_from_path and use the ID they give. Nothing was changed.';
+    }
+
+    private static function folderNotFound(int $folderID): string
+    {
+        return "Folder {$folderID} not found: it may have been deleted, or the ID is wrong. list_file_folders lists "
+            . 'the folders and their IDs. Nothing was changed.';
+    }
+
     private function guarded(callable $callback): callable
     {
         return function (...$args) use ($callback): array {
             try {
+                // P3.5-1: a login check, as every other toolkit's guarded() makes (this one checked nothing).
+                if (!(new User())->isRegistered()) {
+                    throw new \RuntimeException('Authentication required: Please log in to use this tool.');
+                }
                 $result = $callback(...$args);
 
                 return $this->normalizeToolResult($result);
