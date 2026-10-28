@@ -707,6 +707,19 @@ $seedStatus = (function () use ($args, $output) {
                 )));
             }
         }
+        // P3.5-1: /locked overrides its page permissions. Page::delete() leaves its assignment rows, and its own Edit
+        // Contents access (a duplicate only it uses) would be left with nothing pointing at it. Remember both.
+        $lockedCID = 0;
+        $lockedAccessIDs = [];
+        $lockedPage = Page::getByPath($pagePath . '/locked');
+        if ($lockedPage && !$lockedPage->isError()) {
+            $lockedCID = (int) $lockedPage->getCollectionID();
+            foreach ($db->fetchFirstColumn('SELECT DISTINCT paID FROM PagePermissionAssignments WHERE cID = ?', [$lockedCID]) as $paID) {
+                if ($accessUseCount((int) $paID) === 1) {
+                    $lockedAccessIDs[] = (int) $paID;
+                }
+            }
+        }
         // The old P1.10 settings-page grant, if this site still has it (dev-only clean-up, see the header).
         $removeLegacySettingsGrant();
 
@@ -739,6 +752,15 @@ $seedStatus = (function () use ($args, $output) {
         foreach ($fixtureAreaCIDs as $fixtureAreaCID) {
             if ((int) $db->fetchOne('SELECT COUNT(*) FROM Pages WHERE cID = ?', [$fixtureAreaCID]) === 0) {
                 $db->executeStatement('DELETE FROM AreaPermissionAssignments WHERE cID = ?', [$fixtureAreaCID]);
+            }
+        }
+        if ($lockedCID > 0 && (int) $db->fetchOne('SELECT COUNT(*) FROM Pages WHERE cID = ?', [$lockedCID]) === 0) {
+            $db->executeStatement('DELETE FROM PagePermissionAssignments WHERE cID = ?', [$lockedCID]);
+            foreach ($lockedAccessIDs as $paID) {
+                if ($accessUseCount($paID) === 0) {
+                    $db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
+                    $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
+                }
             }
         }
         if ($hasPeople) {
@@ -1131,6 +1153,28 @@ $seedStatus = (function () use ($args, $output) {
                 $grantKey($blockTypesMain, 'add_block_to_area', UserEntity::getOrCreate($fixtureUser));
             }
             $output->writeln('page ' . $pagePath . '/block-types: created');
+        }
+
+        // P3.5-1: a page the fixture users can read but not edit, for scenario 33 and the denied-case tests. It has its
+        // own copy of the page permissions, with the two users taken out of Edit Contents (in a duplicate of that
+        // access, so the one it shares with /neuron-test is never changed). --reset removes the rows Page::delete()
+        // leaves behind.
+        if ($missing($pagePath . '/locked')) {
+            $locked = $addPage($root, 'Locked', 'locked');
+            $locked->addBlock($contentType, 'Main', ['content' =>
+                '<h2>Locked Notice</h2>'
+                . '<p>Only site administrators can change this page.</p>',
+            ]);
+            $locked->setPermissionsToOverride();
+            $editKey = PermissionKey::getByHandle('edit_page_contents');
+            $editKey->setPermissionObject($locked);
+            $editAccess = $editKey->getPermissionAccessObject()->duplicate();
+            foreach ([$user, $chatUser] as $fixtureUser) {
+                $editAccess->removeListItem(UserEntity::getOrCreate($fixtureUser));
+            }
+            $editKey->getPermissionAssignmentObject()->assignPermissionAccess($editAccess);
+            $locked->refreshCache();
+            $output->writeln('page ' . $pagePath . '/locked: created (the fixture users cannot edit its content)');
         }
     };
 

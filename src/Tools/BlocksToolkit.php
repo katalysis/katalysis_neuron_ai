@@ -12,7 +12,10 @@ use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use NeuronAI\Tools\Tool;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
+use Katalysis\NeuronAi\Access\PermissionRefused;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
+use Katalysis\NeuronAi\Tools\Support\MarkdownToolEnvelope;
 use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
@@ -50,7 +53,8 @@ class BlocksToolkit extends AbstractToolkit
 
     public function provide(): array
     {
-        return [
+        // P3.5-1: a login check, and {ok: false, error} for every refusal or error (MarkdownToolEnvelope).
+        return array_map(static fn (CallableTool $tool): CallableTool => $tool->wrapHandler([MarkdownToolEnvelope::class, 'wrap']), [
             $this->makeSearchBlocksByTypeTool(),
             $this->makeListPageBlocksByTypeTool(),
             $this->makeGetDocDownloadFilesOnPageTool(),
@@ -58,7 +62,70 @@ class BlocksToolkit extends AbstractToolkit
             $this->makeGetBlockControllerDataTool(),
             $this->makeCountBlocksByTypeTool(),
             $this->makeListContainerBlocksTool(),
-        ];
+        ]);
+    }
+
+    /**
+     * P3.5-1: may this user read a block placed on page $cID, in a version that is ($approved) or isn't the published
+     * one? The page needs View; a version that isn't published needs View Versions too (as PageVersionRead).
+     *
+     * @param array<int, array{view: bool, versions: bool}> $cache per page, for one call
+     */
+    private static function mayRead(int $cID, bool $approved, array &$cache): bool
+    {
+        if (!isset($cache[$cID])) {
+            $page = Page::getByID($cID);
+            $recent = Page::getByID($cID, 'RECENT');
+            $cache[$cID] = [
+                'view' => $page && !$page->isError() && ObjectPermissions::viewPage($page) === null,
+                'versions' => $recent && !$recent->isError() && ObjectPermissions::viewPageVersions($recent) === null,
+            ];
+        }
+
+        return $cache[$cID]['view'] && ($approved || $cache[$cID]['versions']);
+    }
+
+    /**
+     * P3.5-1: refuses a block the user may not read: one on a page they can't view, one Concrete's own block
+     * permissions hide, or one that only unpublished versions hold when they can't view versions (an edit makes a new
+     * block ID, so such an ID is draft content). A block placed nowhere is left to the tool's own "not found".
+     *
+     * @return bool whether the user may also read unpublished versions of the block's page
+     *
+     * @throws PermissionRefused
+     */
+    private static function denyUnlessReadable(int $bID): bool
+    {
+        $db = Application::getFacadeApplication()->make('database')->connection();
+        $rows = $db->fetchAllAssociative(
+            'SELECT cvb.cID, MAX(cv.cvIsApproved) AS approved, MIN(cvb.arHandle) AS arHandle FROM CollectionVersionBlocks cvb'
+            . ' JOIN CollectionVersions cv ON cv.cID = cvb.cID AND cv.cvID = cvb.cvID WHERE cvb.bID = ? GROUP BY cvb.cID',
+            [$bID]
+        );
+        if ($rows === []) {
+            return true;
+        }
+        $cache = [];
+        foreach ($rows as $row) {
+            $cID = (int) $row['cID'];
+            if (!self::mayRead($cID, (bool) $row['approved'], $cache)) {
+                continue;
+            }
+            $page = Page::getByID($cID, (bool) $row['approved'] ? 'ACTIVE' : 'RECENT');
+            $block = Block::getByID($bID, $page, (string) $row['arHandle']);
+            if ($block) {
+                ObjectPermissions::deny(ObjectPermissions::viewBlock($block));
+            }
+
+            return $cache[$cID]['versions'];
+        }
+
+        $first = $rows[0];
+        $cID = (int) $first['cID'];
+        ObjectPermissions::deny(ObjectPermissions::viewPage(Page::getByID($cID)));
+        ObjectPermissions::deny(ObjectPermissions::viewPageVersions(Page::getByID($cID, 'RECENT')));
+
+        throw new PermissionRefused("Permission denied: you can't read block {$bID}.");
     }
 
     protected function makeListPageBlocksByTypeTool(): Tool
@@ -279,7 +346,8 @@ class BlocksToolkit extends AbstractToolkit
                         'cv.cvHandle as pageHandle',
                         'pp.cPath as pagePath',
                         'cv.cvIsApproved',
-                        'b.bDateModified'
+                        'b.bDateModified',
+                        '(SELECT MAX(cvn.cvID) FROM CollectionVersions cvn WHERE cvn.cID = cvb.cID) AS newestCvID'
                     )
                     ->from('Blocks', 'b')
                     ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
@@ -292,21 +360,30 @@ class BlocksToolkit extends AbstractToolkit
                     ->addOrderBy('b.bID', 'DESC');
 
                 // BF-10: one version per page, the newest by default (what editors see and the write tools change).
+                // P3.5-1: the published one too, for the pages where this user can't view unpublished versions.
                 $qb->andWhere($published
                     ? 'cv.cvIsApproved = 1'
-                    : 'cvb.cvID = (SELECT MAX(cvn.cvID) FROM CollectionVersions cvn WHERE cvn.cID = cvb.cID)');
+                    : '(cv.cvIsApproved = 1 OR cvb.cvID = (SELECT MAX(cvn.cvID) FROM CollectionVersions cvn WHERE cvn.cID = cvb.cID))');
 
                 // BF-6: only blocks on pages the user can view are listed or counted, so every match is read and
-                // checked page by page (no SQL limit); the window is sliced from what's left.
-                $viewable = [];
-                $results = array_values(array_filter($qb->execute()->fetchAll(), static function (array $row) use (&$viewable): bool {
+                // checked page by page (no SQL limit); the window is sliced from what's left. P3.5-1: a page whose
+                // unpublished versions this user can't view shows its published version (BF-6's leak).
+                $cache = [];
+                $fellBack = false;
+                $results = array_values(array_filter($qb->execute()->fetchAll(), static function (array $row) use (&$cache, &$fellBack, $published): bool {
                     $cID = (int) $row['cID'];
-                    if (!isset($viewable[$cID])) {
-                        $page = Page::getByID($cID);
-                        $viewable[$cID] = $page && !$page->isError() && (bool) (new Checker($page))->canViewPage();
+                    if (!self::mayRead($cID, true, $cache)) {
+                        return false;
                     }
+                    if ($published) {
+                        return true;
+                    }
+                    if ($cache[$cID]['versions']) {
+                        return (int) $row['cvID'] === (int) $row['newestCvID'];
+                    }
+                    $fellBack = $fellBack || (int) $row['cvID'] !== (int) $row['newestCvID'];
 
-                    return $viewable[$cID];
+                    return (bool) $row['cvIsApproved'];
                 }));
 
                 if (empty($results)) {
@@ -319,6 +396,9 @@ class BlocksToolkit extends AbstractToolkit
                 $note = $window->note($total, count($results), 'search_blocks_by_type');
                 $output = "🔍 **Found {$total} instance(s) of '{$bt->getBlockTypeHandle()}' block** in the "
                     . ($published ? 'published version' : 'newest version') . " of each page you can view.\n\n";
+                if ($fellBack) {
+                    $output .= "ℹ️ Some pages have a newer, unpublished version you don't have permission to view (Concrete's \"View Versions\"): their published version is shown.\n\n";
+                }
                 if ($note !== null) {
                     $output .= "ℹ️ {$note}\n\n";
                 }
@@ -404,6 +484,8 @@ class BlocksToolkit extends AbstractToolkit
             if (!$blockID) {
                 return "❌ Error: blockID is required";
             }
+            // P3.5-1: before anything is read (thrown past the try below, to the envelope).
+            self::denyUnlessReadable((int) $blockID);
 
             try {
                 // Get the block instance
@@ -590,6 +672,8 @@ class BlocksToolkit extends AbstractToolkit
             if (!$blockID) {
                 return "❌ Error: blockID is required";
             }
+            // P3.5-1: before anything is read.
+            self::denyUnlessReadable((int) $blockID);
 
             try {
                 $placements = $this->getBlockPlacements($blockID, $pageID);
@@ -1185,18 +1269,27 @@ class BlocksToolkit extends AbstractToolkit
 
                     // Use Doctrine QueryBuilder
                     $qb = $db->createQueryBuilder();
-                    $qb->select('COUNT(DISTINCT b.bID) as count')
+                    $qb->select('b.bID', 'cvb.cID', 'cv.cvIsApproved')
                         ->from('Blocks', 'b')
                         ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
                         ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
                         ->where('b.btID = :btID')
                         ->setParameter('btID', $bt->getBlockTypeID());
-                    
+
                     if ($activeOnly) {
                         $qb->andWhere('cv.cvIsApproved = 1');
                     }
 
-                    $result = $qb->execute()->fetchOne();
+                    // P3.5-1: only blocks this user could read (search_blocks_by_type's rule), checked page by page,
+                    // which is slower on a large site (P3.3-5).
+                    $cache = [];
+                    $readable = [];
+                    foreach ($qb->execute()->fetchAllAssociative() as $row) {
+                        if (self::mayRead((int) $row['cID'], (bool) $row['cvIsApproved'], $cache)) {
+                            $readable[(int) $row['bID']] = true;
+                        }
+                    }
+                    $result = count($readable);
                     
                     $status = $activeOnly ? "active" : "total";
                     $resolvedHandle = $bt->getBlockTypeHandle();
@@ -1207,24 +1300,33 @@ class BlocksToolkit extends AbstractToolkit
                 } else {
                     // Count all block types using Doctrine QueryBuilder
                     $qb = $db->createQueryBuilder();
-                    $qb->select(
-                            'bt.btHandle',
-                            'bt.btName',
-                            'COUNT(DISTINCT b.bID) as count'
-                        )
+                    $qb->select('bt.btHandle', 'bt.btName', 'b.bID', 'cvb.cID', 'cv.cvIsApproved')
                         ->from('BlockTypes', 'bt')
                         ->innerJoin('bt', 'Blocks', 'b', 'bt.btID = b.btID')
                         ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
-                        ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
-                        ->groupBy('bt.btID', 'bt.btHandle', 'bt.btName')
-                        ->orderBy('count', 'DESC')
-                        ->addOrderBy('bt.btName', 'ASC');
-                    
+                        ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID');
+
                     if ($activeOnly) {
                         $qb->where('cv.cvIsApproved = 1');
                     }
 
-                    $results = $qb->execute()->fetchAll();
+                    // P3.5-1: only blocks this user could read, as for one type.
+                    $cache = [];
+                    $byType = [];
+                    foreach ($qb->execute()->fetchAllAssociative() as $row) {
+                        if (!self::mayRead((int) $row['cID'], (bool) $row['cvIsApproved'], $cache)) {
+                            continue;
+                        }
+                        $byType[$row['btHandle']]['btHandle'] = $row['btHandle'];
+                        $byType[$row['btHandle']]['btName'] = $row['btName'];
+                        $byType[$row['btHandle']]['ids'][(int) $row['bID']] = true;
+                    }
+                    $results = array_map(static fn (array $type): array => [
+                        'btHandle' => $type['btHandle'],
+                        'btName' => $type['btName'],
+                        'count' => count($type['ids']),
+                    ], array_values($byType));
+                    usort($results, static fn (array $a, array $b): int => [$b['count'], $a['btName']] <=> [$a['count'], $b['btName']]);
 
                     if (empty($results)) {
                         return "No blocks found.";
@@ -1304,9 +1406,10 @@ class BlocksToolkit extends AbstractToolkit
             }
 
             $resolvedPageID = (int) $page->getCollectionID();
-            $permissions = new Checker($page);
-            if (!$permissions->canViewPage()) {
-                return "❌ Error: Permission denied for page {$resolvedPageID}.";
+            ObjectPermissions::deny(ObjectPermissions::viewPage($page));
+            // P3.5-1: unpublished placements only for a user who may view versions.
+            if ($includeInactive && ObjectPermissions::viewPageVersions(Page::getByID($resolvedPageID, 'RECENT')) !== null) {
+                $includeInactive = false;
             }
 
             $areaFilter = is_string($areaHandleContains) ? trim($areaHandleContains) : '';
@@ -1765,6 +1868,10 @@ class BlocksToolkit extends AbstractToolkit
                 $published = PageVersionRead::normalize($version) === PageVersionRead::PUBLISHED;
             } catch (\RuntimeException $e) {
                 return '❌ Error: ' . $e->getMessage();
+            }
+            // P3.5-1: the container must be readable, and a user who can't view versions reads the published one.
+            if (!self::denyUnlessReadable((int) $containerBlockID)) {
+                $published = true;
             }
 
             $app = Application::getFacadeApplication();

@@ -532,11 +532,8 @@ class AttributesToolkit extends AbstractToolkit
             SystemPageGuard::refuse($page);
             EditModeGuard::refuse($page);
 
-            // Check permissions
-            $checker = new \Concrete\Core\Permission\Checker($page);
-            if (!$checker->canEditPageContents()) {
-                throw new \RuntimeException("Permission denied: Cannot edit page " . $page->getCollectionID());
-            }
+            // P3.5-1 decision 2: an attribute is a page property (Edit Properties), as in PageAttributesToolkit.
+            \Katalysis\NeuronAi\Access\ObjectPermissions::deny(\Katalysis\NeuronAi\Access\ObjectPermissions::editPageProperties($page));
 
             // Get the attribute
             $ak = PageAttributeKey::getByHandle($handle);
