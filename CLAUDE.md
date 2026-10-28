@@ -76,7 +76,6 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - `src/Tools/ExternalToolkitRegistry.php`: lets other packages register toolkits
 - `src/Entity/`, `src/Chat/ChatMessageStore.php`: chat persistence (Neuron 4 message store, one row per message; P2.5)
 - `js/chat-panel.js`, `css/chat-panel.css`, `elements/chat_panel.php`: UI
-- `src/Toolkits/` is legacy and duplicated. Don't edit it; it's due for removal in P3.3-3.
 
 ## Rules
 1. **Never delete or rewrite a file or a large block of code to "rebuild" it.** Make small, incremental edits. If a rewrite seems necessary, stop and propose a plan first.
