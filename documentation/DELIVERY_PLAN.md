@@ -537,6 +537,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
 - Express tools: create objects, attributes, associations, forms and entry list/detail blocks.
 - Single pages built from approved components (for EPRA: chart and data components plus the API proxy).
 - Scenario: "set up a bookable rooms list", built entirely in Express.
+- Fix `remove_attribute_from_set` against Concrete 9.5.5's set API and re-enable it (disabled in BF-16: the call it uses only adds a key to a set; Glyn, after P3.S1).
 
 ### Phase 7: App spec and generator, Tier 3 (L+)
 - `app-spec.schema.json` covering entities, fields, relations, validation, list and search views, blocks, permissions, and data sources and API proxies.
@@ -677,6 +678,11 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
 - [x] BF-15 **Attribute toolkits: `getAttributeSet()` undefined** (small; its own PR into `development`; no plan stop; Glyn's decision after P3.2-1). Done (PR #76). Found in P3.2-1's scenario 35 run: `list_page_attributes` failed with `Call to undefined method Concrete\Core\Entity\Attribute\Key\PageKey::getAttributeSet()`; the matching user and file tools make the same call. Scope:
   - a red-first integration test per tool that makes the call
   - the fix against Concrete 9.5.5's API
+  - no paid scenario runs; a free `--fake` run only
+- [ ] BF-16 **Disable `remove_attribute_from_set`** (small; its own PR into `development`; no plan stop; Glyn's decision after P3.S1). Found in BF-15: the tool calls `getAttributeSet()` and then `setAttributeSet(null)`, which in Concrete 9.5.5 only adds a key to a set, so it can't remove. Scope:
+  - add it to `DisabledTools` with the reason "in Concrete 9.5.5 the call it uses only adds to a set; fix in Phase 6"
+  - the `DisabledToolsTest` list change (approved), in its own commit with the reason
+  - the fix goes in Phase 6's entry
   - no paid scenario runs; a free `--fake` run only
 
 ## 7. Decisions needed
