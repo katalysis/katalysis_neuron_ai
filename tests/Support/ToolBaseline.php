@@ -76,6 +76,33 @@ final class ToolBaseline
     ];
 
     /**
+     * Tools disabled on purpose after the v3 capture (DisabledTools), with the task and the reason. They are still
+     * defined as captured, but no longer offered; capturedOffered() leaves them out. The capture is never edited.
+     *
+     * @var array<string, string> "Toolkit::tool" => reason
+     */
+    public const DISABLED_SINCE = [
+        'AttributeSetsToolkit::remove_attribute_from_set' => 'BF-16: in Concrete 9.5.5 the call it uses only adds to a set; fix in Phase 6',
+    ];
+
+    /**
+     * The capture's offered list without the tools in DISABLED_SINCE.
+     *
+     * @param list<array{guidelines: ?string, tools: list<string>}> $offered the capture's "offered"
+     * @return list<array{guidelines: ?string, tools: list<string>}>
+     */
+    public static function capturedOffered(array $offered): array
+    {
+        $disabled = array_map(static fn (string $key): string => substr($key, (int) strpos($key, '::') + 2), array_keys(self::DISABLED_SINCE));
+
+        return array_map(static function (array $entry) use ($disabled): array {
+            $entry['tools'] = array_values(array_diff($entry['tools'], $disabled));
+
+            return $entry;
+        }, $offered);
+    }
+
+    /**
      * The v3 capture's definitions without the tools in REMOVED.
      *
      * @return list<array{toolkit: string, guidelines: ?string, tools: list<array<string, mixed>>}>

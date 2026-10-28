@@ -51,7 +51,6 @@ read  list_topic_trees
 read  list_user_attributes
 read  list_users
 write move_block_between_areas
-write remove_attribute_from_set
 write rename_topic
 read  resolve_file_id_from_path
 read  search_blocks_by_type
@@ -70,6 +69,7 @@ off   delete_person
 off   delete_topic
 off   move_file_to_folder
 off   move_page
+off   remove_attribute_from_set
 off   sync_multi_links_to_epra_resources_list
 off   update_file_select_attribute_options
 off   update_page_select_attribute_options

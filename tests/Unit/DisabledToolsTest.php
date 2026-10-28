@@ -61,7 +61,8 @@ final class DisabledToolsTest extends TestCase
     public function testTheListHoldsTheToolsDisabledForSafetyEachWithAReason(): void
     {
         // P1.6 (people deletes), P1.7 (file delete, publishing; its user attribute write was removed in P3.5-2),
-        // P1.8 (EPRA sync writes to the live version) and P1.13 (everything else that changes the live site outside a draft).
+        // P1.8 (EPRA sync writes to the live version), P1.13 (everything else that changes the live site outside a draft)
+        // and BF-16 (remove_attribute_from_set can't remove in Concrete 9.5.5; fixed in Phase 6).
         $this->assertSame(
             [
                 'add_person',
@@ -74,6 +75,7 @@ final class DisabledToolsTest extends TestCase
                 'delete_topic',
                 'move_file_to_folder',
                 'move_page',
+                'remove_attribute_from_set',
                 'sync_multi_links_to_epra_resources_list',
                 'update_file_select_attribute_options',
                 'update_page_select_attribute_options',
@@ -85,7 +87,7 @@ final class DisabledToolsTest extends TestCase
             DisabledTools::names()
         );
         foreach (DisabledTools::all() as $name => $reason) {
-            $this->assertMatchesRegularExpression('/P3\.[456]/', $reason, $name);
+            $this->assertMatchesRegularExpression('/P3\.[456]|Phase 6/', $reason, $name);
         }
     }
 
