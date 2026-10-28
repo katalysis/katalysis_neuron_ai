@@ -15,6 +15,9 @@ use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\SystemMessage;
+use NeuronAI\Tools\ToolCall;
+use NeuronAI\Chat\Messages\ToolResultMessage;
+use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 use NeuronAI\Workflow\Persistence\DatabasePersistence;
@@ -67,6 +70,9 @@ class ConcreteCmsAgent extends Agent
 
     /** Neuron's run state, so a turn paused for approval survives between requests (P3.6-1). */
     public const WORKFLOW_TABLE = 'KatalysisNeuronAiWorkflowStore';
+
+    /** The stored result of a call whose turn failed after it ran (P3.6-2): what it returned was not saved. */
+    public const UNSAVED_RESULT = 'Not saved: the turn failed after this call ran, so its result is unknown. Check the page before trying again.';
 
     /** Metadata key on a reply the panel doesn't show: the model's answer to calls a new message rejected (P3.6-1). */
     public const HIDDEN_META_KEY = 'katalysis_hidden';
@@ -1000,7 +1006,17 @@ INST);
             $messages = $history->getMessages();
             $last = end($messages);
             $store = $this->resolveMessageStore();
-            if ($last instanceof UserMessage) {
+            if ($last instanceof ToolCallMessage && $store instanceof ChatMessageStore) {
+                // P3.6-2: a resumed batch that failed after its calls ran. The call was stored before the pause, with
+                // no result, so it would look like it still waits and refuse every later turn (B-ERR-5). Its results
+                // are stored as unknown, then the error reply.
+                $results = array_map(
+                    static fn (ToolCall $call): ToolCall => (clone $call)->setResult(self::UNSAVED_RESULT),
+                    $last->getToolCalls()
+                );
+                $store->append($this->getThreadId(), new ToolResultMessage($results));
+                $store->append($this->getThreadId(), new AssistantMessage(self::ERROR_REPLY));
+            } elseif ($last instanceof UserMessage) {
                 $history->addMessage(new AssistantMessage(self::ERROR_REPLY));
             } elseif ($last instanceof AssistantMessage && ChatMessageStore::isRecovered($last) && $store instanceof ChatMessageStore) {
                 $store->append($this->getThreadId(), new AssistantMessage(self::ERROR_REPLY));

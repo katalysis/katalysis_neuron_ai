@@ -61,6 +61,27 @@ final class DraftCleanup
     private static ?array $tracked = null;
 
     /**
+     * P3.6-2: what failed calls kept (partly written), since the last takeKept(), for the turn's "Changed" line
+     * (TurnChanges reads it as the failed call settles).
+     *
+     * @var list<array{kind: string, cID: int, cvID: int}>
+     */
+    private static array $kept = [];
+
+    /**
+     * The versions and pages failed calls kept since the last call, and forgets them.
+     *
+     * @return list<array{kind: string, cID: int, cvID: int}>
+     */
+    public static function takeKept(): array
+    {
+        $kept = self::$kept;
+        self::$kept = [];
+
+        return $kept;
+    }
+
+    /**
      * Runs a tool call, and cleans up after it as described above.
      */
     public static function run(callable $call): mixed
@@ -151,6 +172,7 @@ final class DraftCleanup
                 continue;
             }
             $removedAll = false;
+            self::$kept[] = ['kind' => $entry['kind'], 'cID' => $entry['cID'], 'cvID' => $entry['cvID']];
             $notes[] = $entry['kind'] === 'page'
                 ? "The page this call made (ID {$entry['cID']}) was kept because {$reason}."
                 : "Version {$entry['cvID']}, which this call made, was kept because {$reason}." . self::blockNote($entry);
@@ -267,11 +289,12 @@ final class DraftCleanup
 
     /**
      * What a version holds: every per-version row Concrete's Cloner::cloneCollectionVersion() copies (Concrete 9.5.5),
-     * the version row's own fields, related edits (global areas), and the page's check-out row.
+     * the version row's own fields, related edits (global areas), and the page's check-out row. Public since P3.6-2: the
+     * approval card of discard_draft_version fingerprints the version it would discard.
      *
      * @return array<string, mixed>
      */
-    private static function fingerprint(int $cID, int $cvID): array
+    public static function fingerprint(int $cID, int $cvID): array
     {
         $db = self::db();
         $rows = static fn (string $sql): array => $db->fetchAllAssociative($sql, [$cID, $cvID]);

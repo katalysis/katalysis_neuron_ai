@@ -327,12 +327,30 @@
             if (!Array.isArray(cards)) {
                 return;
             }
-            cards.forEach((card) => {
+            const fresh = cards.filter((card) => {
                 const already = card && this.approvalCards[card.callId];
                 // A card the view dropped (a cleared or reloaded chat) is shown again.
-                if (!card || typeof card.callId !== 'string' || (already && already.card.isConnected)) {
-                    return;
-                }
+                return card && typeof card.callId === 'string' && !(already && already.card.isConnected);
+            });
+            // P3.6-2: two or more waiting cards from one response get "Approve all" and "Deny all" above them.
+            const waiting = fresh.filter((card) => card.status === 'pending');
+            if (waiting.length >= 2) {
+                const header = window.NeuronChatFormat.renderBatchHeader(this.messages, waiting, document);
+                const decideAll = async (decision) => {
+                    header.buttons.approve.disabled = true;
+                    header.buttons.deny.disabled = true;
+                    // The same decision on each card, one by one; the server sends the batch once the last is decided.
+                    for (const card of waiting) {
+                        const shown = this.approvalCards[card.callId];
+                        if (shown && shown.buttons) {
+                            await this.decide(card.callId, decision);
+                        }
+                    }
+                };
+                header.buttons.approve.addEventListener('click', () => decideAll('approve'));
+                header.buttons.deny.addEventListener('click', () => decideAll('deny'));
+            }
+            fresh.forEach((card) => {
                 const shown = window.NeuronChatFormat.renderApprovalCard(this.messages, card, document);
                 this.approvalCards[card.callId] = shown;
                 if (shown.buttons) {

@@ -537,43 +537,7 @@ class BatchEditToolkit extends AbstractToolkit
                 throw new \RuntimeException('pageID is required');
             }
 
-            $matchMode = strtolower(trim((string) ($matchMode ?? 'explicit')));
-            if (!in_array($matchMode, ['explicit', 'bold_paragraph'], true)) {
-                throw new \RuntimeException('matchMode must be either explicit or bold_paragraph');
-            }
-
-            $areaHandleContains = is_string($areaHandleContains) ? trim($areaHandleContains) : null;
-            if ($areaHandleContains === '') {
-                $areaHandleContains = null;
-            }
-
-            $targetTag = strtolower(trim((string) ($targetTag ?? 'h3')));
-            if (!in_array($targetTag, ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'], true)) {
-                throw new \RuntimeException('targetTag must be one of h1-h6');
-            }
-
-            $normalizedTitles = [];
-            // With bold_paragraph, no headingTexts means every bold paragraph (P1.12: a null here raised a warning).
-            foreach ($headingTexts ?? [] as $text) {
-                if (!is_string($text)) {
-                    continue;
-                }
-                $trimmed = trim($text);
-                if ($trimmed === '') {
-                    continue;
-                }
-                $normalizedTitles[$this->normalizeHeadingLookupText($trimmed)] = $trimmed;
-            }
-
-            if ($matchMode === 'explicit' && empty($normalizedTitles)) {
-                // Scenario 05 (P3.3-1): after a shorter refusal the model retried with bold_paragraph, which changed the
-                // wrong content. Nothing was changed here.
-                throw new \RuntimeException(
-                    'With matchMode explicit (the default) this tool needs the exact heading texts in headingTexts. '
-                    . 'get_page_content shows the page\'s headings. matchMode bold_paragraph is only for converting bold paragraphs into headings, '
-                    . 'never for changing the level of existing headings. Nothing was changed.'
-                );
-            }
+            [$normalizedTitles, $matchMode, $areaHandleContains, $targetTag] = $this->headingOptions($headingTexts, $matchMode, $areaHandleContains, $targetTag);
 
             $page = Page::getByID($pageID, 'RECENT');
             if (!$page || $page->isError()) {
@@ -710,6 +674,86 @@ class BatchEditToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * batch_update_content_headings' inputs, checked and normalised: the heading texts by their lookup key, the match
+     * mode, the area filter and the target tag. Shared by the call and its approval preview (P3.6-2).
+     *
+     * @return array{array<string, string>, string, ?string, string}
+     * @throws \RuntimeException with the reason the inputs are refused; nothing has been changed
+     */
+    private function headingOptions(?array $headingTexts, ?string $matchMode, ?string $areaHandleContains, ?string $targetTag): array
+    {
+        $matchMode = strtolower(trim((string) ($matchMode ?? 'explicit')));
+        if (!in_array($matchMode, ['explicit', 'bold_paragraph'], true)) {
+            throw new \RuntimeException('matchMode must be either explicit or bold_paragraph');
+        }
+
+        $areaHandleContains = is_string($areaHandleContains) ? trim($areaHandleContains) : null;
+        if ($areaHandleContains === '') {
+            $areaHandleContains = null;
+        }
+
+        $targetTag = strtolower(trim((string) ($targetTag ?? 'h3')));
+        if (!in_array($targetTag, ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'], true)) {
+            throw new \RuntimeException('targetTag must be one of h1-h6');
+        }
+
+        $normalizedTitles = [];
+        // With bold_paragraph, no headingTexts means every bold paragraph (P1.12: a null here raised a warning).
+        foreach ($headingTexts ?? [] as $text) {
+            if (!is_string($text)) {
+                continue;
+            }
+            $trimmed = trim($text);
+            if ($trimmed === '') {
+                continue;
+            }
+            $normalizedTitles[$this->normalizeHeadingLookupText($trimmed)] = $trimmed;
+        }
+
+        if ($matchMode === 'explicit' && empty($normalizedTitles)) {
+            // Scenario 05 (P3.3-1): after a shorter refusal the model retried with bold_paragraph, which changed the
+            // wrong content. Nothing was changed here.
+            throw new \RuntimeException(
+                'With matchMode explicit (the default) this tool needs the exact heading texts in headingTexts. '
+                . 'get_page_content shows the page\'s headings. matchMode bold_paragraph is only for converting bold paragraphs into headings, '
+                . 'never for changing the level of existing headings. Nothing was changed.'
+            );
+        }
+
+        return [$normalizedTitles, $matchMode, $areaHandleContains, $targetTag];
+    }
+
+    /**
+     * P3.6-2: what batch_update_content_headings would change with these inputs, for its approval card: the read pass
+     * (planHeadings()), with nothing written. Null when the inputs or the page are refused (the call is refused then
+     * too, with the reason).
+     *
+     * @param array<string, mixed> $inputs
+     * @return array{page: Page, targetTag: string, matchMode: string, planned: list<array<string, mixed>>, failed: list<array<string, mixed>>, pendingHeadings: array<string, string>}|null
+     */
+    public function previewHeadings(array $inputs): ?array
+    {
+        try {
+            [$titles, $matchMode, $area, $targetTag] = $this->headingOptions(
+                is_array($inputs['headingTexts'] ?? null) ? $inputs['headingTexts'] : null,
+                is_string($inputs['matchMode'] ?? null) ? $inputs['matchMode'] : null,
+                is_string($inputs['areaHandleContains'] ?? null) ? $inputs['areaHandleContains'] : null,
+                is_string($inputs['targetTag'] ?? null) ? $inputs['targetTag'] : null
+            );
+            $pageID = is_numeric($inputs['pageID'] ?? null) ? (int) $inputs['pageID'] : 0;
+            $page = $pageID > 0 ? Page::getByID($pageID, 'RECENT') : null;
+            if (!$page || $page->isError()) {
+                return null;
+            }
+            $plan = $this->planHeadings($page, $pageID, $titles, $matchMode, $area, $targetTag, ($inputs['continueOnError'] ?? true) !== false);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return ['page' => $page, 'targetTag' => $targetTag, 'matchMode' => $matchMode] + $plan;
     }
 
     /**

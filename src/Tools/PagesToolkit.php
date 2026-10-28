@@ -34,6 +34,9 @@ use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
+use Katalysis\NeuronAi\Tools\Utilities\WorkflowOutcome;
+use Concrete\Core\Workflow\Progress\Response as WorkflowResponse;
+use Concrete\Core\Workflow\Request\MovePageRequest;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use NeuronAI\Tools\ToolProperty;
@@ -832,10 +835,18 @@ class PagesToolkit extends AbstractToolkit
             ObjectPermissions::deny(ObjectPermissions::moveOrCopyPage($page));
             ObjectPermissions::deny(ObjectPermissions::addSubpage($newParent));
             
-            // Move the page
-            $page->move($newParent);
-            
-            return $this->serializePage($page);
+            // P3.6-2 (B-WRT-4): through Concrete's move request, as the sitemap moves a page, so a workflow on the
+            // page's Move permission applies. The page has moved only if the request ran at once.
+            $summary = 'move ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . ') under ' . $newParent->getCollectionName();
+            $request = new MovePageRequest();
+            $request->setRequestedPage($page);
+            $request->setRequestedTargetPage($newParent);
+            $request->setSaveOldPagePath(false);
+            $request->setRequesterUserID((int) Application::getFacadeApplication()->make(User::class)->getUserID());
+            $done = $request->trigger() instanceof WorkflowResponse;
+            $moved = Page::getByID((int) $page->getCollectionID());
+
+            return $this->serializePage($moved) + WorkflowOutcome::of($done, $summary);
         }));
 
         return $tool;
@@ -872,13 +883,15 @@ class PagesToolkit extends AbstractToolkit
 
             $user = Application::getFacadeApplication()->make(User::class);
             $command = new DeletePageCommand($page->getCollectionID(), $user->getUserID());
-            Application::getFacadeApplication()->executeCommand($command);
-            
+            // P3.6-2 (B-WRT-4): the command triggers Concrete's delete request; with a workflow it only waits.
+            $done = Application::getFacadeApplication()->executeCommand($command) instanceof WorkflowResponse;
+            $summary = 'delete ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . ')';
+
             return [
                 'id' => $pageID,
                 'object' => 'pages',
-                'deleted' => true
-            ];
+                'deleted' => $done,
+            ] + WorkflowOutcome::of($done, $summary);
         }));
 
         return $tool;

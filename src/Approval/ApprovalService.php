@@ -8,6 +8,7 @@ use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
 use Katalysis\NeuronAi\Security\SecretRedactor;
+use Katalysis\NeuronAi\Tools\ToolKind;
 use NeuronAI\Agent\Interrupt\Action;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
@@ -36,12 +37,17 @@ final class ApprovalService
     public const STALE = 'stale';
     public const NOT_APPROVED = 'not_approved';
 
-    /** The gated tools and the fixed reason each policy returns. */
+    /**
+     * The fixed reason the policy returns for the page tools (P3.6-1). Since P3.6-2 every write tool is gated
+     * (ToolKind::isWrite()); the others return DEFAULT_REASON.
+     */
     public const POLICIES = [
         'update_page' => 'Changes a page: the user approves the change first.',
         'set_page_attribute_value' => 'Changes a page attribute: the user approves the change first.',
         'create_page' => 'Creates a page: the user approves it first.',
     ];
+
+    public const DEFAULT_REASON = 'Changes the site: the user approves the change first.';
 
     /** What the model is told for each kind of rejection. */
     public const DENY_REASON = 'The user chose Deny.';
@@ -81,8 +87,8 @@ final class ApprovalService
         foreach ($items as $item) {
             $tools = $item instanceof ToolkitInterface ? $item->tools() : [$item];
             foreach ($tools as $tool) {
-                if ($tool instanceof ToolInterface && isset(self::POLICIES[$tool->getName()])) {
-                    $reason = self::POLICIES[$tool->getName()];
+                if ($tool instanceof ToolInterface && self::isGated($tool->getName())) {
+                    $reason = self::reason($tool->getName());
                     $tool->withApprovalPolicy(static fn (): string => $reason);
                 }
             }
@@ -91,9 +97,20 @@ final class ApprovalService
         return $items;
     }
 
+    /**
+     * P3.6-2: every write waits for approval, external tools included (B-ACC-8). ToolKind treats any tool that doesn't
+     * start with a read word as a write, so a new tool is gated until someone says otherwise; ApprovalRegistryTest checks
+     * this against the hand-kept classification.
+     */
     public static function isGated(string $tool): bool
     {
-        return isset(self::POLICIES[$tool]);
+        return ToolKind::isWrite($tool);
+    }
+
+    /** The fixed reason a gated tool's policy returns. */
+    public static function reason(string $tool): string
+    {
+        return self::POLICIES[$tool] ?? self::DEFAULT_REASON;
     }
 
     public static function currentUserId(): int
@@ -169,7 +186,7 @@ final class ApprovalService
      * What the panel shows for one call: the change entry and the decision, all text written here.
      *
      * @param array<string, mixed> $row
-     * @return array{callId: string, tool: string, action: string, target: string, path: string, details: list<string>, note: string, status: string, statusText: string}
+     * @return array{callId: string, tool: string, action: string, target: string, path: string, details: list<string>, note: string, warnings: list<string>, status: string, statusText: string}
      */
     public static function card(array $row): array
     {
@@ -185,6 +202,7 @@ final class ApprovalService
             'path' => (string) ($entry['path'] ?? ''),
             'details' => array_values(array_map('strval', (array) ($entry['details'] ?? []))),
             'note' => (string) ($entry['note'] ?? ''),
+            'warnings' => array_values(array_map('strval', (array) ($entry['warnings'] ?? []))),
             'status' => $status,
             'statusText' => self::STATUS_TEXT[$status] ?? '',
         ];
