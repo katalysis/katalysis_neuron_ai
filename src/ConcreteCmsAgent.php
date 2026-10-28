@@ -344,7 +344,6 @@ GUIDELINES:
 - If any candidate source text includes ellipsis (`...`) or appears truncated, treat it as invalid for write-back and re-fetch full content
 - For block usage statistics, use count_blocks_by_type for quick overview before diving into specific searches
 - When asked for pages "below", "under", or "within" a path, use get_page_children with parentPath for direct children, or list_pages with includeDescendants=true for all pages in that tree
-- By default, list_pages and get_page_children show all pages including those with "exclude_nav" set; use onlyVisible=true only when the user explicitly wants navigation-visible pages
 - If a custom block handle is not found, check both the installed handle and the display name before concluding the block is unavailable
 - Provide specific, actionable information and include relevant IDs, paths, and counts in responses
 

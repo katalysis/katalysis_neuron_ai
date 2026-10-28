@@ -224,7 +224,7 @@ class ContentToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'value',
             PropertyType::OBJECT,
-            'Block data payload matching the block type fields',
+            BlockImportSave::VALUE_DESCRIPTION,
             true
         ));
 
@@ -320,7 +320,7 @@ class ContentToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'value',
             PropertyType::OBJECT,
-            'Updated block data payload',
+            BlockImportSave::VALUE_DESCRIPTION . ' Fields left out keep their stored values.',
             true
         ));
 

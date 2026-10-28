@@ -18,6 +18,7 @@ use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\Support\MarkdownToolEnvelope;
 use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
+use Katalysis\NeuronAi\Tools\Utilities\PermittedWindow;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
 use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
@@ -1335,23 +1336,29 @@ class BlocksToolkit extends AbstractToolkit
                         $qb->andWhere('cv.cvIsApproved = 1');
                     }
 
-                    // P3.5-1: only blocks this user could read (search_blocks_by_type's rule), checked page by page,
-                    // which is slower on a large site (P3.3-5).
+                    // P3.5-1: only blocks this user could read (search_blocks_by_type's rule), checked page by page.
+                    // P3.3-5: up to PermittedWindow's check limit of pages, then the count is a lower bound.
                     $cache = [];
                     $readable = [];
+                    $exact = true;
                     foreach ($qb->execute()->fetchAllAssociative() as $row) {
+                        if (!isset($cache[(int) $row['cID']]) && !PermittedWindow::mayCheck(count($cache))) {
+                            $exact = false;
+                            break;
+                        }
                         if (self::mayRead((int) $row['cID'], (bool) $row['cvIsApproved'], $cache)) {
                             $readable[(int) $row['bID']] = true;
                         }
                     }
                     $result = count($readable);
-                    
+
                     $status = $activeOnly ? "active" : "total";
                     $resolvedHandle = $bt->getBlockTypeHandle();
                     $prefix = ($resolution['resolvedFrom'] ?? null) && $resolution['resolvedFrom'] !== $resolvedHandle
                         ? "ℹ️ Resolved `{$resolution['resolvedFrom']}` to `{$resolvedHandle}`.\n"
                         : '';
-                    return $prefix . "📊 **{$resolvedHandle}:** {$result} {$status} instance(s)";
+                    return $prefix . "📊 **{$resolvedHandle}:** " . ($exact ? '' : 'at least ') . "{$result} {$status} instance(s)"
+                        . ($exact ? '' : "\n\nCounting stopped after checking " . count($cache) . ' pages, so there may be more.');
                 } else {
                     // Count all block types using Doctrine QueryBuilder
                     $qb = $db->createQueryBuilder();
@@ -1365,10 +1372,15 @@ class BlocksToolkit extends AbstractToolkit
                         $qb->where('cv.cvIsApproved = 1');
                     }
 
-                    // P3.5-1: only blocks this user could read, as for one type.
+                    // P3.5-1: only blocks this user could read, as for one type; P3.3-5: up to the check limit.
                     $cache = [];
                     $byType = [];
+                    $exact = true;
                     foreach ($qb->execute()->fetchAllAssociative() as $row) {
+                        if (!isset($cache[(int) $row['cID']]) && !PermittedWindow::mayCheck(count($cache))) {
+                            $exact = false;
+                            break;
+                        }
                         if (!self::mayRead((int) $row['cID'], (bool) $row['cvIsApproved'], $cache)) {
                             continue;
                         }
@@ -1389,6 +1401,9 @@ class BlocksToolkit extends AbstractToolkit
 
                     $status = $activeOnly ? "Active" : "Total";
                     $output = "📊 **Block Usage Summary ({$status} Instances):**\n\n";
+                    if (!$exact) {
+                        $output .= "Counting stopped after checking " . count($cache) . " pages, so each count is at least the number shown.\n\n";
+                    }
                     $output .= "| Block Type | Handle | Count |\n";
                     $output .= "|------------|--------|-------|\n";
 

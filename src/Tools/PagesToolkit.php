@@ -28,6 +28,7 @@ use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
+use Katalysis\NeuronAi\Tools\Utilities\PermittedWindow;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
@@ -155,6 +156,8 @@ class PagesToolkit extends AbstractToolkit
             false
         ));
 
+        $tool->addProperty(self::onlyVisibleProperty());
+
         $tool->setHandler($this->guarded(function (
             ?int $limit = 20,
             ?int $parentID = null,
@@ -217,12 +220,12 @@ class PagesToolkit extends AbstractToolkit
                 $list->filterByAttribute('exclude_nav', false);
             }
             
-            // BF-6: getResults() ignores setItemsPerPage() and returns every match, and with a permission checker
-            // Concrete has no count query, so the permitted matches are counted here and the window is sliced from them.
-            $results = $list->getResults();
-            $pages = array_map(fn($page) => $this->serializePage($page), $window->slice($results));
+            // BF-6: with a permission checker Concrete has no count query, so the permitted matches are counted here.
+            // P3.3-5: only until the window is full and the check limit is reached (PermittedWindow).
+            $found = PermittedWindow::of($list, $window);
+            $pages = array_map(fn($page) => $this->serializePage($page), $found['items']);
 
-            return ['pages' => $pages] + $window->summary(count($results), count($pages), 'list_pages', 'parentPath, pageType or includeDescendants=false');
+            return ['pages' => $pages] + $window->summary($found['total'], count($pages), 'list_pages', 'parentPath, pageType or includeDescendants=false', $found['exact']);
         }));
 
         return $tool;
@@ -236,22 +239,34 @@ class PagesToolkit extends AbstractToolkit
         );
 
         $tool->setHandler($this->guarded(function (): array {
-            $types = PageType::getList(false);
+            // P3.3-5: only pages the user may view are counted (the count ignored permissions; found in P3.5-1), in one
+            // pass over them, which stops at PermittedWindow's check limit on a large site.
+            $pageList = new PageList();
+            $pageList->setPermissionsChecker(static fn ($page): bool => (bool) (new Checker($page))->canViewPage());
+            $counts = [];
+            $checked = 0;
+            $rows = $pageList->executeGetResults();
+            foreach ($rows as $row) {
+                if (!PermittedWindow::mayCheck($checked)) {
+                    break;
+                }
+                $checked++;
+                $page = $pageList->getResult($row);
+                if ($page !== null) {
+                    $handle = (string) $page->getPageTypeHandle();
+                    $counts[$handle] = ($counts[$handle] ?? 0) + 1;
+                }
+            }
+            $exact = $checked >= count($rows);
+
             $results = [];
-
-            foreach ($types as $type) {
+            foreach (PageType::getList(false) as $type) {
                 $handle = $type->getPageTypeHandle();
-
-                $pageList = new PageList();
-                $pageList->ignorePermissions();
-                $pageList->filterByPageTypeHandle($handle);
-                $count = $pageList->getTotalResults();
-
                 $results[] = [
                     'handle' => $handle,
                     'name' => $type->getPageTypeDisplayName(),
                     'isInternal' => (bool) $type->isPageTypeInternal(),
-                    'usageCount' => (int) $count,
+                    'usageCount' => $counts[$handle] ?? 0,
                 ];
             }
 
@@ -262,7 +277,10 @@ class PagesToolkit extends AbstractToolkit
             return [
                 'totalDefinedPageTypes' => count($results),
                 'pageTypes' => $results,
-            ];
+            ] + ($exact ? [] : [
+                'countsAreAtLeast' => true,
+                'note' => "Counting stopped after {$checked} of " . count($rows) . ' pages, so each usageCount is at least that many.',
+            ]);
         }));
 
         return $tool;
@@ -525,6 +543,21 @@ class PagesToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * P3.3-5: list_pages and get_page_children declare onlyVisible, which the prompt named (BF-6). The description
+     * carries the rule the prompt had: all pages by default.
+     */
+    private static function onlyVisibleProperty(): ToolProperty
+    {
+        return new ToolProperty(
+            'onlyVisible',
+            PropertyType::BOOLEAN,
+            'If true, only pages shown in navigation (not hidden with "Exclude from nav"). Default false: all pages. '
+            . 'Use true only when the user asks for the pages visitors see in the navigation.',
+            false
+        );
     }
 
     /**
@@ -813,7 +846,7 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'get_page_children',
-            'Get the child pages of a specific page. Provide either pageID or parentPath. '
+            'Get the child pages of a specific page. Provide either pageID (or parentID) or parentPath. '
             . 'The result gives the total and whether there are more; use offset for the next children.'
         );
 
@@ -821,6 +854,14 @@ class PagesToolkit extends AbstractToolkit
             'pageID',
             PropertyType::INTEGER,
             'Parent page ID (use this OR parentPath)',
+            false
+        ));
+
+        // P3.3-5: the parent's ID under list_pages' name for it too (scenario 17 sent parentID in 2 of 3 runs).
+        $tool->addProperty(new ToolProperty(
+            'parentID',
+            PropertyType::INTEGER,
+            'The same as pageID: the parent page ID',
             false
         ));
 
@@ -845,10 +886,23 @@ class PagesToolkit extends AbstractToolkit
             false
         ));
 
-        $tool->setHandler($this->guarded(function (?int $pageID = null, ?string $parentPath = null, ?int $limit = 100, ?int $offset = null): array {
+        $tool->addProperty(self::onlyVisibleProperty());
+
+        $tool->setHandler($this->guarded(function (
+            ?int $pageID = null,
+            ?string $parentPath = null,
+            ?int $limit = 100,
+            ?int $offset = null,
+            ?int $parentID = null,
+            ?bool $onlyVisible = false
+        ): array {
             $window = ListWindow::of($limit, $offset, 100, 100);
+            if ($pageID && $parentID && $pageID !== $parentID) {
+                throw new \RuntimeException("pageID {$pageID} and parentID {$parentID} name different pages; send one of them.");
+            }
+            $pageID = $pageID ?: $parentID;
             if (!$pageID && !$parentPath) {
-                throw new \RuntimeException("Either pageID or parentPath is required");
+                throw new \RuntimeException("Either pageID (or parentID) or parentPath is required");
             }
             
             // Resolve the parent page
@@ -877,15 +931,18 @@ class PagesToolkit extends AbstractToolkit
                 $permissions = new Checker($childPage);
                 return $permissions->canViewPage();
             });
+            if ($onlyVisible) {
+                $list->filterByAttribute('exclude_nav', false);
+            }
 
-            // BF-6: every permitted child is loaded to count them (as in list_pages); the window is sliced from them.
-            $children = $list->getResults();
-            $shown = array_map(fn($child) => $this->serializePage($child), $window->slice($children));
+            // BF-6: the permitted children are counted here (as in list_pages); P3.3-5: up to the check limit.
+            $found = PermittedWindow::of($list, $window);
+            $shown = array_map(fn($child) => $this->serializePage($child), $found['items']);
 
             return [
                 'parent' => $this->serializePage($page),
                 'children' => $shown,
-            ] + $window->summary(count($children), count($shown), 'get_page_children');
+            ] + $window->summary($found['total'], count($shown), 'get_page_children', '', $found['exact']);
         }));
 
         return $tool;

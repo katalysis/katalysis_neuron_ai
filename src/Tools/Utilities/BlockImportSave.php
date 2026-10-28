@@ -41,6 +41,14 @@ use Katalysis\NeuronAi\Access\ObjectPermissions;
 final class BlockImportSave
 {
     /**
+     * The `value` input of the block write tools (P3.3-5: scenario 07 sent `htmlContent` for an HTML block, whose
+     * field is `content`).
+     */
+    public const VALUE_DESCRIPTION = 'The block\'s fields, named exactly as get_block_data shows them for that block type: '
+        . 'for example content for Content and HTML blocks, title and paragraph for a Feature. Entries kept in a table '
+        . '(an accordion\'s or an image slider\'s) are a list of rows under the table\'s name, each stored row with its id.';
+
+    /**
      * A new block's value, checked: what add() saves.
      *
      * @param array<string, mixed> $value as sent

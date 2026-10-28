@@ -154,15 +154,9 @@ final class ToolRegistryTest extends ConcreteTestCase
      * items. Remove an entry once it is fixed; do not add new ones.
      * (P1.13: the five entries of tools that are now disabled were removed, since the agent no longer offers them.
      * If one of those tools is re-enabled, its array property must declare items first.)
+     * P3.3-5: the last six declare their items, so the list is empty; it stays so a new bare array fails here.
      */
-    private const ARRAYS_WITHOUT_ITEMS_TODAY = [
-        'batch_update_page_content.blocks',
-        'batch_update_content_headings.headingTexts',
-        'create_page_attribute.options',
-        'create_page_attribute_and_add_to_set.options',
-        'create_user_attribute.options',
-        'create_file_attribute.options',
-    ];
+    private const ARRAYS_WITHOUT_ITEMS_TODAY = [];
 
     public function testArrayPropertiesDeclareItems(): void
     {
