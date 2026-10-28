@@ -17,38 +17,76 @@ use Concrete\Core\Support\Facade\Application;
  * - Accordion deletes its entries and re-adds only "accordionBlockData" (JSON), so a settings change emptied it.
  * - The Express form block keeps the form it shows; changing the form's fields is Express work (Phase 6).
  *
- * This is per-block knowledge, by hand, for the core blocks P3.3-6 covers. The Level 0 generic block adapter (P5.2)
- * is the general answer.
+ * BF-17: an update or a new block may name only the block's fields: its table's columns and, for the blocks below,
+ * the save() inputs that are not columns. Anything else was dropped by save() while the tool reported success
+ * (P3.S1's scenario 30). A block type whose save() is Concrete's own (BlockController::save()) stores only columns;
+ * one with its own save() that isn't listed here isn't checked yet.
+ *
+ * This is per-block knowledge, by hand, for the core blocks P3.3-6 covers. The Level 0 generic block adapter (P3.3-7)
+ * is the general answer, and replaces these lists.
  */
 final class BlockSaveInputs
 {
     /** Express form inputs its save() reads that are not columns. */
     private const EXPRESS_FORM_INPUTS = ['formName', 'resultsFolder', 'addFilesToFolder'];
 
+    /**
+     * BF-17: the save() inputs that are not columns, for each block type whose save() is known (read from Concrete
+     * 9.5.5's controllers). A type listed with none takes its columns only.
+     *
+     * @var array<string, list<string>>
+     */
+    private const OTHER_INPUTS = [
+        'content' => [],
+        'html' => [],
+        'image' => ['imageLink__which', 'imageLink_page', 'imageLink_file', 'imageLink_external_url', 'selectedThumbnailTypes'],
+        'feature' => ['link__which', 'link_page', 'link_external_url'],
+        'accordion' => ['accordionBlockData'],
+        'page_list' => ['cParentIDValue', 'filterDateFuture', 'filterDatePast', 'rss', 'rssDescription', 'rssHandle', 'rssTitle', 'topicFilter'],
+        'express_form' => self::EXPRESS_FORM_INPUTS,
+    ];
+
     /** @var array<string, list<string>> child tables by block table */
     private static array $childTables = [];
 
     /**
-     * Refuses an update this tool can't make for the block type. The reason, or null.
+     * Refuses an update this tool can't make for the block type: a field the block doesn't have (BF-17), or a change
+     * to an Express form's fields. The reason, or null.
      *
-     * @param array<string, mixed> $record the stored row
+     * @param array<string, mixed> $record the stored row (its keys are the table's columns)
      * @param array<string, mixed> $value the update as sent
+     * @param object|null $controller the block's controller, to tell Concrete's own save() from the block's
      */
-    public static function refusal(string $handle, array $record, array $value): ?string
+    public static function refusal(string $handle, array $record, array $value, ?object $controller = null): ?string
     {
-        if ($handle !== 'express_form') {
+        if ($record === []) {
             return null;
         }
-        $allowed = array_merge(array_keys($record), self::EXPRESS_FORM_INPUTS);
-        $unknown = array_values(array_diff(array_map('strval', array_keys($value)), $allowed));
+        $others = self::OTHER_INPUTS[$handle] ?? null;
+        if ($others === null) {
+            if ($controller === null || !self::savesColumnsOnly($controller)) {
+                return null;
+            }
+            $others = [];
+        }
+        $unknown = array_values(array_diff(array_map('strval', array_keys($value)), array_keys($record), $others));
         if ($unknown === []) {
             return null;
         }
+        $fields = array_values(array_diff(array_keys($record), ['bID']));
 
-        return "The Express form block's settings are: " . implode(', ', array_diff(array_keys($record), ['bID'])) . '. '
-            . 'Creating or changing the form\'s fields (' . implode(', ', $unknown) . ') is not available: it is Express work, '
-            . 'planned for a later phase. Tell the user it can be done in the Dashboard under System & Settings > Express. '
-            . 'Nothing was changed.';
+        if ($handle === 'express_form') {
+            return "The Express form block's settings are: " . implode(', ', $fields) . '. '
+                . 'Creating or changing the form\'s fields (' . implode(', ', $unknown) . ') is not available: it is Express work, '
+                . 'planned for a later phase. Tell the user it can be done in the Dashboard under System & Settings > Express. '
+                . 'Nothing was changed.';
+        }
+
+        $quoted = implode(', ', array_map(static fn (string $f): string => "'{$f}'", $unknown));
+
+        return "The {$handle} block has no field {$quoted}. Nothing was changed. Its fields are: " . implode(', ', $fields)
+            . ($others === [] ? '' : ' (its save also takes: ' . implode(', ', $others) . ')')
+            . '. Send the change again using those field names; get_block_controller_data shows a block\'s current values.';
     }
 
     /**
@@ -56,14 +94,21 @@ final class BlockSaveInputs
      *
      * @param array<string, mixed> $value
      */
-    public static function refusalForNew(string $handle, ?string $table, array $value): ?string
+    public static function refusalForNew(string $handle, ?string $table, array $value, ?object $controller = null): ?string
     {
-        if ($handle !== 'express_form' || $table === null || preg_match('/^[A-Za-z0-9_]+$/', $table) !== 1) {
+        if ($table === null || preg_match('/^[A-Za-z0-9_]+$/', $table) !== 1) {
             return null;
         }
         $columns = array_fill_keys(self::db()->fetchFirstColumn("SHOW COLUMNS FROM `{$table}`"), null);
 
-        return self::refusal($handle, $columns, $value);
+        return self::refusal($handle, $columns, $value, $controller);
+    }
+
+    /** A block type whose save() is Concrete's own stores its table's columns and nothing else. */
+    private static function savesColumnsOnly(object $controller): bool
+    {
+        return method_exists($controller, 'save')
+            && (new \ReflectionMethod($controller, 'save'))->getDeclaringClass()->getName() === \Concrete\Core\Block\BlockController::class;
     }
 
     /**

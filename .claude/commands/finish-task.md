@@ -10,15 +10,14 @@ The **base branch** is the one `/start-task` recorded: `git config branch.<branc
 4. Push the branch and open the PR, as two calls:
    1. `git push origin <branch>` (allowed for `task/*` and `spike/*`)
    2. `gh pr create --base <base>`, filled in from `.github/pull_request_template.md` (prompts for approval)
-5. Last commit, now that the PR number is known (prefix: the task ID):
-   - the `documentation/PROGRESS.md` entry from the template there, at most 10 lines (WP-4), newest at the top of the Log section, with the fields:
+5. Last commit, now that the PR number is known (prefix: the task ID). It touches only the task's own lines, so two open PRs don't conflict (WP-5):
+   - the progress entry, a new file `documentation/progress/<task-id>.md` (for example `progress/BF-17.md`), from the template in `documentation/PROGRESS.md`, at most 10 lines (WP-4), with the fields:
      - Who / tool / model
      - Time: elapsed since the start time in the branch description; own time "not recorded" unless the person volunteered it
      - Scenario spend: in $, or "none"
 
-     Don't ask the person for their own time or for `/usage` (`/usage` is recorded weekly, not per task).
-   - "Current position" in PROGRESS: the last completed task and the next open one
-   - the task's tick in `DELIVERY_PLAN.md`: `[x]` and "Done (PR #N)"
+     Don't ask the person for their own time or for `/usage` (`/usage` is recorded weekly, not per task). Don't edit `PROGRESS.md` itself: not its Log and not "Current position" (`/next-task` works out the position). A new standing note (a step every dev site needs, an open follow-up) goes in the entry and the PR, for Glyn or Alex to add.
+   - the task's tick in `DELIVERY_PLAN.md`: `[x]` and "Done (PR #N)", on the task's own line only
 
    Stage, commit and push it as separate calls (`git add <files>`, `git commit ...`, `git push origin <branch>`).
 6. Give the PR link and STOP. Never merge: a person merges on GitHub.
