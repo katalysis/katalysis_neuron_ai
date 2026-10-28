@@ -18,7 +18,7 @@ class Controller extends Package
 {
     protected $pkgHandle = 'katalysis_neuron_ai';
     protected $appVersionRequired = '9.3';
-    protected $pkgVersion = '3.3.0';
+    protected $pkgVersion = '3.4.0';
     protected $pkgAutoloaderRegistries = [
         'src' => '\Katalysis\NeuronAi'
     ];
@@ -60,6 +60,7 @@ class Controller extends Package
             ->routes(function($groupRouter) {
                 $groupRouter->get('/diagnostics/status', 'Diagnostics::status');
                 $groupRouter->post('/chat/send_message', 'Chat::send_message');
+                $groupRouter->post('/chat/decide', 'Chat::decide');
                 $groupRouter->get('/chat/list', 'Chat::chat_list');
                 $groupRouter->get('/chat/load', 'Chat::load');
                 $groupRouter->get('/chat/current', 'Chat::current');
