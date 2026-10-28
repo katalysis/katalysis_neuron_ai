@@ -213,7 +213,7 @@ class PagesToolkit extends AbstractToolkit
             // Handle parent filtering
             $resolvedParentID = $parentID;
             if ($parentPath && !$resolvedParentID) {
-                $parent = Page::getByPath($parentPath);
+                $parent = self::pageAtParentPath($parentPath);
                 if ($parent && !$parent->isError()) {
                     $resolvedParentID = $parent->getCollectionID();
                 } else {
@@ -2065,6 +2065,20 @@ class PagesToolkit extends AbstractToolkit
     }
 
     /**
+     * BF-18: the page a `parentPath` names. "/" is the home page, as PageContextResolver resolves it (BF-1): Concrete
+     * stores the home page with an empty path, so Page::getByPath('/') finds nothing.
+     */
+    private static function pageAtParentPath(string $parentPath): ?Page
+    {
+        if (PageContextResolver::normalizePath($parentPath) === '/') {
+            return PageContextResolver::pageForPath('/');
+        }
+        $page = Page::getByPath($parentPath);
+
+        return $page instanceof Page && !$page->isError() ? $page : null;
+    }
+
+    /**
      * P1.13: with move_page disabled the model tried to move a page through update_page, with a parent or path key
      * the tool silently dropped, and then said the page had moved. These are refused with a message that says so.
      */
@@ -2376,7 +2390,7 @@ class PagesToolkit extends AbstractToolkit
             
             // Resolve the parent page
             if ($parentPath) {
-                $page = Page::getByPath($parentPath);
+                $page = self::pageAtParentPath($parentPath);
                 if (!$page || $page->isError()) {
                     throw new \RuntimeException("Parent page not found at path: {$parentPath}");
                 }
