@@ -22,7 +22,6 @@ use Katalysis\NeuronAi\Extension\Tier;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\TaskKeyFixture;
 use Katalysis\NeuronAi\Tests\Support\ToolBaseline;
-use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\ToolTiers;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 
@@ -162,9 +161,6 @@ final class TierAccessTest extends ConcreteTestCase
     {
         $core = [];
         foreach (ToolBaseline::coreToolkits() as $toolkit) {
-            if ($toolkit instanceof AttributesToolkit) {
-                continue; // not registered by the agent (P1.8a); deleted in P3.3-3
-            }
             foreach ($toolkit->tools() as $tool) {
                 $core[] = $tool->getName();
             }

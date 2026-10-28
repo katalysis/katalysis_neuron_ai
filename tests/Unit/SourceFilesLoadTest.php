@@ -56,7 +56,7 @@ final class SourceFilesLoadTest extends TestCase
         $this->assertContains(dirname(__DIR__, 2) . '/src/Chat/ChatMessageStore.php', $files);
         $this->assertContains(dirname(__DIR__, 2) . '/src/Entity/ChatMessage.php', $files);
         $this->assertNotContains(dirname(__DIR__, 2) . '/src/DatabaseChatHistory.php', $files, 'removed in P2.5');
-        $this->assertContains(dirname(__DIR__, 2) . '/src/Toolkits/PagesToolkit.php', $files);
+        $this->assertNotContains(dirname(__DIR__, 2) . '/src/Toolkits/PagesToolkit.php', $files, 'removed in P3.3-3');
     }
 
     public function testEverySourceFileLoads(): void

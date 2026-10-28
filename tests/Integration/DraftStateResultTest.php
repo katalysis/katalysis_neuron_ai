@@ -11,7 +11,6 @@ use Katalysis\NeuronAi\Security\InstructionDetector;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
-use Katalysis\NeuronAi\Tools\AttributesToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
@@ -69,7 +68,6 @@ final class DraftStateResultTest extends ConcreteTestCase
             'delete_block_from_page_area' => [PagesToolkit::class, 'delete_block_from_page_area'],
             'move_block_between_areas' => [PagesToolkit::class, 'move_block_between_areas'],
             'set_page_attribute_value, PageAttributesToolkit' => [PageAttributesToolkit::class, 'set_page_attribute_value'],
-            'set_page_attribute_value, AttributesToolkit' => [AttributesToolkit::class, 'set_page_attribute_value'],
         ];
     }
 
@@ -157,7 +155,7 @@ final class DraftStateResultTest extends ConcreteTestCase
         $toolkits = [
             new PagesToolkit(), new BlocksToolkit(), new FilesToolkit(), new UsersToolkit(), new PageAttributesToolkit(),
             new UserAttributesToolkit(), new FileAttributesToolkit(), new AttributeSetsToolkit(), new TopicsToolkit(),
-            new PeopleToolkit(), new VersionsToolkit(), new AttributesToolkit(),
+            new PeopleToolkit(), new VersionsToolkit(),
         ];
         foreach ($toolkits as $toolkit) {
             foreach ($toolkit->tools() as $tool) {

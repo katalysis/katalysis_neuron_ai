@@ -101,8 +101,9 @@ final class ToolConversionRegistryTest extends ConcreteTestCase
 
     public function testThereAre87CoreToolDefinitionsLessTheRemovedOnes(): void
     {
-        // P2.3 converted 87; P3.5-2 removed set_user_attribute_value (ToolBaseline::REMOVED).
-        $this->assertCount(87 - count(ToolBaseline::REMOVED), self::definedTools());
+        // P2.3 converted 87; P3.5-2 removed set_user_attribute_value (ToolBaseline::REMOVED); P3.3-3 deleted
+        // AttributesToolkit and its tools (ToolBaseline::REMOVED_TOOLKITS).
+        $this->assertCount(87 - count(ToolBaseline::REMOVED) - ToolBaseline::removedToolkitToolCount(), self::definedTools());
     }
 
     #[DataProvider('definedToolCases')]

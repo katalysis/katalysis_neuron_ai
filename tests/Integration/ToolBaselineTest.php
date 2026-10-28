@@ -67,7 +67,8 @@ final class ToolBaselineTest extends ConcreteTestCase
 
     public function testEveryCoreToolIsDefinedAsOnNeuron3(): void
     {
-        // The capture, without the tools removed on purpose since (ToolBaseline::REMOVED, each with its task and reason).
+        // The capture, without the tools and toolkits removed on purpose since (ToolBaseline::REMOVED and
+        // REMOVED_TOOLKITS, each with its task and reason).
         $expected = ToolBaseline::capturedDefinitions();
         $actual = ToolBaseline::definitions(ToolBaseline::coreToolkits());
 
@@ -115,7 +116,8 @@ final class ToolBaselineTest extends ConcreteTestCase
 
     public function testTheCoreToolkitsAreOfferedAsOnNeuron3(): void
     {
-        $registered = array_slice(ToolBaseline::coreToolkits(), 0, -1);
+        // P3.3-3: every core toolkit is registered now (AttributesToolkit, which wasn't, is deleted).
+        $registered = ToolBaseline::coreToolkits();
         $offered = DisabledTools::apply(ToolNameResolver::resolve($registered, [], static function (): void {}), static function (): void {});
 
         // The capture, without the tools disabled on purpose since (ToolBaseline::DISABLED_SINCE).
