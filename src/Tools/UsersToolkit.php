@@ -81,10 +81,6 @@ class UsersToolkit extends AbstractToolkit
         ): array {
             $window = ListWindow::of($limit, $offset, 20, 100);
             $list = new UserList();
-            $list->setPermissionsChecker(function ($userInfo) {
-                $permissions = new Checker($userInfo);
-                return $permissions->canViewUser();
-            });
 
             $dateAddedColumn = new DateAddedColumn();
             $dateAddedColumn->setColumnSortDirection('desc');
@@ -95,9 +91,9 @@ class UsersToolkit extends AbstractToolkit
                 $list->filterByIsActive(true);
             }
 
-            // BF-6: getResults() ignores setItemsPerPage() and returns every match, and with a permission checker
-            // Concrete has no count query, so the permitted matches are counted here and the window is sliced from them.
-            $results = $list->getResults();
+            // BF-6: getResults() ignores setItemsPerPage() and returns every match, so the permitted matches are counted
+            // here and the window is sliced from them. BF-14: only the ones the requester may view.
+            $results = self::viewable($list);
             $users = array_map(fn($userInfo) => $this->serializeUser($userInfo, (array) $fields), $window->slice($results));
 
             return ['users' => $users] + $window->summary(count($results), count($users), 'list_users', 'activeOnly, or search_users');
@@ -244,8 +240,8 @@ class UsersToolkit extends AbstractToolkit
             $list->filterByKeywords($query);
             $list->getQueryObject()->addOrderBy('u.uID', 'asc');
 
-            // BF-6: every match the user may view (UserList checks canViewUser), counted here; the window is sliced.
-            $results = $list->getResults();
+            // BF-6: every match the user may view, counted here; the window is sliced.
+            $results = self::viewable($list);
             $users = array_map(fn($userInfo) => $this->serializeUser($userInfo, (array) $fields), $window->slice($results));
 
             return [
@@ -255,6 +251,21 @@ class UsersToolkit extends AbstractToolkit
         }));
 
         return $tool;
+    }
+
+    /**
+     * BF-14 (B-PII-1): the list's matches the requester may view (Concrete's canViewUser, as get_user checks).
+     * UserList::getResults() never calls a permission checker set on the list (only Concrete's pagination does), so
+     * each user is checked here.
+     *
+     * @return list<UserInfo>
+     */
+    private static function viewable(UserList $list): array
+    {
+        return array_values(array_filter(
+            $list->getResults(),
+            static fn (UserInfo $userInfo): bool => (bool) (new Checker($userInfo))->canViewUser()
+        ));
     }
 
     /**

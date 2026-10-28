@@ -669,6 +669,10 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - `SeedResetTest`: after the reset the seed photo exists on disk and is at least 16×16 (red against the old fixture)
   - a `linked_files_exist` reply check, run always like `saved_html_valid`: every link in a reply on the site's own host under `/application/files/` points to a file that exists on disk at the end of the turn; unit-tested with recorded replies; a row in the scenarios README
   - a backup, then one seed `--reset` on the dev site; no paid scenario runs, a free `--fake` run of 25 and 28
+- [x] BF-14 **`search_users` checks view permission** (small; its own PR into `development`; no plan stop; Glyn's decision after P3.5-2). Done (PR #74). Found in P3.5-2's scenario 34 run: `search_users` found `neuron_chat_editor` for `neuron_editor`, then `get_user` refused it, because `search_users` has no per-user view check (`list_users` has one; B-PII-1). Scope:
+  - `search_users` gets the same per-user check as `list_users` (Concrete's `canViewUser`), so it never lists, or counts, a user the requester can't view
+  - a red-first integration test: `neuron_editor` searches for a user it can't view and gets nothing
+  - no paid scenario runs; a free `--fake` run of 03 and 34
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
