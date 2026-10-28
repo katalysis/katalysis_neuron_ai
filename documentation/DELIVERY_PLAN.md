@@ -372,11 +372,11 @@ Deleting first means less code to move, and every later behaviour change lands i
   - more than 20 lines of working code are deleted: covered by this plan
   - scenarios: `--fake` of 05, 07, 13; none new or changed, so no paid run. Compared ×3 in P3.S2
 - [x] P3.3-4 **Split `PagesToolkit.php`, mechanically** (M). Done (PR #84). Depends on: P3.3-1, P3.3-2, P3.4 and P3.5-1's Pages half.
-  - `PagesToolkit` (3,490 lines, 18 tools) becomes Pages, Content (page blocks and areas) and BatchEdit; two PRs if that is easier to review (Content out, then BatchEdit out)
+  - `PagesToolkit` (3,061 lines, 17 tools at the split) becomes Pages, Content (page blocks and areas) and BatchEdit; two PRs if that is easier to review (Content out, then BatchEdit out)
   - **no behaviour change:** `ToolBaselineTest` stays identical (names, descriptions, schemas, guidelines), and the registry test passes
   - the tools stay on `CallableTool` (the subclass conversion is dropped)
   - scenarios: `--fake` of the write scenarios; none new or changed, so no paid run. Compared ×3 in P3.S2
-- [ ] P3.3-7 **Level 0 generic block adapter** (M; Glyn, on P3.3-6's recommendation and review, 27 October 2026). Depends on: P3.3-4.
+- [x] P3.3-7 **Level 0 generic block adapter** (M; Glyn, on P3.3-6's recommendation and review, 27 October 2026). Done (PR #85). Depends on: P3.3-4.
   - P5.2's item 1 only: export metadata, child tables and import-mode `save()`, so any core or package block type's fields can be read and written without hand-written knowledge, failing clearly when a field can't be mapped
   - the six hand-written fixes from P3.3-6 (`BlockSaveInputs`) move onto the generic path where it covers them; their tests (`CoreBlockWritesTest`) stay
   - its generic field list replaces BF-17's unknown-field check's hand-written list (columns plus each covered block's other `save()` inputs)

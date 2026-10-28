@@ -404,7 +404,7 @@ final class TextIntegrity
      * ordinary settings change under keep_text ("leaves out existing text: h4"). Words with capitals, spaces or markup
      * stay text, and are still checked.
      */
-    private static function isSetting(string $stored): bool
+    public static function isSetting(string $stored): bool
     {
         $stored = trim($stored);
 

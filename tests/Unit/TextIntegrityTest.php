@@ -418,6 +418,46 @@ final class TextIntegrityTest extends TestCase
         $this->assertNull(TextIntegrity::checkNewValue(['content' => '<p>The <code>&lt;script&gt;</code> element runs code.</p>']));
     }
 
+    // ---- P3.3-7: a bare script URL in a plain string column (B-T1-10) -------------------------------------------
+
+    /**
+     * Import-mode saves (P3.3-7) take link columns as given: Feature's sanitizeURL() runs only for its form input.
+     *
+     * @return array<string, array{string, string}>
+     */
+    public static function bareUrlProvider(): array
+    {
+        return [
+            'javascript:' => ['javascript:alert(1)', 'javascript: URL'],
+            'javascript:, case and spaces' => [' JaVaScRiPt:alert(1)', 'javascript: URL'],
+            'javascript:, tab inside' => ['java\tscript:alert(1)', 'javascript: URL'],
+            'data:' => ['data:text/html;base64,PHNjcmlwdD4=', 'data: URL'],
+            'vbscript:' => ['vbscript:msgbox(1)', 'vbscript: URL'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('bareUrlProvider')]
+    public function testABareScriptUrlInAPlainColumnIsRefusedInEveryMode(string $url, string $named): void
+    {
+        $url = str_replace('\t', "\t", $url);
+        $this->assertStringContainsString($named, (string) TextIntegrity::checkNewValue(['externalLink' => $url]));
+
+        foreach (['keep_text', 'formatting_only', 'scoped_text'] as $mode) {
+            $result = TextIntegrity::evaluate(['externalLink' => 'https://example.test/'], ['externalLink' => $url], $mode, $mode === 'scoped_text' ? ['externalLink'] : null);
+            $this->assertFalse($result['ok'], "{$mode} let a bare {$named} through");
+            $this->assertStringContainsString($named, $result['message']);
+            $this->assertStringContainsString('Nothing was changed', $result['message']);
+        }
+    }
+
+    public function testOrdinaryLinksAndTextAboutSchemesAreAllowedAndAStoredBareUrlIsKept(): void
+    {
+        foreach (['https://example.test/page', '/neuron-test', 'mailto:a@example.test', 'tel:+441234', 'Use javascript: links with care'] as $value) {
+            $this->assertNull(TextIntegrity::checkNewValue(['externalLink' => $value]), $value);
+        }
+        $this->assertTrue(TextIntegrity::evaluate(['externalLink' => 'javascript:void(0)', 'title' => 'A'], ['externalLink' => 'javascript:void(0)', 'title' => 'A'], 'keep_text')['ok']);
+    }
+
     // ---- P3.3-6: settings in string columns are not text --------------------------------------------------------
 
     public function testASettingChangeIsNotATextChangeButALabelIs(): void

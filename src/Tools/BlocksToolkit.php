@@ -19,6 +19,7 @@ use Katalysis\NeuronAi\Tools\Support\MarkdownToolEnvelope;
 use Katalysis\NeuronAi\Tools\Utilities\AbsoluteUrl;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
+use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
 use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
 use Katalysis\NeuronAi\Tools\Utilities\PagePathLabel;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
@@ -553,46 +554,17 @@ class BlocksToolkit extends AbstractToolkit
                     
                     $data = $qb->execute()->fetchAssociative();
                     
+                    // P3.3-7: each field's kind from the block's export metadata (Level 0, BlockFields), with the page or
+                    // file it refers to, in place of guesses from field names.
+                    $fields = BlockFields::ofController((string) $bt->getBlockTypeHandle(), $controller);
                     if ($data) {
                         // Remove bID from display (not useful)
                         unset($data['bID']);
-                        
+
                         if (empty($data)) {
                             $output .= "_No additional field data stored_\n";
                         } else {
-                            foreach ($data as $field => $value) {
-                                // Handle null values
-                                if ($value === null) {
-                                    $displayValue = "(null)";
-                                }
-                                // Handle non-string values
-                                elseif (!is_string($value)) {
-                                    $displayValue = var_export($value, true);
-                                }
-                                // Preserve full string values to avoid accidental truncation in write workflows.
-                                elseif (is_numeric($value) && strlen($value) < 20) {
-                                    $displayValue = $value;
-                                } else {
-                                    $displayValue = (string)$value;
-                                }
-                                
-                                // Check if value might be a file ID
-                                if (preg_match('/^(fID|fileID)$/i', $field) && is_numeric($value) && $value > 0) {
-                                    $displayValue .= " (File ID)";
-                                }
-                                
-                                // Check if value might be a page ID
-                                if (preg_match('/(cID|pageID|linkPage)/i', $field) && is_numeric($value) && $value > 0) {
-                                    $displayValue .= " (Page ID)";
-                                }
-                                
-                                // Check if value might be a user ID
-                                if (preg_match('/(uID|userID|contactee)/i', $field) && is_numeric($value) && $value > 0) {
-                                    $displayValue .= " (User ID)";
-                                }
-                                
-                                $output .= "- **{$field}:** {$displayValue}\n";
-                            }
+                            $output .= self::describeFields($fields, null, $data);
                         }
                     } else {
                         $output .= "_No data found in block table_\n";
@@ -602,10 +574,23 @@ class BlocksToolkit extends AbstractToolkit
                 }
 
                 // P3.3-6: rows the block keeps in other tables (an accordion's entries), and how to send them back.
+                // P3.3-7: the child tables its export declares, each row with its id, then other stored rows.
                 if ($db) {
-                    foreach (BlockSaveInputs::childRows((string) $db, (int) $blockID) as $childTable => $rows) {
-                        $output .= "\n**{$childTable}** (" . count($rows) . " row(s)):\n";
-                        $output .= json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+                    foreach ($fields->rows((int) $blockID, true) as $childTable => $rows) {
+                        if (in_array($childTable, $fields->childTables(), true)) {
+                            $readOnly = $fields->childTableRefusal($childTable);
+                            $output .= "\n**{$childTable}** (" . count($rows) . ' row(s); '
+                                . ($readOnly === null
+                                    ? "to change them, send value.{$childTable}: every row in order, each stored row with its id to keep "
+                                        . 'its other fields, new rows without an id; rows left out are removed'
+                                    : 'read only: the block saves these with its own code')
+                                . "):\n";
+                            $output .= json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+                            $output .= self::describeReferences($fields, $childTable, $rows);
+                        } elseif ($rows !== []) {
+                            $output .= "\n**{$childTable}** (" . count($rows) . " row(s); stored by the block, kept as they are):\n";
+                            $output .= json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+                        }
                     }
                 }
                 if ($bt->getBlockTypeHandle() === 'accordion') {
@@ -625,6 +610,77 @@ class BlocksToolkit extends AbstractToolkit
         });
 
         return $tool;
+    }
+
+    /**
+     * A block's fields, one per line, each with its kind (P3.3-7): "- **internalLinkCID** (page): 12 → /about".
+     *
+     * @param array<string, mixed> $data
+     */
+    private static function describeFields(BlockFields $fields, ?string $table, array $data): string
+    {
+        $columns = $fields->columns($table);
+        $unnamed = $fields->undeclaredReferences($table);
+        $output = '';
+        foreach ($data as $field => $value) {
+            // Full string values, to avoid accidental truncation in write workflows.
+            $displayValue = $value === null ? '(null)' : (is_string($value) ? $value : var_export($value, true));
+            $kind = in_array($field, $unnamed, true) ? 'reference, kept as stored' : ($columns[$field]['kind'] ?? 'text');
+            $output .= "- **{$field}** ({$kind}): {$displayValue}" . self::referenceNote($columns[$field]['kind'] ?? '', $value) . "\n";
+        }
+
+        return $output;
+    }
+
+    /**
+     * The pages and files a child table's rows refer to, one line each.
+     *
+     * @param list<array<string, mixed>> $rows
+     */
+    private static function describeReferences(BlockFields $fields, string $table, array $rows): string
+    {
+        $lines = [];
+        foreach ($fields->columns($table) as $column => $info) {
+            foreach ($rows as $row) {
+                $note = self::referenceNote($info['kind'], $row[$column] ?? null);
+                if ($note !== '') {
+                    $lines[$column . ' ' . $row[$column]] = "- {$column} {$row[$column]}{$note}";
+                }
+            }
+        }
+
+        return $lines === [] ? '' : implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * " → /path" for a page, " → title (file name)" for a file, when the user may see it.
+     */
+    private static function referenceNote(string $kind, $value): string
+    {
+        if (!is_numeric($value) || (int) $value <= 0) {
+            return '';
+        }
+        if ($kind === BlockFields::PAGE) {
+            $page = Page::getByID((int) $value);
+            if (!$page || $page->isError()) {
+                return ' → (no such page)';
+            }
+
+            return ObjectPermissions::viewPage($page) === null ? ' → ' . $page->getCollectionPath() : ' → (a page you can\'t view)';
+        }
+        if ($kind === BlockFields::FILE) {
+            $file = File::getByID((int) $value);
+            $version = $file ? $file->getApprovedVersion() : null;
+            if (!$version) {
+                return ' → (no such file)';
+            }
+
+            return ObjectPermissions::viewFile($file) === null
+                ? ' → ' . $version->getTitle() . ' (' . $version->getFileName() . ')'
+                : ' → (a file you can\'t view)';
+        }
+
+        return '';
     }
 
     protected function makeGetBlockControllerDataTool(): Tool

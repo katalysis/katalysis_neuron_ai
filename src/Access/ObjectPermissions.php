@@ -144,6 +144,14 @@ final class ObjectPermissions
 
     // ---- Files and folders ----------------------------------------------------------------------------------------
 
+    /**
+     * view_file: the user may see the file on the site (P3.3-7, Glyn: what a block that shows or links a file needs).
+     */
+    public static function viewFile(File $file): ?string
+    {
+        return self::check(new Checker($file), 'canViewFile', [], 'view_file', 'see ' . self::file($file), self::GRANT_FILE, false);
+    }
+
     public static function viewFileInFileManager(File $file): ?string
     {
         return self::check(new Checker($file), 'canViewFileInFileManager', [], 'view_file_in_file_manager', 'see ' . self::file($file), self::GRANT_FILE, false);

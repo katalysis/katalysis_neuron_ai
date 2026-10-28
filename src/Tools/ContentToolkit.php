@@ -7,16 +7,14 @@ namespace Katalysis\NeuronAi\Tools;
 use Concrete\Core\Area\Area;
 use Concrete\Core\Area\Exception\AreaNotFoundException;
 use Concrete\Core\Block\Block;
-use Concrete\Core\Block\Command\AddBlockToPageCommand;
 use Concrete\Core\Block\Command\DeleteBlockCommand;
-use Concrete\Core\Block\Command\UpdatePageBlockCommand;
 use Concrete\Core\Block\Exception\BlockNotFoundException;
-use Concrete\Core\Block\Traits\ValidateBlockRequestTrait;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Support\Facade\Application;
 use Katalysis\NeuronAi\Access\ObjectPermissions;
-use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
+use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
+use Katalysis\NeuronAi\Tools\Utilities\BlockImportSave;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
@@ -31,7 +29,6 @@ use NeuronAI\Tools\ArrayProperty;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
-use Symfony\Component\HttpFoundation\JsonResponse;
 
 /**
  * The blocks and areas of a page: read a page's blocks, and add, update, delete and move a block (P3.3-4: split out of
@@ -42,7 +39,6 @@ class ContentToolkit extends AbstractToolkit
     use PageToolGuards;
     use BlockWriteSupport;
     use BlockSummaries;
-    use ValidateBlockRequestTrait;
 
     public function provide(): array
     {
@@ -257,23 +253,19 @@ class ContentToolkit extends AbstractToolkit
                 throw new \RuntimeException(WriteRefusal::unknownBlockType((string) $blockType));
             }
 
-            $normalizedValue = (array) ($value ?? []);
-            // BF-17: a field the block type doesn't have is refused, not dropped by save() while the tool reports success.
-            $btController = $bt->getController();
-            $refusal = BlockSaveInputs::refusalForNew((string) $blockType, $btController->getBlockTypeDatabaseTable() ?: null, $normalizedValue, $btController);
-            if ($refusal !== null) {
-                throw new \RuntimeException($refusal);
-            }
-            // Save inputs that are not columns: no link unless the value names one (P3.3-6).
-            $normalizedValue = BlockSaveInputs::fillNew((string) $blockType, $normalizedValue);
+            // P3.3-7: the Level 0 checks (the block's fields, references, required columns; BF-17), then the value as
+            // the import-mode save takes it.
+            $fields = BlockFields::ofType($bt);
+            $prepared = BlockImportSave::prepareNew($fields, (array) ($value ?? []));
             // No escaped or broken HTML, and no code, in a new block either (BF-7, browser check 6; P3.3-2, B-T1-10).
-            $valueProblem = TextIntegrity::checkNewValue($this->textCheckViews((string) $blockType, 0, [], $normalizedValue)[1]);
+            $valueProblem = TextIntegrity::checkNewValue($prepared['check']);
             if ($valueProblem !== null) {
                 throw new \RuntimeException($valueProblem);
             }
 
-            // The block type's own check, as Concrete's add-block dialog runs it (AddBlockToPageCommand doesn't; P3.3-2).
-            $validation = WriteRefusal::blockValidation($bt->getController()->validate($normalizedValue), (string) $blockType);
+            // The block type's own check, as Concrete's add-block dialog runs it (AddBlockToPageCommand doesn't; P3.3-2),
+            // on the column-shaped value the import-mode save gets (P3.3-7).
+            $validation = WriteRefusal::blockValidation($bt->getController()->validate($prepared['value']), (string) $blockType);
             if ($validation !== null) {
                 throw new \RuntimeException($validation);
             }
@@ -286,16 +278,10 @@ class ContentToolkit extends AbstractToolkit
                 ObjectPermissions::deny($refusal);
             }
 
-            // The command makes its own draft from the page it is given. Give it the draft, so a
-            // second write in this request adds to the same draft (see PageDraft::of()).
+            // Added to the draft, so a second write in this request adds to the same draft (see PageDraft::of()), in
+            // import mode, as AddBlockToPageCommand adds it but with the save mode it can't pass (P3.3-7).
             $draft = $this->getDraftOf($page);
-            $command = new AddBlockToPageCommand();
-            $command->setPage($draft);
-            $command->setArea($area);
-            $command->setBlockType($bt);
-            $command->setData($normalizedValue);
-
-            $block = Application::getFacadeApplication()->executeCommand($command);
+            $block = BlockImportSave::add($draft, $area, $bt, $fields, $prepared);
 
             return $this->serializeBlock($block, true) + DraftState::of($draft);
         }));
@@ -412,27 +398,21 @@ class ContentToolkit extends AbstractToolkit
             $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
             $beforeRecord = $this->getBlockTableRecord($dbTable, (int) $block->getBlockID());
             $handle = (string) $block->getBlockTypeHandle();
-            $refusal = BlockSaveInputs::refusal($handle, $beforeRecord, $body, $controller);
-            if ($refusal !== null) {
-                throw new \RuntimeException($refusal);
-            }
-            $kept = TextIntegrity::keepOmittedFields($beforeRecord, $body);
-            // Save inputs that are not columns (a link, accordion entries), so the block keeps them (P3.3-6).
-            $body = BlockSaveInputs::fillOmitted($handle, (int) $block->getBlockID(), $kept['value']);
-            [$checkBefore, $checkAfter] = $this->textCheckViews($handle, (int) $block->getBlockID(), $beforeRecord, $body);
-            $textPolicy = TextIntegrity::evaluate($checkBefore, $checkAfter, $mode, $textFields, $replacedText);
+            // P3.3-7: the Level 0 checks (BF-17's fields, references, child rows), and the full stored row with the
+            // change, as the import-mode save takes it.
+            $fields = BlockFields::ofController($handle, $controller);
+            $prepared = BlockImportSave::prepareUpdate($fields, (int) $block->getBlockID(), $beforeRecord, $body);
+            $body = $prepared['value'];
+            $textPolicy = TextIntegrity::evaluate($prepared['checkBefore'], $prepared['checkAfter'], $mode, BlockImportSave::textFields($fields, $textFields), $replacedText);
             if (!$textPolicy['ok']) {
                 throw new \RuntimeException($textPolicy['message']);
             }
 
-            $validation = $this->validateBlock($block, $body);
-            if ($validation instanceof JsonResponse) {
-                $errors = json_decode((string) $validation->getContent(), true);
-                $list = new \Concrete\Core\Error\ErrorList\ErrorList();
-                foreach ((array) ($errors['errors'] ?? [(string) $validation->getContent()]) as $error) {
-                    $list->add(is_array($error) ? (string) ($error['message'] ?? json_encode($error)) : (string) $error);
-                }
-                throw new \RuntimeException((string) WriteRefusal::blockValidation($list, $block->getBlockTypeHandle()));
+            // The block type's own check, on the column-shaped value the import-mode save gets (P3.3-7). validate()
+            // returning false refuses too.
+            $validation = WriteRefusal::blockValidation($controller->validate($body), $handle);
+            if ($validation !== null) {
+                throw new \RuntimeException($validation);
             }
 
             // Make the draft only now that the checks have passed. If it exists already this
@@ -440,13 +420,9 @@ class ContentToolkit extends AbstractToolkit
             $pageToModify = $this->getDraftOf($page);
             $blockToEdit = $this->getBlockToEdit($pageToModify, $area, $areaHandle, $blockID);
 
-            $command = new UpdatePageBlockCommand();
-            $command->setPage($pageToModify);
-            $command->setData($body);
-            $command->setBlock($blockToEdit);
-
-            // The command's handler saves the block (Block::update()); a second save here was removed in P3.3-2.
-            $updatedBlock = Application::getFacadeApplication()->executeCommand($command);
+            // Saved once (P3.3-2), in import mode, as UpdatePageBlockCommand saves it but with the save mode it can't
+            // pass (P3.3-7).
+            $updatedBlock = BlockImportSave::update($pageToModify, $blockToEdit, $fields, $prepared);
 
             $afterRecord = $this->getBlockTableRecord($dbTable, (int) $updatedBlock->getBlockID());
 
@@ -454,7 +430,7 @@ class ContentToolkit extends AbstractToolkit
                 'textCheck' => [
                     'mode' => $mode,
                     'fields' => $textPolicy['fields'],
-                    'keptFields' => $kept['keptFields'],
+                    'keptFields' => $prepared['keptFields'],
                     'checksumsBefore' => TextIntegrity::checksums($beforeRecord, $textPolicy['watchedFields']),
                     'checksumsAfter' => TextIntegrity::checksums($afterRecord, $textPolicy['watchedFields']),
                 ],

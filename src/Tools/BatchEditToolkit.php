@@ -11,7 +11,8 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\Support\Facade\Application;
 use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Tools\Utilities\BlockIdRemapper;
-use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
+use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
+use Katalysis\NeuronAi\Tools\Utilities\BlockImportSave;
 use Katalysis\NeuronAi\Tools\Utilities\BlockNotFound;
 use Katalysis\NeuronAi\Tools\Utilities\BlockRemapException;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
@@ -280,8 +281,8 @@ class BatchEditToolkit extends AbstractToolkit
                     $watchedFields = $item['textPolicy']['watchedFields'];
                     $beforeChecksums = TextIntegrity::checksums($item['beforeRecord'], $watchedFields);
 
-                    // Update the block
-                    $block->update($item['value']);
+                    // Update the block, in import mode (P3.3-7)
+                    BlockImportSave::update($pageToModify, $block, $item['fields'], $item['prepared']);
 
                     $afterRecord = $this->getBlockTableRecord($item['dbTable'], $newBlockID);
                     $afterChecksums = TextIntegrity::checksums($afterRecord, $watchedFields);
@@ -333,7 +334,7 @@ class BatchEditToolkit extends AbstractToolkit
      * the text check with the item's own mode.
      *
      * @param array{areaHandle: string, blockID: int, value: array, changeMode: string, textFields: ?array, replacedText: ?array} $update
-     * @return array{value: array, keptFields: array, textPolicy: array, beforeRecord: array, dbTable: mixed}
+     * @return array{value: array, keptFields: array, textPolicy: array, beforeRecord: array, dbTable: mixed, fields: BlockFields, prepared: array}
      * @throws \RuntimeException with the reason the item is refused; nothing has been changed
      */
     private function checkBatchItem(Page $page, array $update): array
@@ -352,26 +353,29 @@ class BatchEditToolkit extends AbstractToolkit
 
         $value = (array) ($update['value'] ?? []);
         $handle = (string) $block->getBlockTypeHandle();
-        $refusal = BlockSaveInputs::refusal($handle, $beforeRecord, $value, $controller);
-        if ($refusal !== null) {
-            throw new \RuntimeException($refusal);
-        }
-        // Fields the update leaves out keep their stored values (BF-5), and so do save inputs that are not columns (P3.3-6).
-        $kept = TextIntegrity::keepOmittedFields($beforeRecord, $value);
-        $kept['value'] = BlockSaveInputs::fillOmitted($handle, $blockID, $kept['value']);
+        // P3.3-7: the Level 0 checks (BF-17's fields, references, child rows); fields the update leaves out keep their
+        // stored values (BF-5), as the full row the import-mode save takes.
+        $fields = BlockFields::ofController($handle, $controller);
+        $prepared = BlockImportSave::prepareUpdate($fields, $blockID, $beforeRecord, $value);
 
-        [$checkBefore, $checkAfter] = $this->textCheckViews($handle, $blockID, $beforeRecord, $kept['value']);
-        $textPolicy = TextIntegrity::evaluate($checkBefore, $checkAfter, $update['changeMode'], $update['textFields'], $update['replacedText']);
+        $textPolicy = TextIntegrity::evaluate($prepared['checkBefore'], $prepared['checkAfter'], $update['changeMode'], BlockImportSave::textFields($fields, $update['textFields']), $update['replacedText']);
         if (!$textPolicy['ok']) {
             throw new \RuntimeException($textPolicy['message']);
         }
+        // The block type's own check, as update_block_in_page_area runs it (P3.3-7: the batch tool didn't).
+        $validation = WriteRefusal::blockValidation($controller->validate($prepared['value']), $handle);
+        if ($validation !== null) {
+            throw new \RuntimeException($validation);
+        }
 
         return [
-            'value' => $kept['value'],
-            'keptFields' => $kept['keptFields'],
+            'value' => $prepared['value'],
+            'keptFields' => $prepared['keptFields'],
             'textPolicy' => $textPolicy,
             'beforeRecord' => $beforeRecord,
             'dbTable' => $dbTable,
+            'fields' => $fields,
+            'prepared' => $prepared,
         ];
     }
 

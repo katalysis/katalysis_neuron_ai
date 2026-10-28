@@ -8,7 +8,7 @@ use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Page\Page;
-use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
+use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
 
 /**
  * Takes a Snapshot of the dev site. Read-only.
@@ -247,10 +247,18 @@ final class SnapshotBuilder
         unset($row['bID']);
         $data = array_map(static fn ($v): ?string => $v === null ? null : (string) $v, $row);
 
-        // P3.3-6: rows in tables named after the block's own (an accordion's entries), as JSON under the table name,
-        // without their row and block IDs, so a copy into a draft compares equal.
-        foreach (BlockSaveInputs::childRows($table, $blockID) as $child => $rows) {
-            $data[$child] = (string) json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        // P3.3-6: rows in the block's other tables (an accordion's entries), as JSON under the table name, without their
+        // row IDs, so a copy into a draft compares equal. P3.3-7: the declared child tables and the side tables the
+        // export leaves out (BlockFields), as before.
+        $type = BlockType::getByHandle($handle);
+        foreach ($type ? BlockFields::ofType($type)->rows($blockID, true) : [] as $child => $rows) {
+            if ($rows !== []) {
+                $data[$child] = (string) json_encode(array_map(static function (array $row): array {
+                    unset($row['id']);
+
+                    return $row;
+                }, $rows), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            }
         }
 
         return $data;

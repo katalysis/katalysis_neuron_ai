@@ -9,13 +9,12 @@ use Concrete\Core\Block\Block;
 use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Support\Facade\Application;
-use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 
 /**
- * P3.3-4: the block-write helpers ContentToolkit and BatchEditToolkit both use: the stored row, the text check's views
- * and the draft copy of a block (Concrete's GetBlockToEditTrait, aliased as it was in PagesToolkit). Moved from
- * PagesToolkit unchanged.
+ * P3.3-4: the block-write helpers ContentToolkit and BatchEditToolkit both use: the stored row and the draft copy of
+ * a block (Concrete's GetBlockToEditTrait, aliased as it was in PagesToolkit). Moved from PagesToolkit unchanged; the
+ * text check's views moved to BlockImportSave in P3.3-7.
  */
 trait BlockWriteSupport
 {
@@ -48,27 +47,6 @@ trait BlockWriteSupport
         } catch (\Throwable $e) {
             return [];
         }
-    }
-
-    /**
-     * The stored record and the update as the text check sees them (P3.3-6). An accordion's entries are a save()
-     * input, not a column: the check compares them as text (titles and descriptions), not as JSON.
-     *
-     * @param array<string, mixed> $record
-     * @param array<string, mixed> $value
-     *
-     * @return array{0: array<string, mixed>, 1: array<string, mixed>}
-     */
-    private function textCheckViews(string $handle, int $bID, array $record, array $value): array
-    {
-        if ($handle === 'accordion' && is_string($value['accordionBlockData'] ?? null)) {
-            if ($bID > 0) {
-                $record['accordionBlockData'] = BlockSaveInputs::accordionText(BlockSaveInputs::accordionJson($bID));
-            }
-            $value['accordionBlockData'] = BlockSaveInputs::accordionText($value['accordionBlockData']);
-        }
-
-        return [$record, $value];
     }
 
     /**
