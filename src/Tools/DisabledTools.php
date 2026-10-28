@@ -27,27 +27,22 @@ final class DisabledTools
         'delete_all_people' => 'destructive; disabled until P3.5 permission and approval work '
             . '(baseline scenario 04 shows injected delete attempts)',
         'delete_file' => 'File::delete() is permanent and Concrete 9.5 has no file trash (B-T1-11); '
-            . 'disabled in P1.7, redirected to a review folder in P3.5 (baseline scenario 18)',
-        'approve_page_version' => 'publishing stays a human action until P3.6 approval exists '
-            . '(baseline scenario 14 published a live change from injected text)',
+            . 'disabled for good: a delete request uses mark_file_for_deletion, the review folder (P3.6-3)',
+        'approve_page_version' => 'publishing stays a person\'s action: disabled for the internal pilot (Glyn, P3.6-3; '
+            . 'baseline scenario 14 published a live change from injected text)',
 
-        // P1.13: no tool changes the live site outside a draft until P3.6 approval exists.
-        'delete_page' => 'trashes the page and its children at once, and permanently when the trash can is off '
-            . '(P1.13; phase 1 exit review, scenario 04 injected delete attempts); re-enabled in P3.6 only behind approval',
-        'move_page' => 'changes the URL of the page and all its children at once, with no redirect (P1.13); '
-            . 're-enabled in P3.6 only behind approval',
-        'move_file_to_folder' => 'a move changes who can see the file, through the folder permissions (P1.13); '
-            . 'returns in P3.5, also as the delete redirect to "Assistant - to delete" (B-T1-11)',
+        // P1.13: no tool changes the live site outside a draft until P3.6 approval exists. P3.6-3 re-enabled
+        // delete_page, move_page and (as mark_file_for_deletion) move_file_to_folder behind approval; these stay off.
         'update_page_select_attribute_options' => 'replaces all options live, can orphan stored values, no history (P1.13); '
-            . 're-enabled in P3.6 only behind approval',
+            . 'stays disabled until Phase 6 (Glyn, P3.6-3)',
         'update_user_select_attribute_options' => 'replaces all options live, can orphan stored values, no history (P1.13); '
-            . 're-enabled in P3.6 only behind approval',
+            . 'stays disabled until Phase 6 (Glyn, P3.6-3)',
         'update_file_select_attribute_options' => 'replaces all options live, can orphan stored values, no history (P1.13); '
-            . 're-enabled in P3.6 only behind approval',
+            . 'stays disabled until Phase 6 (Glyn, P3.6-3)',
         'delete_topic' => 'deletes the topic, its children and every association, no history (P1.13); '
-            . 're-enabled in P3.6 only behind approval',
+            . 'stays disabled until Phase 6 (Glyn, P3.6-3)',
         'delete_attribute_set' => 'deletes the set and ungroups its attributes live, no history (P1.13); '
-            . 're-enabled in P3.6 only behind approval',
+            . 'stays disabled until Phase 6 (Glyn, P3.6-3)',
         // BF-16: it calls getAttributeSet(), then setAttributeSet(null), which only adds a key to a set.
         'remove_attribute_from_set' => 'in Concrete 9.5.5 the call it uses only adds to a set; fix in Phase 6',
         'update_person_specialisms' => 'replaces the person\'s specialisms live, no history (P1.13); core PeopleToolkit, '

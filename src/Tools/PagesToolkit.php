@@ -28,6 +28,8 @@ use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\DraftCleanup;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
+use Concrete\Core\Cache\CacheLocal;
+use Katalysis\NeuronAi\Tools\Utilities\PageTree;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\PermittedWindow;
@@ -57,7 +59,7 @@ class PagesToolkit extends AbstractToolkit
 
     public function guidelines(): ?string
     {
-        return "Use these tools to manage pages in Concrete CMS. You can list, create, read and update pages. A page made with create_page is unpublished: a person publishes it from Page Versions. Moving and deleting pages are not available yet (they return with approvals), so say so instead of trying another tool. Always check permissions before modifying content.";
+        return "Use these tools to manage pages in Concrete CMS. You can list, create, read and update pages. A page made with create_page is unpublished: a person publishes it from Page Versions. Always check permissions before modifying content.";
     }
 
     public function provide(): array
@@ -585,9 +587,10 @@ class PagesToolkit extends AbstractToolkit
      * The child of $parent that has the path a new page named $name would get (Concrete's own handle rule, Page::add()),
      * compared ignoring case, or null. Trashed pages are not children.
      */
-    private static function childWithPathOf(Page $parent, string $name): ?Page
+    private static function childWithPathOf(Page $parent, string $name, bool $fromName = true): ?Page
     {
-        $handle = Application::getFacadeApplication()->make('helper/text')->urlify($name);
+        // From a name, as Page::add() makes a handle; or (P3.6-3, move_page) a handle as it is.
+        $handle = $fromName ? Application::getFacadeApplication()->make('helper/text')->urlify($name) : $name;
         $handle = str_replace('-', (string) \Concrete\Core\Support\Facade\Config::get('concrete.seo.page_path_separator'), $handle);
         if ($handle === '') {
             return null;
@@ -805,7 +808,8 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'move_page',
-            'Move a page to a new parent location in the sitemap'
+            'Move a page, with every page below it, under a new parent page. The old addresses keep working: they redirect '
+            . 'to the new ones. The user approves the move first; a site workflow may hold it for approval.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -846,19 +850,47 @@ class PagesToolkit extends AbstractToolkit
             // Check permissions on both pages
             ObjectPermissions::deny(ObjectPermissions::moveOrCopyPage($page));
             ObjectPermissions::deny(ObjectPermissions::addSubpage($newParent));
-            
+
+            // P3.6-3: never under itself or a page below it, and never onto a path that is taken (Concrete would add
+            // "-1", as create_page refuses).
+            if (PageTree::isWithin($newParent, $page)) {
+                throw new \RuntimeException(
+                    "A page can't be moved under itself or under a page below it: '{$newParent->getCollectionName()}' "
+                    . "({$newParent->getCollectionPath()}) is " . ((int) $newParent->getCollectionID() === (int) $page->getCollectionID() ? 'the page itself' : 'below it')
+                    . '. Nothing was moved.'
+                );
+            }
+            $taken = self::childWithPathOf($newParent, (string) $page->getCollectionHandle(), false);
+            if ($taken !== null) {
+                throw new \RuntimeException(
+                    "A page '{$taken->getCollectionName()}' already exists at {$taken->getCollectionPath()} (ID {$taken->getCollectionID()}), "
+                    . 'so nothing was moved. Choose another place, or rename one of the pages first.'
+                );
+            }
+            $before = PageTree::summary($page);
+
+            // An approval check's dry run stops here, with every check above done (P3.6-2, CallCheck).
+            PageDraft::stopIfDryRun();
+
             // P3.6-2 (B-WRT-4): through Concrete's move request, as the sitemap moves a page, so a workflow on the
-            // page's Move permission applies. The page has moved only if the request ran at once.
+            // page's Move permission applies. The page has moved only if the request ran at once. P3.6-3: the old
+            // paths are kept as redirects, as Concrete's move dialog offers.
             $summary = 'move ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . ') under ' . $newParent->getCollectionName();
             $request = new MovePageRequest();
             $request->setRequestedPage($page);
             $request->setRequestedTargetPage($newParent);
-            $request->setSaveOldPagePath(false);
+            $request->setSaveOldPagePath(true);
             $request->setRequesterUserID((int) Application::getFacadeApplication()->make(User::class)->getUserID());
             $done = $request->trigger() instanceof WorkflowResponse;
+            CacheLocal::flush();
             $moved = Page::getByID((int) $page->getCollectionID());
+            $after = array_column(PageTree::summary($moved), 'path', 'id');
 
-            return $this->serializePage($moved) + WorkflowOutcome::of($done, $summary);
+            return $this->serializePage($moved) + [
+                // Every page the move took, old path and new (B-CON-3).
+                'pagesMoved' => array_map(static fn (array $p): array => ['name' => $p['name'], 'from' => $p['path'], 'to' => $after[$p['id']] ?? $p['path']], $before),
+                'redirects' => 'The old addresses redirect to the new ones.',
+            ] + WorkflowOutcome::of($done, $summary);
         }));
 
         return $tool;
@@ -868,7 +900,9 @@ class PagesToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'delete_page',
-            'Delete a page (moves to trash)'
+            'Move a page, with every page below it, to the trash, from where a person can restore it (Dashboard > Sitemap > '
+            . 'Trash). Never deletes permanently: refused when the site\'s trash can is off. The user approves it first; a '
+            . 'site workflow may hold it for approval.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -893,6 +927,28 @@ class PagesToolkit extends AbstractToolkit
             
             ObjectPermissions::deny(ObjectPermissions::deletePage($page));
 
+            // P3.6-3 (B-T1-8): to the trash only. With the trash can off Concrete deletes for good.
+            if (!\Concrete\Core\Support\Facade\Config::get('concrete.misc.enable_trash_can')) {
+                throw new \RuntimeException(
+                    'On this site the trash can is off, so deleting would be permanent: nothing was deleted. A person can '
+                    . 'delete the page in the CMS, or turn the trash can on.'
+                );
+            }
+            // P3.6-3 (Glyn): the Delete permission on every page that goes with it, not only on this one.
+            $pages = PageTree::summary($page);
+            foreach (PageTree::descendants($page) as $below) {
+                $refusal = ObjectPermissions::deletePage($below);
+                if ($refusal !== null) {
+                    throw new \RuntimeException(
+                        "You can't delete '{$below->getCollectionName()}' ({$below->getCollectionPath()}), which is below this "
+                        . 'page and would go with it, so nothing was deleted. ' . $refusal
+                    );
+                }
+            }
+
+            // An approval check's dry run stops here, with every check above done (P3.6-2, CallCheck).
+            PageDraft::stopIfDryRun();
+
             $user = Application::getFacadeApplication()->make(User::class);
             $command = new DeletePageCommand($page->getCollectionID(), $user->getUserID());
             // P3.6-2 (B-WRT-4): the command triggers Concrete's delete request; with a workflow it only waits.
@@ -903,6 +959,9 @@ class PagesToolkit extends AbstractToolkit
                 'id' => $pageID,
                 'object' => 'pages',
                 'deleted' => $done,
+                // Every page that went with it (B-T1-8), and how to get them back.
+                'pages' => array_map(static fn (array $p): array => ['name' => $p['name'], 'path' => $p['path']], $pages),
+                'restore' => 'The pages are in the trash: Dashboard > Sitemap > Trash restores them.',
             ] + WorkflowOutcome::of($done, $summary);
         }));
 

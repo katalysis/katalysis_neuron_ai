@@ -80,7 +80,12 @@ final class ToolBaselineTest extends ConcreteTestCase
         $this->assertSame($names($expected), $names($actual));
 
         foreach ($expected as $i => $toolkit) {
-            $this->assertSame($toolkit['guidelines'], $actual[$i]['guidelines'], "Guidelines of {$toolkit['toolkit']}");
+            if (isset(ToolBaseline::GUIDELINES_CHANGED[$toolkit['toolkit']])) {
+                // Changed on purpose (P3.6-3; the reason is in the list): it must really differ, or the entry is stale.
+                $this->assertNotSame($toolkit['guidelines'], $actual[$i]['guidelines'], "{$toolkit['toolkit']}'s guidelines are listed as changed but match the v3 capture");
+            } else {
+                $this->assertSame($toolkit['guidelines'], $actual[$i]['guidelines'], "Guidelines of {$toolkit['toolkit']}");
+            }
             foreach ($toolkit['tools'] as $j => $tool) {
                 $key = "{$toolkit['toolkit']}::{$tool['name']}";
                 if (isset(ToolBaseline::DELIBERATE_CHANGES[$key])) {

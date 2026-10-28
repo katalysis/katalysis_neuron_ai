@@ -9,6 +9,7 @@ use Katalysis\NeuronAi\Tools\BatchEditToolkit;
 use Katalysis\NeuronAi\Tools\ContentToolkit;
 use Katalysis\NeuronAi\Tools\BlocksToolkit;
 use Katalysis\NeuronAi\Tools\FileAttributesToolkit;
+use Katalysis\NeuronAi\Tools\DisabledTools;
 use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
@@ -73,6 +74,43 @@ final class ToolBaseline
         'PeopleToolkit::list_people' => 'BF-6: offset input; limit capped at 100; the description says the result gives the total; P3.5-2: fields input (contact details and the full biography on request)',
         'PeopleToolkit::get_person_details' => 'P3.5-2: fields input (contact details and the full biography on request, B-PII-2)',
         'TopicsToolkit::get_topic_tree_structure' => 'BF-6: the description says what totalTopics counts and how a cut at max_depth is shown; P3.3-1: the description says categories are shown and counted',
+        'PagesToolkit::move_page' => 'P3.6-3: re-enabled behind approval; the description says the pages below move too, the old addresses redirect, and a workflow may hold it',
+        'PagesToolkit::delete_page' => 'P3.6-3: re-enabled behind approval; the description says it goes to the trash with the pages below, never permanently',
+        'FilesToolkit::mark_file_for_deletion' => 'P3.6-3: move_file_to_folder renamed (RENAMED); only moves a file to "Assistant – to delete" for a person to delete (B-T1-11); folderID optional and refused unless that folder',
+    ];
+
+    /**
+     * Tools renamed on purpose after the v3 capture: the captured name, the new one and why. capturedDefinitions() and
+     * capturedOffered() use the new name; the capture is never edited. A renamed tool's definition is in
+     * DELIBERATE_CHANGES under its new name.
+     *
+     * @var array<string, array{to: string, reason: string}> "Toolkit::captured name" => the rename
+     */
+    public const RENAMED = [
+        'FilesToolkit::move_file_to_folder' => ['to' => 'mark_file_for_deletion', 'reason' => 'P3.6-3 (Glyn): it came back only as the delete redirect (B-T1-11), so its name says what it is for'],
+    ];
+
+    /**
+     * Tools the capture didn't offer (disabled then) that are offered again since, with the task and the reason, under
+     * their current name. capturedOffered() puts them back where the toolkit defines them.
+     *
+     * @var array<string, string> "Toolkit::tool" => reason
+     */
+    public const ENABLED_SINCE = [
+        'PagesToolkit::move_page' => 'P3.6-3: re-enabled behind approval (Glyn)',
+        'PagesToolkit::delete_page' => 'P3.6-3: re-enabled behind approval, to the trash only (Glyn)',
+        'FilesToolkit::mark_file_for_deletion' => 'P3.6-3: re-enabled behind approval as the delete redirect (Glyn)',
+    ];
+
+    /**
+     * Toolkits whose guidelines changed on purpose after the capture. They are part of the prompt, so the prompt
+     * baseline records the change too.
+     *
+     * @var array<string, string> toolkit => reason
+     */
+    public const GUIDELINES_CHANGED = [
+        'FilesToolkit' => 'P3.6-3: names mark_file_for_deletion for a delete request, in place of move_file_to_folder for organising files',
+        'PagesToolkit' => 'P3.6-3: no longer says moving and deleting pages are not available (they are, behind approval)',
     ];
 
     /**
@@ -134,8 +172,48 @@ final class ToolBaseline
             array_merge(array_keys(self::DISABLED_SINCE), array_keys(self::REMOVED))
         );
 
+        // P3.6-3: renamed tools by their new name; tools offered again put back where their toolkit defines them; and
+        // the changed guidelines as they are now.
+        $renames = [];
+        foreach (self::RENAMED as $key => $rename) {
+            $renames[substr($key, (int) strpos($key, '::') + 2)] = $rename['to'];
+        }
+        $current = [];
+        foreach (self::coreToolkits() as $toolkit) {
+            $current[(new \ReflectionClass($toolkit))->getShortName()] = $toolkit->guidelines();
+        }
+        // The capture's own order (before SPLIT), so an entry as captured can be matched to its toolkit.
+        $capturedGuidelines = [];
+        $order = [];
+        foreach (json_decode((string) file_get_contents(self::FILE), true, 512, JSON_THROW_ON_ERROR)['definitions'] as $toolkit) {
+            $capturedGuidelines[$toolkit['toolkit']] = $toolkit['guidelines'];
+            $order[$toolkit['toolkit']] = array_map(static fn (array $t): string => $renames[$t['name']] ?? $t['name'], $toolkit['tools']);
+        }
+
         $result = [];
         foreach ($offered as $entry) {
+            $entry['tools'] = array_map(static fn (string $t): string => $renames[$t] ?? $t, $entry['tools']);
+            foreach ($order as $name => $tools) {
+                if ($entry['tools'] === [] || array_diff($entry['tools'], $tools) !== []) {
+                    continue;
+                }
+                $enabled = [];
+                foreach (array_keys(self::ENABLED_SINCE) as $key) {
+                    if (str_starts_with($key, $name . '::')) {
+                        $enabled[] = substr($key, strlen($name) + 2);
+                    }
+                }
+                $entry['tools'] = array_values(array_intersect($tools, [...$entry['tools'], ...$enabled]));
+                if (isset(self::GUIDELINES_CHANGED[$name]) && is_string($entry['guidelines']) && is_string($capturedGuidelines[$name] ?? null)) {
+                    $entry['guidelines'] = str_replace((string) $capturedGuidelines[$name], (string) $current[$name], $entry['guidelines']);
+                }
+                // A toolkit with none of its tools disabled any more is offered as it is, with no "Toolkit:" line
+                // (FilteredToolkit::built(), P2.4).
+                if (array_intersect($tools, DisabledTools::names()) === [] && is_string($entry['guidelines'])) {
+                    $entry['guidelines'] = (string) preg_replace('/^Toolkit: ' . preg_quote($name, '/') . '\R/', '', $entry['guidelines']);
+                }
+                break;
+            }
             $entry['tools'] = array_values(array_diff($entry['tools'], $disabled));
             $split = [];
             foreach (self::SPLIT as $toolkit) {
@@ -186,6 +264,12 @@ final class ToolBaseline
                 $toolkit['tools'],
                 static fn (array $tool): bool => !isset(self::REMOVED[$toolkit['toolkit'] . '::' . $tool['name']])
             ));
+            foreach ($toolkit['tools'] as $i => $tool) {
+                $renamed = self::RENAMED[$toolkit['toolkit'] . '::' . $tool['name']] ?? null;
+                if ($renamed !== null) {
+                    $toolkit['tools'][$i]['name'] = $renamed['to'];
+                }
+            }
             $split = [];
             foreach (self::SPLIT as $name => $into) {
                 if ($into['from'] !== $toolkit['toolkit']) {

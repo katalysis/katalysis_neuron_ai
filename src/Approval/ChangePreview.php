@@ -13,6 +13,7 @@ use Katalysis\NeuronAi\Approval\Preview\AttributePreviews;
 use Katalysis\NeuronAi\Approval\Preview\BlockPreviews;
 use Katalysis\NeuronAi\Approval\Preview\FilePreviews;
 use Katalysis\NeuronAi\Approval\Preview\GenericPreview;
+use Katalysis\NeuronAi\Approval\Preview\PagePreviews;
 use Katalysis\NeuronAi\Approval\Preview\TopicPreviews;
 use Katalysis\NeuronAi\Approval\Preview\VersionPreviews;
 use Katalysis\NeuronAi\Security\SecretRedactor;
@@ -50,6 +51,10 @@ final class ChangePreview
         'discard_draft_version' => [VersionPreviews::class, 'discard'],
         'set_file_attribute_value' => [FilePreviews::class, 'setAttribute'],
         'create_file_folder' => [FilePreviews::class, 'createFolder'],
+        // P3.6-3: re-enabled behind approval.
+        'mark_file_for_deletion' => [FilePreviews::class, 'markForDeletion'],
+        'move_page' => [PagePreviews::class, 'move'],
+        'delete_page' => [PagePreviews::class, 'delete'],
         'create_page_attribute' => [AttributePreviews::class, 'createPageAttribute'],
         'create_page_attribute_and_add_to_set' => [AttributePreviews::class, 'createPageAttributeInSet'],
         'create_user_attribute' => [AttributePreviews::class, 'createUserAttribute'],
