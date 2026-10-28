@@ -40,6 +40,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
   5. last, after `gh pr create` so the number is known: the progress entry and the `DELIVERY_PLAN.md` tick ("Done (PR #N)"), with the task ID prefix
 
   Nothing is pushed straight to `development` or `main`.
+- **Stacked branches (Glyn, after BF-18):** if a task starts while another of your PRs that edits `DELIVERY_PLAN.md` is still open, branch it from that PR's branch, not `development`, and say so in the PR (stacked, as P3.5-1 did). GitHub retargets it when the first merges.
 - **Progress entries (WP-5):** one new file per task, `documentation/progress/<task-id>.md`, from the template in `PROGRESS.md`. A task PR doesn't edit `PROGRESS.md`: not its Log (the entries before WP-5 stay there) and not "Current position", which is now standing notes kept by Glyn or Alex. `/next-task` works out the last task done and the next open one from `DELIVERY_PLAN.md`'s ticks and the newest progress file. A new standing note goes in the entry and the PR.
 - **Progress entries** are at most 10 lines (WP-4). `BEHAVIOUR_SPEC.md`'s "Today" column is updated in each stage's comparison task (P3.S1–P3.S4), not in each task.
 - **Progress fields**, in every entry. Write "not recorded" rather than guess.
