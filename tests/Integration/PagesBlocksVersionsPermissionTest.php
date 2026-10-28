@@ -73,7 +73,6 @@ final class PagesBlocksVersionsPermissionTest extends ConcreteTestCase
         return [
             'batch_update_page_content' => ['batch_update_page_content', 'edit_page_contents', 'Edit Contents'],
             'batch_update_content_headings' => ['batch_update_content_headings', 'edit_page_contents', 'Edit Contents'],
-            'sync_multi_links_to_epra_resources_list' => ['sync_multi_links_to_epra_resources_list', 'edit_page_contents', 'Edit Contents'],
             'add_block_to_page_area' => ['add_block_to_page_area', 'edit_page_contents', 'Edit Contents'],
             'update_block_in_page_area' => ['update_block_in_page_area', 'edit_page_contents', 'Edit Contents'],
             'delete_block_from_page_area' => ['delete_block_from_page_area', 'edit_page_contents', 'Edit Contents'],
@@ -172,7 +171,7 @@ final class PagesBlocksVersionsPermissionTest extends ConcreteTestCase
      */
     public static function unguardedProvider(): array
     {
-        $tools = ['count_blocks_by_type', 'get_block_controller_data', 'get_block_data', 'get_doc_download_files_on_page',
+        $tools = ['count_blocks_by_type', 'get_block_controller_data', 'get_block_data',
             'list_container_blocks', 'list_page_blocks_by_type', 'search_blocks_by_type', 'approve_page_version',
             'create_page_draft', 'discard_draft_version', 'get_version_content', 'list_page_versions'];
 
@@ -212,7 +211,7 @@ final class PagesBlocksVersionsPermissionTest extends ConcreteTestCase
         $this->grants->takeAway($cID, 'view_page');
         ThrowawayPages::actAs('neuron_editor');
 
-        foreach (['get_block_data', 'get_block_controller_data', 'list_page_blocks_by_type', 'get_doc_download_files_on_page'] as $tool) {
+        foreach (['get_block_data', 'get_block_controller_data', 'list_page_blocks_by_type'] as $tool) {
             $output = ToolByName::run($tool, $this->readInputs($tool, $cID, $bID));
             $this->assertFalse(ToolKind::succeeded($output), "{$tool} read a page the user cannot view: {$output}");
             $this->assertStringNotContainsString('Block one original text', $output, $tool);
@@ -270,7 +269,6 @@ final class PagesBlocksVersionsPermissionTest extends ConcreteTestCase
         return match ($tool) {
             'batch_update_page_content' => ['pageID' => $cID, 'changeMode' => 'formatting_only', 'blocks' => [['areaHandle' => 'Main', 'blockID' => $bID, 'value' => $heading]]],
             'batch_update_content_headings' => ['pageID' => $cID, 'headingTexts' => ['Block one original text.'], 'targetTag' => 'h2'],
-            'sync_multi_links_to_epra_resources_list' => ['pageID' => $cID],
             'add_block_to_page_area' => ['pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'content', 'value' => ['content' => '<p>New block.</p>']],
             'update_block_in_page_area' => ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID, 'value' => $heading, 'changeMode' => 'formatting_only'],
             'delete_block_from_page_area' => ['pageID' => $cID, 'areaHandle' => 'Main', 'blockID' => $bID],
@@ -294,7 +292,6 @@ final class PagesBlocksVersionsPermissionTest extends ConcreteTestCase
         return match ($tool) {
             'count_blocks_by_type' => ['blockTypeHandle' => 'content'],
             'get_block_controller_data', 'get_block_data' => ['blockID' => $bID, 'pageID' => $cID],
-            'get_doc_download_files_on_page' => ['pageID' => $cID],
             'list_container_blocks' => ['containerBlockID' => $bID],
             'list_page_blocks_by_type' => ['pageID' => $cID, 'blockTypeHandle' => 'content'],
             'search_blocks_by_type' => ['blockTypeHandle' => 'content'],

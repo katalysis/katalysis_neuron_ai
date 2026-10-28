@@ -68,7 +68,6 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
         return [
             'batch_update_page_content' => [PagesToolkit::class, 'batch_update_page_content', 'pageID'],
             'batch_update_content_headings' => [PagesToolkit::class, 'batch_update_content_headings', 'pageID'],
-            'sync_multi_links_to_epra_resources_list' => [PagesToolkit::class, 'sync_multi_links_to_epra_resources_list', 'pageID'],
             'update_page' => [PagesToolkit::class, 'update_page', 'pageID'],
             'move_page (page)' => [PagesToolkit::class, 'move_page', 'pageID'],
             'delete_page' => [PagesToolkit::class, 'delete_page', 'pageID'],
@@ -286,8 +285,6 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
         $covered = array_map(static fn (array $case): string => $case[0], array_values(self::blockToolProvider()));
         // Picks its blocks itself: an open block is skipped and reported (testTheHeadingsToolLeavesABlockOpenInTheUsersEditorAlone).
         $covered[] = 'batch_update_content_headings';
-        // Disabled, EPRA only, moves out in P3.4.
-        $covered[] = 'sync_multi_links_to_epra_resources_list';
 
         $found = [];
         foreach ((new PagesToolkit())->tools() as $tool) {
@@ -301,7 +298,6 @@ final class EditModeWriteRefusalTest extends ConcreteTestCase
             }
         }
         $found[] = 'batch_update_content_headings';
-        $found[] = 'sync_multi_links_to_epra_resources_list';
 
         sort($covered);
         $found = array_values(array_unique($found));

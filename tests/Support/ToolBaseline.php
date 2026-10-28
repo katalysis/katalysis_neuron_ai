@@ -72,6 +72,8 @@ final class ToolBaseline
      */
     public const REMOVED = [
         'UserAttributesToolkit::set_user_attribute_value' => 'P3.5-2: removed; user accounts are read-only at every tier (B-ACC-7)',
+        'PagesToolkit::sync_multi_links_to_epra_resources_list' => 'P3.4: EPRA code deleted from core (it was disabled); an EPRA package would bring it back',
+        'BlocksToolkit::get_doc_download_files_on_page' => 'P3.4: EPRA code deleted from core; an EPRA package would bring it back',
     ];
 
     /**
@@ -95,14 +97,18 @@ final class ToolBaseline
     ];
 
     /**
-     * The capture's offered list without the tools in DISABLED_SINCE.
+     * The capture's offered list without the tools in DISABLED_SINCE and REMOVED (P3.4: a removed tool that was
+     * offered, get_doc_download_files_on_page, is no longer offered either).
      *
      * @param list<array{guidelines: ?string, tools: list<string>}> $offered the capture's "offered"
      * @return list<array{guidelines: ?string, tools: list<string>}>
      */
     public static function capturedOffered(array $offered): array
     {
-        $disabled = array_map(static fn (string $key): string => substr($key, (int) strpos($key, '::') + 2), array_keys(self::DISABLED_SINCE));
+        $disabled = array_map(
+            static fn (string $key): string => substr($key, (int) strpos($key, '::') + 2),
+            array_merge(array_keys(self::DISABLED_SINCE), array_keys(self::REMOVED))
+        );
 
         return array_map(static function (array $entry) use ($disabled): array {
             $entry['tools'] = array_values(array_diff($entry['tools'], $disabled));

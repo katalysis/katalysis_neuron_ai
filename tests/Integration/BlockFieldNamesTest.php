@@ -16,8 +16,8 @@ use Katalysis\NeuronAi\Tools\PagesToolkit;
 use NeuronAI\Tools\ToolInterface;
 
 /**
- * BF-8: the block write tools pass a block's fields through as given; only EPRA blocks get the EPRA field renaming
- * (plans/BF-8.md).
+ * BF-8: the block write tools pass a block's fields through as given (plans/BF-8.md). Only EPRA blocks kept the EPRA
+ * field renaming, and P3.4 deleted it with the rest of the EPRA code.
  *
  * Before BF-8, add_block_to_page_area, update_block_in_page_area and batch_update_page_content renamed `title`, `name`
  * and `heading` to `Title`, `description` to `precis`, `linkTitle` to `link_Title` and `entries` to `slide` for every
@@ -168,39 +168,7 @@ final class BlockFieldNamesTest extends ConcreteTestCase
         $this->assertSame(['First feature', 'Second feature'], array_map(static fn (array $e): string => (string) $e['linkTitle'], $entries));
     }
 
-    // ---- The EPRA block still gets the renaming -------------------------------
-
-    /**
-     * No EPRA block type is installed on the dev site, so this checks the payload the tools would save, not a saved
-     * block.
-     */
-    public function testOnlyTheEpraBlockGetsTheRenaming(): void
-    {
-        $payload = [
-            'entries' => [['title' => 'Annual report', 'description' => 'The 2025 report', 'linkUrl' => 'https://example.org/r']],
-            'title' => 'Resources',
-        ];
-
-        $epra = $this->normalized('epra_resources_list', $payload);
-        $this->assertSame('Resources', $epra['Title']);
-        $this->assertArrayNotHasKey('entries', $epra);
-        $this->assertSame('Annual report', $epra['slide'][0]['Title']);
-        $this->assertSame('The 2025 report', $epra['slide'][0]['precis']);
-        $this->assertSame('https://example.org/r', $epra['slide'][0]['link_URL']);
-        $this->assertSame('url', $epra['slide'][0]['link']);
-
-        $this->assertSame($payload, $this->normalized('hero_image', $payload));
-    }
-
     // ---- Helpers ------------------------------------------------------------
-
-    /** @return array<string, mixed> */
-    private function normalized(string $blockTypeHandle, array $payload): array
-    {
-        $method = new \ReflectionMethod(PagesToolkit::class, 'normalizeCustomBlockPayload');
-
-        return $method->invoke(new PagesToolkit(), $blockTypeHandle, $payload);
-    }
 
     private function newPage(): Page
     {
