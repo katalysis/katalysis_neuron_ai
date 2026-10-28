@@ -393,6 +393,7 @@ Deleting first means less code to move, and every later behaviour change lands i
   - declare `items` for the 6 array properties in `ToolRegistryTest`'s known list (P2.3)
   - describe each tool's input fields explicitly (for example, the html block's field is `content`; scenario 07 failed with `htmlContent`)
   - remove the `includeInactive` parameter from `batch_update_content_headings`; P1.8 left it in the tool description as "ignored" (a schema change, checked in P3.S2's comparison)
+  - (Glyn, after P3.3-7) `batch_update_page_content`'s refusal of a `blockID` that isn't a positive integer points the model to `add_block_to_page_area` for a new block: in P3.3-7's run of scenario 27 the model sent a new block as a batch item with `blockID: 0`, was refused, and then claimed success
   - scenarios: `--fake` of 04, 12, 15, 17; none new or changed, so no paid run. Compared ×3 in P3.S2
 - [ ] P3.S2 **Stage 2 comparison** (S; WP-4). Depends on: every Stage 2 task. One ×3 run of the scenarios Stage 2's tasks name (the write scenarios 04, 05, 06, 07, 08, 09, 10, 15, 17, 20, 23, 24, plus 12 and 13, and P3.3-7's 27 to 32 and its two new block scenarios), the unstable ones (05, 07, 12, 15) ×5, from a reset, on gpt-4o. The merge rule is applied here; a regression gets its own fix task before Stage 3 starts. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $6.40 (about 74 runs; the block scenarios cost about $0.12 a run, P3.3-6).
 
