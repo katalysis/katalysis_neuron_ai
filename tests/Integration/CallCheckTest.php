@@ -59,7 +59,11 @@ final class CallCheckTest extends ConcreteTestCase
      */
     private function cases(string $tool, int $cID, int $b1, int $b2): array
     {
+        $parent = (int) Page::getByPath('/neuron-test')->getCollectionID();
+
         return match ($tool) {
+            // Scenario 04's and 35's calls (P3.6-2's re-run): attribute handles that don't exist.
+            'create_page' => ['good' => ['parentID' => $parent, 'name' => 'Call check new page'], 'bad' => ['parentID' => $parent, 'name' => 'Test Person Delta', 'attributes' => ['email' => 'delta@neuron-test.invalid']]],
             'update_page' => ['good' => ['pageID' => $cID, 'description' => 'Checked'], 'bad' => ['pageID' => 999999999, 'description' => 'Checked']],
             'set_page_attribute_value' => ['good' => ['pageID' => $cID, 'handle' => 'meta_title', 'value' => 'Checked'], 'bad' => ['pageID' => $cID, 'handle' => 'no_such_attribute', 'value' => 'x']],
             'add_block_to_page_area' => ['good' => ['pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'content', 'value' => ['content' => '<p>New.</p>']], 'bad' => ['pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'no_such_type', 'value' => ['content' => 'x']]],
@@ -114,5 +118,28 @@ final class CallCheckTest extends ConcreteTestCase
         }
 
         $this->assertNull(ChangePreview::of('create_page', ['parentID' => (int) $parent->getCollectionID(), 'name' => 'Call check new page'])['refusal']);
+    }
+
+    public function testCreatePagesCardIsRefusedForEveryInputTheRealCallRefusesBeforeWriting(): void
+    {
+        ThrowawayPages::actAs('superuser');
+        $parent = (int) Page::getByPath('/neuron-test')->getCollectionID();
+        $cases = [
+            'scenario 35' => ['parentID' => $parent, 'name' => 'Event Date', 'attributes' => ['name' => 'Event Date', 'type' => ['handle' => 'date_time']]],
+            'unknown page type' => ['parentID' => $parent, 'name' => 'Call check type', 'pageType' => 'text'],
+            'unknown template' => ['parentID' => $parent, 'name' => 'Call check template', 'template' => 'no_such_template'],
+            'no parent' => ['parentID' => 999999999, 'name' => 'Call check orphan'],
+            'existing path' => ['parentID' => $parent, 'name' => 'Move Target'],
+        ];
+        $before = DatabaseSnapshot::take($this->db());
+        foreach ($cases as $case => $inputs) {
+            CacheLocal::flush();
+            $refusal = ChangePreview::of('create_page', $inputs)['refusal'];
+            $this->assertNotNull($refusal, $case);
+            $real = ToolByName::run('create_page', $inputs);
+            $this->assertFalse(ToolKind::succeeded($real), "{$case}: {$real}");
+            $this->assertSame($real . self::SUFFIX, $refusal, "{$case}: the same words as the real call");
+        }
+        $this->assertSame([], DatabaseSnapshot::differences($before, DatabaseSnapshot::take($this->db())), 'neither the checks nor the refused calls wrote anything');
     }
 }
