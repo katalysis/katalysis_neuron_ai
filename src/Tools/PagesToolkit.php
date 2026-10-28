@@ -864,7 +864,7 @@ class PagesToolkit extends AbstractToolkit
             $value['slide'] = $this->loadEpraResourceEntries($blockID);
         }
         $handle = (string) $block->getBlockTypeHandle();
-        $refusal = BlockSaveInputs::refusal($handle, $beforeRecord, $value);
+        $refusal = BlockSaveInputs::refusal($handle, $beforeRecord, $value, $controller);
         if ($refusal !== null) {
             throw new \RuntimeException($refusal);
         }
@@ -2490,7 +2490,9 @@ class PagesToolkit extends AbstractToolkit
             }
 
             $normalizedValue = $this->normalizeCustomBlockPayload((string) $blockType, $value ?? []);
-            $refusal = BlockSaveInputs::refusalForNew((string) $blockType, $bt->getController()->getBlockTypeDatabaseTable() ?: null, $normalizedValue);
+            // BF-17: a field the block type doesn't have is refused, not dropped by save() while the tool reports success.
+            $btController = $bt->getController();
+            $refusal = BlockSaveInputs::refusalForNew((string) $blockType, $btController->getBlockTypeDatabaseTable() ?: null, $normalizedValue, $btController);
             if ($refusal !== null) {
                 throw new \RuntimeException($refusal);
             }
@@ -2646,7 +2648,7 @@ class PagesToolkit extends AbstractToolkit
             $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
             $beforeRecord = $this->getBlockTableRecord($dbTable, (int) $block->getBlockID());
             $handle = (string) $block->getBlockTypeHandle();
-            $refusal = BlockSaveInputs::refusal($handle, $beforeRecord, $body);
+            $refusal = BlockSaveInputs::refusal($handle, $beforeRecord, $body, $controller);
             if ($refusal !== null) {
                 throw new \RuntimeException($refusal);
             }

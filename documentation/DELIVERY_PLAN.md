@@ -379,6 +379,7 @@ Deleting first means less code to move, and every later behaviour change lands i
 - [ ] P3.3-7 **Level 0 generic block adapter** (M; Glyn, on P3.3-6's recommendation and review, 27 October 2026). Depends on: P3.3-4.
   - P5.2's item 1 only: export metadata, child tables and import-mode `save()`, so any core or package block type's fields can be read and written without hand-written knowledge, failing clearly when a field can't be mapped
   - the six hand-written fixes from P3.3-6 (`BlockSaveInputs`) move onto the generic path where it covers them; their tests (`CoreBlockWritesTest`) stay
+  - its generic field list replaces BF-17's unknown-field check's hand-written list (columns plus each covered block's other `save()` inputs)
   - descriptors, `describe_block_type`, transforms, `convert_blocks` and the Extensions dashboard page stay in P5.2
   - **plan stop:** a one-page plan, because it is a design choice
   - scenarios: 27 to 32 ×1, plus two new ones ×1 on block types outside the six (Image Slider, with its repeating entries, and Testimonial); cap $0.60. Its scenarios join P3.S2's comparison
@@ -688,6 +689,10 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - the `DisabledToolsTest` list change (approved), in its own commit with the reason
   - the fix goes in Phase 6's entry
   - no paid scenario runs; a free `--fake` run only
+- [x] BF-17 **Block writes refuse unknown fields** (small; Done (PR #80); its own PR into `development`; no plan stop; P3.S1's regression, Glyn; before Stage 2). Found in P3.S1: scenario 30 went pass → fail because `add_block_to_page_area` dropped field names the Feature block doesn't have (`description`, `heading`, `content`; its fields are `title` and `paragraph`) and reported success; 07's one failed run was the same (`html` on an HTML block). Only the Express form block refused unknown inputs. Scope:
+  - `add_block_to_page_area`, `update_block_in_page_area` and `batch_update_page_content` refuse a field the block type doesn't have, before any draft, and the message names the block type's real fields
+  - a red-first test per tool
+  - scenarios: `--fake` of 07 and 27–32, then 30 and 07 ×3; cap $0.50
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
