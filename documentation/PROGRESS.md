@@ -1,6 +1,6 @@
 # Progress Log
 
-Claude Code updates **Current position** and adds a **Log** entry at the end of every task (`/finish-task`). Review notes from Cowork are added under the entry they refer to. Only Glyn or Alex add to **Decisions**, usually after a design review in Cowork.
+Since WP-5 (28 October 2026) each task's Log entry is its own new file, `documentation/progress/<task-id>.md`, written by `/finish-task`, and task PRs don't edit this file, so two open PRs no longer conflict here. `/next-task` works out the last task done and the next open one from `DELIVERY_PLAN.md`'s ticks and the newest progress file. **Current position** below is kept as standing notes (phase status, steps each dev site needs, open follow-ups); Glyn or Alex update it, or a WP task. Review notes from Cowork are added under the entry they refer to. Only Glyn or Alex add to **Decisions**, usually after a design review in Cowork.
 
 ## Current position
 - **Phase:** 1 closed 21 October 2026 (exit criteria met in the exit review; every Phase 1 task merged, P1.14 last in PR #27). **Phase 2 closed 22 October 2026:** `integration/neuron4` merged into `development` (PR #47, merge commit `98b6f49`), `katalysis_pro` #42 merged, the dev site on `development` (Neuron 4.1.12). Phase 2 tasks: P2.1 done; P2.2 done (PR #33, into `integration/neuron4`); P2.3 done (PR #40, into `integration/neuron4`); P2.4 done (PR #41, into `integration/neuron4`); P2.5 done (PR #42, into `integration/neuron4`); P2.6 done (PR #43, into `integration/neuron4`); P2.7 done (PR #44, into `integration/neuron4`); P2.8 done (PR #45, into `integration/neuron4`; `katalysis_pro` #41 merged, #42 merged after P2.9). BF-1 (PR #35) and BF-2 (PR #37) done on `development` and synced into `integration/neuron4`. **P2.9, the Phase 2 exit, done (PR #46 into `integration/neuron4`, then PR #47 into `development`): Phase 2 closes when #47 is merged.**
@@ -53,6 +53,7 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 - **4 orphan `Blocks` rows (from P1.8).** bIDs 41 (`core_scrapbook_display`), 43 (`katalysis_feature_box`), 54 (`katalysis_people`) and 256 (`katalysis_reviews`) have no row in `CollectionVersionBlocks`. They predate P1.8; the same 4 remain after a reset reseed, so neither the seed nor the tests create them. Still there on 20 October. Not deleted: they might be referenced from another table (the scrapbook, for example). See the P1.8 entry.
 
 ## Entry template
+One file per task, `documentation/progress/<task-id>.md` (WP-5), at most 10 lines (WP-4):
 ```
 ### YYYY-MM-DD: P?.? Title
 - Branch / PR:
@@ -67,6 +68,8 @@ Leftovers in the dev database that the tests or the seed don't clean up. Logged,
 ```
 
 ## Log
+Since WP-5 the entries are files in [progress/](progress/), one per task, named by its ID (for example `progress/BF-17.md`); the newest is the most recently added. The entries below were written before WP-5 and stay here.
+
 (newest first)
 
 ### 2026-10-28: P3.S1 Stage 1 comparison

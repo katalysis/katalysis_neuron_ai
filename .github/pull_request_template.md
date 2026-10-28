@@ -14,7 +14,7 @@ Questions inside the task's `DELIVERY_PLAN.md` entry, decided with Claude Code's
 - [ ] Manual test on the dev site:
 - [ ] No unplanned file deletions or rewrites
 - [ ] No edits to `vendor/` (unless this is a dependency task)
-- [ ] `PROGRESS.md` entry (with Who / tool / model, Time, Scenario spend) and the `DELIVERY_PLAN.md` tick, as the last commit
+- [ ] Progress entry `documentation/progress/<task-id>.md` (with Who / tool / model, Time, Scenario spend; WP-5) and the `DELIVERY_PLAN.md` tick, as the last commit
 
 ## Deviations from the plan / decisions needed
 
