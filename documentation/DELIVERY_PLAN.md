@@ -361,7 +361,7 @@ Why first:
 #### Stage 2: tidy, then split
 Deleting first means less code to move, and every later behaviour change lands in smaller files. P3.3-7 (the Level 0 block adapter) comes straight after the split, so it lands in the split-out Content toolkit. P3.3-5 follows it: it decides whether `instructions()` keeps the `onlyVisible` rule before P3.7-2 cuts the prompt, and it fixes the scenario 07 and 17 input failures before the full ×3 runs in P3.2-2 and P3.7-2.
 
-- [ ] P3.3-3 **Legacy deletion** (S). Depends on: nothing. Planned deletions, covered by plan approval:
+- [x] P3.3-3 **Legacy deletion** (S). Done (PR #82). Depends on: nothing. Planned deletions, covered by plan approval:
   - `src/Toolkits/`, `src/ConcreteCmsAIProvider.php` (a legacy agent that uses them; unused, decided after P2.2), and the root scripts `test_tools.php` and `test_container_search.php`
   - `AttributesToolkit` (not registered by the agent; it duplicates `PageAttributesToolkit`; P1.8a and BF-3 gave it the draft seam but did not delete it) and `src/Tools/McpServerIntegration.php`, **after checking that nothing outside the package uses them** (`katalysis_pro` and the dev site). Their tests and test cases go with them, and the references in `ToolBaseline`, `DisabledTools` and `ToolNameResolver` are updated (Glyn, on the roadmap)
   - scenarios: none (no offered tool changes)
