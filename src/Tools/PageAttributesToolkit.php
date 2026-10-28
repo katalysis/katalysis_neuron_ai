@@ -63,7 +63,9 @@ class PageAttributesToolkit extends AbstractToolkit
 
             foreach ($attributes as $ak) {
                 $type = $ak->getAttributeType();
-                $set = $ak->getAttributeSet();
+                // BF-15: Concrete 9.5.5's keys have no getAttributeSet(); a key's sets come from getAttributeSets().
+                $sets = $ak->getAttributeSets();
+                $set = $sets === [] ? null : reset($sets);
                 
                 $results[] = [
                     'handle' => $ak->getAttributeKeyHandle(),
@@ -147,7 +149,9 @@ class PageAttributesToolkit extends AbstractToolkit
             }
 
             $type = $ak->getAttributeType();
-            $set = $ak->getAttributeSet();
+            // BF-15: Concrete 9.5.5's keys have no getAttributeSet(); a key's sets come from getAttributeSets().
+            $sets = $ak->getAttributeSets();
+            $set = $sets === [] ? null : reset($sets);
             $settings = [];
 
             // Get type-specific settings
