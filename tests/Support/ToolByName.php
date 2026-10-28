@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Support;
 
 use Katalysis\NeuronAi\ConcreteCmsAgent;
+use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Tools\Toolkits\ToolkitInterface;
 
 /**
@@ -37,6 +38,17 @@ final class ToolByName
         }
 
         return $names;
+    }
+
+    public static function tool(string $name): ToolInterface
+    {
+        foreach (self::toolkitWith($name)->tools() as $tool) {
+            if ($tool->getName() === $name) {
+                return $tool;
+            }
+        }
+
+        throw new \RuntimeException("No core tool named {$name}.");
     }
 
     private static function toolkitWith(string $name): ToolkitInterface
