@@ -226,7 +226,21 @@ class PagesToolkit extends AbstractToolkit
             $found = PermittedWindow::of($list, $window);
             $pages = array_map(fn($page) => $this->serializePage($page), $found['items']);
 
-            return ['pages' => $pages] + $window->summary($found['total'], count($pages), 'list_pages', 'parentPath, pageType or includeDescendants=false', $found['exact']);
+            // BF-20 (scenario 15 in P3.S2): the parent the list is under, so the model can't take its first child for it
+            // (parentPath "/" and limit 1 returned /neuron-test, and a page was created there "under the home page").
+            $parentInfo = [];
+            if ($resolvedParentID) {
+                $parentPage = Page::getByID((int) $resolvedParentID);
+                if ($parentPage && !$parentPage->isError()) {
+                    $parentInfo = ['parent' => [
+                        'id' => (int) $parentPage->getCollectionID(),
+                        'name' => (string) $parentPage->getCollectionName(),
+                        'path' => (string) $parentPage->getCollectionPath() !== '' ? (string) $parentPage->getCollectionPath() : '/',
+                    ]];
+                }
+            }
+
+            return $parentInfo + ['pages' => $pages] + $window->summary($found['total'], count($pages), 'list_pages', 'parentPath, pageType or includeDescendants=false', $found['exact']);
         }));
 
         return $tool;

@@ -479,7 +479,8 @@ class BatchEditToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'batch_update_content_headings',
-            'Find Content blocks on a page by heading text and update heading tag level only (for example bold paragraph to h3) while preserving body text.'
+            'Find Content blocks on a page by heading text and change heading levels only (for example a bold paragraph to h3, or h3 to h2), keeping all text. '
+            . 'It never changes a heading\'s words: to rename a heading, change the block\'s text with update_block_in_page_area.'
         );
 
         $tool->addProperty(new ToolProperty(
