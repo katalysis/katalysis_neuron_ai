@@ -1,6 +1,6 @@
 Start delivery plan task $ARGUMENTS.
 
-1. Read `CLAUDE.md` (Workflow and Working agreement), the task $ARGUMENTS in `documentation/DELIVERY_PLAN.md`, any design doc it refers to (e.g. `documentation/EXTENSIONS.md`), and the latest entries in `documentation/PROGRESS.md`.
+1. Read `CLAUDE.md` (Workflow and Working agreement), the task $ARGUMENTS in `documentation/DELIVERY_PLAN.md`, any design doc it refers to (e.g. `documentation/EXTENSIONS.md`), the latest progress entries (since WP-5 one file per task in `documentation/progress/`; the newest are the files most recently added, then the top of `documentation/PROGRESS.md`'s Log), and the standing notes in `PROGRESS.md`'s "Current position".
 Run each command below as its own Bash call: no `&&` or `;` chains, and no `cd` prefix (the workspace root is the package folder). One command per call matches the allow rules in `.claude/settings.json` and keeps each permission prompt to one command.
 
 2. Find the task's **base branch** in `DELIVERY_PLAN.md`: the integration branch its phase's **Branching** note names for it (e.g. `integration/neuron4` for P2.2–P2.6 and P2.8), otherwise `development`. Say which. Integration branches are protected like `development`: PRs only.

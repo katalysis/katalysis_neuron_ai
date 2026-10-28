@@ -12,7 +12,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - `/next-task` shows what's open and not yet taken. Start every task with `/start-task <ID>` and end it with `/finish-task`. Work only on tasks listed in `documentation/DELIVERY_PLAN.md` (`P` tasks and `WP` working-practice tasks).
 - **Never** change `DELIVERY_PLAN.md`, `EXTENSIONS.md` or the decisions in `PROGRESS.md`. Propose changes in your progress entry instead. Glyn or Alex decide, with design review in Cowork.
   - Exception: you may fix purely factual or formatting slips in `DELIVERY_PLAN.md` and `PROGRESS.md` (PR numbers, status lines, markdown rendering, typos) and must list each one in your reply. Anything that changes scope, rules or decisions still goes to Glyn.
-  - Exception: the task's own tick in `DELIVERY_PLAN.md` ("Done (PR #N)") and the PROGRESS "Current position" update go inside the task PR, as its last commit (see Working agreement).
+  - Exception: the task's own tick in `DELIVERY_PLAN.md` ("Done (PR #N)") and its progress entry go inside the task PR, as its last commit (see Working agreement).
 - Stop and ask whenever any of these apply:
   - the task needs files outside the approved plan
   - a test or scenario that used to pass now fails
@@ -37,11 +37,12 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
   2. tests, red first when behaviour changes
   3. code
   4. docs
-  5. last, after `gh pr create` so the number is known: the PROGRESS entry, "Current position" and the `DELIVERY_PLAN.md` tick ("Done (PR #N)"), with the task ID prefix
+  5. last, after `gh pr create` so the number is known: the progress entry and the `DELIVERY_PLAN.md` tick ("Done (PR #N)"), with the task ID prefix
 
   Nothing is pushed straight to `development` or `main`.
-- **PROGRESS entries** are at most 10 lines (WP-4). `BEHAVIOUR_SPEC.md`'s "Today" column is updated in each stage's comparison task (P3.S1–P3.S4), not in each task.
-- **PROGRESS fields**, in every entry. Write "not recorded" rather than guess.
+- **Progress entries (WP-5):** one new file per task, `documentation/progress/<task-id>.md`, from the template in `PROGRESS.md`. A task PR doesn't edit `PROGRESS.md`: not its Log (the entries before WP-5 stay there) and not "Current position", which is now standing notes kept by Glyn or Alex. `/next-task` works out the last task done and the next open one from `DELIVERY_PLAN.md`'s ticks and the newest progress file. A new standing note goes in the entry and the PR.
+- **Progress entries** are at most 10 lines (WP-4). `BEHAVIOUR_SPEC.md`'s "Today" column is updated in each stage's comparison task (P3.S1–P3.S4), not in each task.
+- **Progress fields**, in every entry. Write "not recorded" rather than guess.
   - `Who / tool / model`: e.g. `Glyn; Claude Code (VS Code); claude-opus-5-5`
   - `Time`: elapsed from `/start-task` to the PR. Own time is "not recorded" unless the person volunteers it; don't ask for it.
   - `Scenario spend`: in $ (the runner's estimate), or "none"
@@ -104,7 +105,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - PHPUnit tests: `php tools/phpunit/vendor/bin/phpunit`, run from the package folder with PHP 8.2+ on `PATH` (install and options in `documentation/SETUP.md`). Suites: `unit` (no Concrete, no dev site) and `integration` (boots Concrete against the dev site database; the dev-host guard is inside the boot function, so it can't be skipped).
 - JS safety tests (BF-11): `node --test tests/js/*.test.mjs`, with Node 20+ on `PATH` (no npm packages). Both developers need Node: `/finish-task` stops without it. Manual check: `tests/js/manual/reply-rendering.html` (SETUP).
 - **Test tiers:**
-  - **Fast**, after every change: `php tools/phpunit/vendor/bin/phpunit --exclude-group slow` (about 18 s) and `node --test tests/js/*.test.mjs` (under a second). The `slow` group is `SeedResetTest`. A new test class that takes more than about 2 s goes in it too (`#[Group('slow')]`), with a note in PROGRESS.
+  - **Fast**, after every change: `php tools/phpunit/vendor/bin/phpunit --exclude-group slow` (about 18 s) and `node --test tests/js/*.test.mjs` (under a second). The `slow` group is `SeedResetTest`. A new test class that takes more than about 2 s goes in it too (`#[Group('slow')]`), with a note in the task's progress entry.
   - **Full**, before every PR (in `/finish-task`): `php tools/phpunit/vendor/bin/phpunit` (about 43 s) and the JS safety tests.
   - **Scenarios** cost money and call the AI. Run them only when a task touches prompts, tools, the safety layers, the model or provider, or the Neuron version, and at every phase exit. They don't run on every merge. **In Phase 3 (WP-4):** a task runs a free `--fake` run of the scenarios it touches, and only its own new or changed scenarios ×1. The ×3 comparison of the stage's named scenarios runs once at the end of each stage, in its own task (P3.S1–P3.S4), and the merge rule is applied there. P3.5-1, P3.2-1, P3.6-1, P3.6-2 and P3.6a keep their own ×3 runs before merge. Each task's `DELIVERY_PLAN.md` entry names its scenarios and cap.
 - **Red first** stays for safety work and bug fixes. For a change to what a read tool returns, one integration test per tool is enough (WP-4).
