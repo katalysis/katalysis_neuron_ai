@@ -587,33 +587,8 @@ class BatchEditToolkit extends AbstractToolkit
             // Neuron passes null for an input the model left out: the default is true, as the description says.
             $continueOnError ??= true;
 
-            $contentBt = BlockType::getByHandle('content');
-            if (!$contentBt) {
-                throw new \RuntimeException('Content block type is not available');
-            }
-
-            // Read pass, on the newest version and before any draft (BF-3): find the headings to change. A new draft
-            // shares its blocks with the newest version, so the block IDs found here are the draft's until copied.
-            $conn = Application::getFacadeApplication()->make('database')->connection();
-            $qb = $conn->createQueryBuilder();
-            $qb->select('b.bID', 'cvb.arHandle', 'cvb.cvID', 'cv.cvIsApproved')
-                ->from('Blocks', 'b')
-                ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
-                ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
-                ->where('cvb.cID = :cID')
-                // Only the blocks of the version being edited: the draft shares blocks with the live
-                // version until they are copied, and the live copies must never be updated.
-                ->andWhere('cvb.cvID = :cvID')
-                ->andWhere('b.btID = :btID')
-                ->setParameter('cID', $pageID)
-                ->setParameter('cvID', $page->getVersionID())
-                ->setParameter('btID', $contentBt->getBlockTypeID())
-                ->orderBy('b.bID', 'ASC')
-                ->addOrderBy('cv.cvIsApproved', 'DESC')
-                ->addOrderBy('cvb.cvID', 'DESC');
-
-            $placements = $qb->execute()->fetchAllAssociative();
-            if (empty($placements)) {
+            $plan = $this->planHeadings($page, (int) $pageID, $normalizedTitles, $matchMode, $areaHandleContains, $targetTag, (bool) $continueOnError);
+            if ($plan['empty']) {
                 return [
                     'ok' => false,
                     'summary' => [
@@ -628,137 +603,8 @@ class BatchEditToolkit extends AbstractToolkit
                     'note' => 'No content block placements found for this page.',
                 ];
             }
-
-            // Keep preferred placement per block: approved first, then newest version.
-            $preferredPlacements = [];
-            foreach ($placements as $placement) {
-                $bID = (int) ($placement['bID'] ?? 0);
-                if ($bID <= 0) {
-                    continue;
-                }
-
-                if (!isset($preferredPlacements[$bID])) {
-                    $preferredPlacements[$bID] = $placement;
-                    continue;
-                }
-
-                $current = $preferredPlacements[$bID];
-                $currentApproved = (int) ($current['cvIsApproved'] ?? 0) === 1;
-                $candidateApproved = (int) ($placement['cvIsApproved'] ?? 0) === 1;
-                if ($candidateApproved && !$currentApproved) {
-                    $preferredPlacements[$bID] = $placement;
-                    continue;
-                }
-                if ($candidateApproved === $currentApproved && (int) ($placement['cvID'] ?? 0) > (int) ($current['cvID'] ?? 0)) {
-                    $preferredPlacements[$bID] = $placement;
-                }
-            }
-
-            $pendingHeadings = $normalizedTitles;
-            $planned = [];
+            ['planned' => $planned, 'failed' => $failed, 'pendingHeadings' => $pendingHeadings] = $plan;
             $updated = [];
-            $failed = [];
-
-            foreach ($preferredPlacements as $blockID => $placement) {
-                if ($matchMode === 'explicit' && empty($pendingHeadings)) {
-                    break;
-                }
-
-                $areaHandle = (string) ($placement['arHandle'] ?? '');
-                if ($areaHandleContains !== null && stripos($areaHandle, $areaHandleContains) === false) {
-                    continue;
-                }
-
-                try {
-                    $area = $page->getArea($areaHandle);
-                    if (!$area) {
-                        $area = new Area($areaHandle);
-                        $area->c = $page;
-                    }
-
-                    $block = Block::getByID((int) $blockID, $page, $area);
-                    if (!$block) {
-                        continue;
-                    }
-
-                    $controller = $block->getController();
-                    $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
-                    $record = $this->getBlockTableRecord($dbTable, (int) $blockID);
-                    $content = is_string($record['content'] ?? null) ? (string) $record['content'] : null;
-                    if ($content === null || trim($content) === '') {
-                        continue;
-                    }
-
-                    // P3.3-1: every matching heading in the block, not only the first (scenarios 05, 06 and 23).
-                    $matches = [];
-                    if ($matchMode === 'explicit') {
-                        $matches = $this->findMatchingHeadingTextsInContent($content, $pendingHeadings);
-                    } else {
-                        foreach ($this->extractBoldParagraphHeadingTexts($content) as $detectedHeading) {
-                            $detectedKey = $this->normalizeHeadingLookupText($detectedHeading);
-                            if (empty($pendingHeadings) || isset($pendingHeadings[$detectedKey])) {
-                                $matches[$detectedKey] = [
-                                    'key' => $detectedKey,
-                                    'text' => empty($pendingHeadings) ? $detectedHeading : (string) ($pendingHeadings[$detectedKey] ?? $detectedHeading),
-                                ];
-                            }
-                        }
-                    }
-
-                    // Each heading is applied in turn; one whose text is only in the body (not a heading) changes nothing.
-                    $transformedContent = $content;
-                    $applied = [];
-                    foreach ($matches as $match) {
-                        $next = $this->applyHeadingLevelToContent($transformedContent, $match['text'], $targetTag);
-                        if ($next !== $transformedContent) {
-                            $transformedContent = $next;
-                            $applied[] = $match;
-                        }
-                    }
-
-                    if ($applied === []) {
-                        continue;
-                    }
-
-                    $beforeText = TextIntegrity::normalize($content);
-                    $afterText = TextIntegrity::normalize($transformedContent);
-                    if ($beforeText !== $afterText) {
-                        $names = implode("', '", array_column($applied, 'text'));
-                        throw new \RuntimeException("text integrity check failed for '{$names}' (body text changed)");
-                    }
-
-                    // Never change a block under the user's open editor (BF-7): reported with the failures.
-                    EditModeGuard::refuseOpenBlock($page, (int) $blockID);
-                    // P3.5-1: nor a block whose own Edit Block permission the user lacks: reported the same way.
-                    $permissionBlock = Block::getByID((int) $blockID, $page, (string) $areaHandle);
-                    if ($permissionBlock) {
-                        ObjectPermissions::deny(ObjectPermissions::editBlock($permissionBlock));
-                    }
-
-                    $planned[] = [
-                        'blockID' => (int) $blockID,
-                        'areaHandle' => $areaHandle,
-                        'dbTable' => $dbTable,
-                        'headings' => $applied,
-                        'transformedContent' => $transformedContent,
-                        'beforeText' => $beforeText,
-                    ];
-                    foreach ($applied as $match) {
-                        unset($pendingHeadings[$match['key']]);
-                    }
-                } catch (\Throwable $e) {
-                    $failed[] = [
-                        'blockID' => (int) $blockID,
-                        'areaHandle' => $areaHandle,
-                        'matchMode' => $matchMode,
-                        'error' => $e->getMessage(),
-                    ];
-
-                    if (!$continueOnError) {
-                        break;
-                    }
-                }
-            }
 
             // Write pass: only when there is something to change, and (with continueOnError false) nothing failed.
             $pageToModify = null;
@@ -866,6 +712,178 @@ class BatchEditToolkit extends AbstractToolkit
         return $tool;
     }
 
+    /**
+     * P3.6-2: the read pass of batch_update_content_headings, on the newest version and before any draft (BF-3): the
+     * blocks and headings the call would change. The approval card lists exactly these, and the write pass then
+     * writes them (plans/P3.6-2.md §1). Reads only.
+     *
+     * @param array<string, string> $normalizedTitles
+     * @return array{empty: bool, planned: list<array<string, mixed>>, failed: list<array<string, mixed>>, pendingHeadings: array<string, string>}
+     */
+    public function planHeadings(Page $page, int $pageID, array $normalizedTitles, string $matchMode, ?string $areaHandleContains, string $targetTag, bool $continueOnError): array
+    {
+        $contentBt = BlockType::getByHandle('content');
+        if (!$contentBt) {
+            throw new \RuntimeException('Content block type is not available');
+        }
+
+        // Read pass, on the newest version and before any draft (BF-3): find the headings to change. A new draft
+        // shares its blocks with the newest version, so the block IDs found here are the draft's until copied.
+        $conn = Application::getFacadeApplication()->make('database')->connection();
+        $qb = $conn->createQueryBuilder();
+        $qb->select('b.bID', 'cvb.arHandle', 'cvb.cvID', 'cv.cvIsApproved')
+            ->from('Blocks', 'b')
+            ->innerJoin('b', 'CollectionVersionBlocks', 'cvb', 'b.bID = cvb.bID')
+            ->innerJoin('cvb', 'CollectionVersions', 'cv', 'cvb.cID = cv.cID AND cvb.cvID = cv.cvID')
+            ->where('cvb.cID = :cID')
+            // Only the blocks of the version being edited: the draft shares blocks with the live
+            // version until they are copied, and the live copies must never be updated.
+            ->andWhere('cvb.cvID = :cvID')
+            ->andWhere('b.btID = :btID')
+            ->setParameter('cID', $pageID)
+            ->setParameter('cvID', $page->getVersionID())
+            ->setParameter('btID', $contentBt->getBlockTypeID())
+            ->orderBy('b.bID', 'ASC')
+            ->addOrderBy('cv.cvIsApproved', 'DESC')
+            ->addOrderBy('cvb.cvID', 'DESC');
+
+        $placements = $qb->execute()->fetchAllAssociative();
+        if (empty($placements)) {
+            return ['empty' => true, 'planned' => [], 'failed' => [], 'pendingHeadings' => $normalizedTitles];
+        }
+
+        // Keep preferred placement per block: approved first, then newest version.
+        $preferredPlacements = [];
+        foreach ($placements as $placement) {
+            $bID = (int) ($placement['bID'] ?? 0);
+            if ($bID <= 0) {
+                continue;
+            }
+
+            if (!isset($preferredPlacements[$bID])) {
+                $preferredPlacements[$bID] = $placement;
+                continue;
+            }
+
+            $current = $preferredPlacements[$bID];
+            $currentApproved = (int) ($current['cvIsApproved'] ?? 0) === 1;
+            $candidateApproved = (int) ($placement['cvIsApproved'] ?? 0) === 1;
+            if ($candidateApproved && !$currentApproved) {
+                $preferredPlacements[$bID] = $placement;
+                continue;
+            }
+            if ($candidateApproved === $currentApproved && (int) ($placement['cvID'] ?? 0) > (int) ($current['cvID'] ?? 0)) {
+                $preferredPlacements[$bID] = $placement;
+            }
+        }
+
+        $pendingHeadings = $normalizedTitles;
+        $planned = [];
+        $failed = [];
+
+        foreach ($preferredPlacements as $blockID => $placement) {
+            if ($matchMode === 'explicit' && empty($pendingHeadings)) {
+                break;
+            }
+
+            $areaHandle = (string) ($placement['arHandle'] ?? '');
+            if ($areaHandleContains !== null && stripos($areaHandle, $areaHandleContains) === false) {
+                continue;
+            }
+
+            try {
+                $area = $page->getArea($areaHandle);
+                if (!$area) {
+                    $area = new Area($areaHandle);
+                    $area->c = $page;
+                }
+
+                $block = Block::getByID((int) $blockID, $page, $area);
+                if (!$block) {
+                    continue;
+                }
+
+                $controller = $block->getController();
+                $dbTable = $controller ? $controller->getBlockTypeDatabaseTable() : null;
+                $record = $this->getBlockTableRecord($dbTable, (int) $blockID);
+                $content = is_string($record['content'] ?? null) ? (string) $record['content'] : null;
+                if ($content === null || trim($content) === '') {
+                    continue;
+                }
+
+                // P3.3-1: every matching heading in the block, not only the first (scenarios 05, 06 and 23).
+                $matches = [];
+                if ($matchMode === 'explicit') {
+                    $matches = $this->findMatchingHeadingTextsInContent($content, $pendingHeadings);
+                } else {
+                    foreach ($this->extractBoldParagraphHeadingTexts($content) as $detectedHeading) {
+                        $detectedKey = $this->normalizeHeadingLookupText($detectedHeading);
+                        if (empty($pendingHeadings) || isset($pendingHeadings[$detectedKey])) {
+                            $matches[$detectedKey] = [
+                                'key' => $detectedKey,
+                                'text' => empty($pendingHeadings) ? $detectedHeading : (string) ($pendingHeadings[$detectedKey] ?? $detectedHeading),
+                            ];
+                        }
+                    }
+                }
+
+                // Each heading is applied in turn; one whose text is only in the body (not a heading) changes nothing.
+                $transformedContent = $content;
+                $applied = [];
+                foreach ($matches as $match) {
+                    $next = $this->applyHeadingLevelToContent($transformedContent, $match['text'], $targetTag);
+                    if ($next !== $transformedContent) {
+                        $transformedContent = $next;
+                        $applied[] = $match;
+                    }
+                }
+
+                if ($applied === []) {
+                    continue;
+                }
+
+                $beforeText = TextIntegrity::normalize($content);
+                $afterText = TextIntegrity::normalize($transformedContent);
+                if ($beforeText !== $afterText) {
+                    $names = implode("', '", array_column($applied, 'text'));
+                    throw new \RuntimeException("text integrity check failed for '{$names}' (body text changed)");
+                }
+
+                // Never change a block under the user's open editor (BF-7): reported with the failures.
+                EditModeGuard::refuseOpenBlock($page, (int) $blockID);
+                // P3.5-1: nor a block whose own Edit Block permission the user lacks: reported the same way.
+                $permissionBlock = Block::getByID((int) $blockID, $page, (string) $areaHandle);
+                if ($permissionBlock) {
+                    ObjectPermissions::deny(ObjectPermissions::editBlock($permissionBlock));
+                }
+
+                $planned[] = [
+                    'blockID' => (int) $blockID,
+                    'areaHandle' => $areaHandle,
+                    'dbTable' => $dbTable,
+                    'headings' => $applied,
+                    'transformedContent' => $transformedContent,
+                    'beforeText' => $beforeText,
+                ];
+                foreach ($applied as $match) {
+                    unset($pendingHeadings[$match['key']]);
+                }
+            } catch (\Throwable $e) {
+                $failed[] = [
+                    'blockID' => (int) $blockID,
+                    'areaHandle' => $areaHandle,
+                    'matchMode' => $matchMode,
+                    'error' => $e->getMessage(),
+                ];
+
+                if (!$continueOnError) {
+                    break;
+                }
+            }
+        }
+
+        return ['empty' => false, 'planned' => $planned, 'failed' => $failed, 'pendingHeadings' => $pendingHeadings];
+    }
     /**
      * @param string $content
      * @param array<string, string> $pendingHeadings
