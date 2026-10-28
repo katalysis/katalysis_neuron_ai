@@ -22,6 +22,7 @@ use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Security\InstructionDetector;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
+use Katalysis\NeuronAi\Tests\Support\ApproveAll;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\PromptPreview;
 use Katalysis\NeuronAi\Tests\Support\TaskKeyFixture;
@@ -224,7 +225,7 @@ final class NewestVersionReadTest extends ConcreteTestCase
         $this->chatIds[] = (int) $chat->getId();
 
         $agent = (new ConcreteCmsAgent())->setChatId((int) $chat->getId())->setAiProvider($provider);
-        $this->assertSame('Done.', $agent->handleUserMessage('Make the first paragraph bold.'));
+        $this->assertSame('Done.', ApproveAll::turn($agent, 'Make the first paragraph bold.'));
 
         $writes = [];
         foreach ($provider->getRecorded() as $record) {

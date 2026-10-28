@@ -784,6 +784,28 @@ final class ChatControllerTest extends ConcreteTestCase
         ])]);
     }
 
+    /**
+     * P3.6-2: every write waits for approval, so the panel's Approve follows the message: each waiting card is
+     * approved through decide, with the same page context and open blocks, and the last reply is returned.
+     *
+     * @param array<string, mixed> $body the send_message reply
+     * @param array<string, mixed> $extra what the panel sends with each decision
+     * @return array<string, mixed>
+     */
+    private function approveAll(Chat $controller, array $body, array $extra = []): array
+    {
+        foreach ($body['approvals'] ?? [] as $card) {
+            if (($card['status'] ?? null) !== 'pending') {
+                continue;
+            }
+            [$status, $decided, $raw] = $this->call($controller, 'decide', ['callId' => $card['callId'], 'decision' => 'approve'] + $extra);
+            $this->assertSame(200, $status, $raw);
+            $body = $decided;
+        }
+
+        return $body;
+    }
+
     public function testATurnThatChangesThePageReportsItSoThePanelCanReload(): void
     {
         $this->pages = new ThrowawayPages($this->db());
@@ -792,11 +814,8 @@ final class ChatControllerTest extends ConcreteTestCase
         [$b1] = $this->pages->blockIDs($cID);
         $this->actAs('superuser');
 
-        $body = $this->send(
-            $this->controller(new FakeAIProvider($this->editBlockCall($cID, $b1), new AssistantMessage('Done.'))),
-            'Make it a heading.',
-            (string) $page->getCollectionPath()
-        );
+        $controller = $this->controller(new FakeAIProvider($this->editBlockCall($cID, $b1), new AssistantMessage('Done.')));
+        $body = $this->approveAll($controller, $this->send($controller, 'Make it a heading.', (string) $page->getCollectionPath()));
 
         $this->assertSame('Done.', $body['response']);
         $this->assertCount(1, $body['changes']);
@@ -822,7 +841,8 @@ final class ChatControllerTest extends ConcreteTestCase
             }
         };
 
-        $body = $this->send($this->controller($provider), 'Make it a heading.', (string) $page->getCollectionPath());
+        $controller = $this->controller($provider);
+        $body = $this->approveAll($controller, $this->send($controller, 'Make it a heading.', (string) $page->getCollectionPath()));
 
         $this->assertSame(self::ERROR_REPLY, $body['response']);
         $this->assertSame($cID, $body['changes'][0]['pageID'] ?? null);
@@ -838,13 +858,13 @@ final class ChatControllerTest extends ConcreteTestCase
         $this->actAs('superuser');
         $provider = new FakeAIProvider($this->editBlockCall($cID, $b1), new AssistantMessage('It is open in your editor.'));
 
-        [$status, $body, $raw] = $this->call($this->controller($provider), 'send_message', [
-            'message' => 'Make it a heading.',
-            'pageContext' => self::pageContext((string) $page->getCollectionPath()),
-            'openBlockIDs' => [$b1, 'not a number', -4],
-        ]);
-
+        $controller = $this->controller($provider);
+        $open = ['pageContext' => self::pageContext((string) $page->getCollectionPath()), 'openBlockIDs' => [$b1, 'not a number', -4]];
+        [$status, $body, $raw] = $this->call($controller, 'send_message', ['message' => 'Make it a heading.'] + $open);
         $this->assertSame(200, $status, $raw);
+        // The panel sends the open blocks with the decision too: the write runs then.
+        $body = $this->approveAll($controller, $body, $open);
+
         $this->assertSame([], $body['changes']);
         $this->assertSame($before, $this->pages->state($cID), 'the block open in the editor is unchanged, and no draft was made');
         $toolResults = (string) $this->db()->fetchOne(
@@ -866,7 +886,8 @@ final class ChatControllerTest extends ConcreteTestCase
             'message' => 'Hello.', 'pageContext' => self::pageContext($path), 'openBlockIDs' => [$b1],
         ]);
 
-        $body = $this->send($this->controller(new FakeAIProvider($this->editBlockCall($cID, $b1), new AssistantMessage('Done.'))), 'Now change it.', $path);
+        $controller = $this->controller(new FakeAIProvider($this->editBlockCall($cID, $b1), new AssistantMessage('Done.')));
+        $body = $this->approveAll($controller, $this->send($controller, 'Now change it.', $path), ['pageContext' => self::pageContext($path)]);
 
         $this->assertSame($cID, $body['changes'][0]['pageID'] ?? null, 'the editor was closed by the next message: the block may change');
     }

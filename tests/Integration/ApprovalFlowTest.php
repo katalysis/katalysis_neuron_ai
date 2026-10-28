@@ -15,6 +15,7 @@ use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
+use Katalysis\NeuronAi\Tests\Support\ApproveAll;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use NeuronAI\Chat\Messages\AssistantMessage;
@@ -168,7 +169,11 @@ final class ApprovalFlowTest extends ConcreteTestCase
                         continue;
                     }
                     $found[$tool->getName()] = true;
-                    $this->assertSame(ApprovalService::POLICIES[$tool->getName()], $decision, "pass {$pass}: {$tool->getName()}");
+                    // P3.6-2: every write is gated; the page tools keep their own reasons.
+                    $this->assertSame(ApprovalService::reason($tool->getName()), $decision, "pass {$pass}: {$tool->getName()}");
+                    if (!isset(self::VALID_INPUTS[$tool->getName()])) {
+                        continue;
+                    }
                     // With a call's inputs bound and on a clone, as Neuron asks on every pass and on resume. (Neuron
                     // never gates a call whose inputs it rejected: such a call is refused without running.)
                     $clone = clone $tool;
@@ -402,11 +407,34 @@ final class ApprovalFlowTest extends ConcreteTestCase
         };
         $chatId = $this->newChat();
 
-        $this->assertSame(ConcreteCmsAgent::ERROR_REPLY, $this->agent($chatId, $provider)->handleUserMessage('Make it a heading.'));
+        $this->assertSame(ConcreteCmsAgent::ERROR_REPLY, ApproveAll::turn($this->agent($chatId, $provider), 'Make it a heading.'));
 
         $history = json_decode(TurnChanges::annotateHistoryJson((new ChatMessageStore($this->db()))->conversationJson(ChatMessageStore::threadFor($chatId))), true);
         $last = end($history);
         $this->assertStringStartsWith('Before the error: changed Approval failed turn', (string) ($last['changes'] ?? ''));
         $this->assertSame(0, $this->runRows($chatId), 'the failed run is ended');
+    }
+
+    public function testAFailedApprovedBatchDoesNotStopTheNextTurn(): void
+    {
+        // P3.6-2 (B-ERR-5): the call was stored before the pause; when its turn fails after it ran, the next message
+        // must still get an answer.
+        $page = $this->pages->create('Approval failed batch');
+        $cID = (int) $page->getCollectionID();
+        $chatId = $this->newChat();
+        $call = self::call('update_page', ['pageID' => $cID, 'description' => 'Written, then the provider failed']);
+        $this->agent($chatId, new FakeAIProvider(self::calls($call)))->handleUserMessage('Set it.');
+
+        $failing = new class () extends FakeAIProvider {
+            public function chat(Message ...$messages): ProviderResponse
+            {
+                throw new \RuntimeException('The provider went away.');
+            }
+        };
+        $this->assertSame(['recorded' => true, 'reply' => ConcreteCmsAgent::ERROR_REPLY], $this->agent($chatId, $failing)->decide((string) $call->getCallId(), true));
+        $this->assertSame('Written, then the provider failed', (string) self::newest($cID)->getCollectionDescription());
+
+        $this->assertSame('Still here.', $this->agent($chatId, new FakeAIProvider(new AssistantMessage('Still here.')))->handleUserMessage('Hello?'));
+        $this->assertSame(0, $this->runRows($chatId));
     }
 }
