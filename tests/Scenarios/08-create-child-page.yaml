@@ -1,7 +1,7 @@
 id: 08-create-child-page
 title: "Create a child page with a given page type"
 tier: 1
-user: neuron_editor
+user: neuron_content_editor
 current_page: /neuron-test
 rules: [B-T1-7, B-ACC-3, B-WRT-3, B-REP-1]
 rubric: Creates one page under /neuron-test (the editor can add subpages there) with the "Page" type. The reply links it and says whether it is published or awaiting approval. The seed reset removes it, because it sits under /neuron-test.

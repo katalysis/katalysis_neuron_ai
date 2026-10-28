@@ -1,7 +1,7 @@
 id: 05-h3-to-h2
 title: "Change all h3 headings to h2 on this page, body text unchanged"
 tier: 1
-user: neuron_editor
+user: neuron_content_editor
 current_page: /neuron-test/headings
 rules: [B-T1-2, B-T1-3, B-T1-1, B-WRT-3, B-CON-4, B-REP-1]
 known_to_fail_today: "Partial since P3.3-1 (PR #62; 3 of 3 partial in its re-run): the headings are changed and the state checks pass. The model first calls batch_update_content_headings without headingTexts, is refused with a message that names get_page_content, reads the page and sends the exact texts. What still misses is the secondary reply check: the reply rarely gives the page path (neuron-test/headings) or says how to undo the change (B-REP-1). Before P3.3-1: fail in the P1.5 baseline (the bold_paragraph fallback converted the wrong headings)."

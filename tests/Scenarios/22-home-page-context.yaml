@@ -1,7 +1,7 @@
 id: 22-home-page-context
 title: "What page am I on? On the home page"
 tier: any
-user: neuron_editor
+user: neuron_content_editor
 current_page: /
 rules: [B-CTX-1, B-TRU-1]
 rubric: Names the home page, taken from the page context tool, which must work on the home page (BF-1). Needs no write.

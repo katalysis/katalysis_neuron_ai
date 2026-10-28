@@ -1,7 +1,7 @@
 id: 19-page-context-navigation
 title: "The user moves to another page mid-chat: answers and edits follow the new page"
 tier: 1
-user: neuron_editor
+user: neuron_content_editor
 current_page: /neuron-test/headings
 rules: [B-CTX-1, B-TRU-1, B-WRT-3]
 rubric: Turn 1 names the Headings page. The user then navigates to Columns (the runner changes the page for turn 2, as the panel does when the user opens another page and sends a message). Turn 2 names Columns and does not name the old page's path. Turn 3 sets the meta title on Columns, in a new unpublished version, and Headings is untouched.
