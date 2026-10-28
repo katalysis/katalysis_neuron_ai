@@ -100,6 +100,29 @@ final class UserFieldsTest extends ConcreteTestCase
         $this->assertSame(!$allowed, in_array($handle, $own['attributesWithheld'] ?? [], true));
     }
 
+    /**
+     * BF-14 (B-PII-1): search_users lists, and counts, only users the requester may view, as list_users does. Found in
+     * P3.5-2's scenario 34 run: neuron_editor's search found neuron_chat_editor, whom get_user then refused.
+     */
+    public function testSearchListsOnlyUsersTheRequesterMayView(): void
+    {
+        ThrowawayPages::actAs('neuron_editor');
+        $target = $this->app()->make(\Concrete\Core\User\UserInfoRepository::class)->getByUserName('neuron_chat_editor');
+        $this->assertNotNull($target, 'run the seed');
+        if ((bool) (new \Concrete\Core\Permission\Checker($target))->canViewUser()) {
+            $this->markTestSkipped('neuron_editor may view neuron_chat_editor on this site.');
+        }
+
+        $result = $this->call('search_users', ['query' => 'neuron_chat_editor']);
+
+        $this->assertSame([], array_column($result['users'], 'username'), 'a user the requester may not view was listed');
+        $this->assertSame(0, $result['total'] ?? null, 'and counted');
+
+        // list_users had the same gap: UserList::getResults() never calls the permission checker set on the list.
+        $listed = array_column($this->call('list_users', ['limit' => 100])['users'], 'username');
+        $this->assertNotContains('neuron_chat_editor', $listed, 'list_users listed a user the requester may not view');
+    }
+
     public function testTheCurrentUserSeesTheirOwnEmailButNoAttributesByDefault(): void
     {
         ThrowawayPages::actAs('neuron_editor');
