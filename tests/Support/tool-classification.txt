@@ -19,7 +19,6 @@ read  get_block_controller_data
 read  get_block_data
 read  get_current_page_context
 read  get_current_user
-read  get_doc_download_files_on_page
 read  get_file
 read  get_file_attribute_details
 read  get_page
@@ -70,7 +69,6 @@ off   delete_topic
 off   move_file_to_folder
 off   move_page
 off   remove_attribute_from_set
-off   sync_multi_links_to_epra_resources_list
 off   update_file_select_attribute_options
 off   update_page_select_attribute_options
 off   update_person
