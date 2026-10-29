@@ -532,6 +532,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   4. the Extensions dashboard page
   5. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
 - P5.2a Nested (container) blocks in batch updates (from P1.8; moved from P3.3 on the roadmap). Since P1.8a, `batch_update_page_content` refuses blocks inside containers and area layout sub-areas with a clear message, before any draft.
+- P5.2b A code check for instruction-like text in the user's own pasted content (scenario 14; P3.7-2's proposal). Approval already blocks the write, so this is about the reply.
 - P5.3 Undo the last change via page versions.
 - P5.4 Pilot with a live client: EPRA if Neuron is reinstated there, otherwise a Katalysis-hosted site. Every failure they report becomes a scenario.
 
