@@ -80,6 +80,15 @@ Every report becomes a test scenario, so detail matters.
 - For a deleted page, restore it from the trash.
 - Then report it.
 
+## 5a. Updating the package during the pilot
+
+1. **Back up the database** (`mysqldump`), as in section 1.
+2. **Copy the new `katalysis_neuron_ai` folder** over the old one in `packages/`. It includes its `vendor/` folder.
+3. **Run** `concrete/bin/concrete c5:package:update katalysis_neuron_ai`.
+4. **Clear the cache:** Dashboard → System & Settings → Optimization → Clear Cache.
+
+**3.5.0 drops the unused `chatHistory` column** from `KatalysisNeuronAiChats` (P3.9-1). Chats are rows in `KatalysisNeuronAiChatMessages` since 3.x, so nothing is lost from the chats you see, but the drop can't be undone without the backup.
+
 ## 6. Known open items
 
 - **Chats are kept indefinitely** until retention and an admin purge arrive (P3.9-2). Don't paste personal data into the chat that you wouldn't keep in the CMS.
