@@ -10,7 +10,6 @@ use NeuronAI\Agent\Nodes\ToolNode;
 use NeuronAI\Chat\History\HistoryTrimmer;
 use NeuronAI\Exceptions\ChatHistoryException;
 use NeuronAI\Providers\AIProviderInterface;
-use NeuronAI\Providers\OpenAI\OpenAI;
 use NeuronAI\HttpClient\Curl\CurlHttpClient;
 use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Chat\Messages\UserMessage;
@@ -27,6 +26,7 @@ use NeuronAI\Workflow\Workflow;
 use Katalysis\NeuronAi\Approval\ApprovalLogListener;
 use Katalysis\NeuronAi\Approval\ApprovalService;
 use Katalysis\NeuronAi\Agent\GroupedChatNode;
+use Katalysis\NeuronAi\Agent\RoutedOpenAI;
 use Katalysis\NeuronAi\Approval\ApprovalToolNode;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Chat\TurnChanges;
@@ -44,6 +44,7 @@ use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
+use Katalysis\NeuronAi\Tools\ToolGroupsToolkit;
 use Katalysis\NeuronAi\Tools\ExternalToolkitBuild;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 use Katalysis\NeuronAi\Security\InjectionNotice;
@@ -109,6 +110,9 @@ class ConcreteCmsAgent extends Agent
 
     /** @var list<string> the calls whose decision the last request settled (decide(), or a new message) */
     private array $settledCallIds = [];
+
+    /** @var list<array{string, list<string>}> each toolkit's heading and guidelines, and its tools (resolveTools()) */
+    private array $toolkitGuidelines = [];
 
     /** @var list<int> blocks the user has an editor open on, on the current page (BF-7) */
     private array $openEditorBlockIDs = [];
@@ -236,7 +240,7 @@ class ConcreteCmsAgent extends Agent
     {
         return [
             ...$this->entryNodes(),
-            new GroupedChatNode(),
+            new GroupedChatNode($this->systemPromptForTools(...)),
             new \NeuronAI\Agent\Nodes\StructuredOutputNode(),
             new ApprovalToolNode($this->toolMaxRuns, $this->toolErrorHandler ?? $this->resolveToolErrorHandler()),
             new \NeuronAI\Agent\Nodes\AwaitToolResultsNode(),
@@ -264,6 +268,8 @@ class ConcreteCmsAgent extends Agent
             new TopicsToolkit(),
             new PeopleToolkit(),
             new VersionsToolkit(),
+            // P3.2-2: get_tool_group, always offered (ToolGroups).
+            new ToolGroupsToolkit(),
         ];
     }
 
@@ -301,6 +307,7 @@ class ConcreteCmsAgent extends Agent
     {
         $tools = [];
         $guidelines = [];
+        $this->toolkitGuidelines = [];
 
         foreach ($this->getTools() as $tool) {
             if ($tool instanceof ToolkitInterface) {
@@ -316,6 +323,7 @@ class ConcreteCmsAgent extends Agent
                         : (new \ReflectionClass($tool))->getShortName();
                     $guidelines[] = '# ' . $heading . PHP_EOL . $kitGuidelines
                         . PHP_EOL . implode(PHP_EOL . '- ', $names);
+                    $this->toolkitGuidelines[] = ['# ' . $heading . PHP_EOL . $kitGuidelines, $names];
                 }
             } elseif ($tool->isVisible()) {
                 $tools[] = $tool;
@@ -324,9 +332,7 @@ class ConcreteCmsAgent extends Agent
 
         $configured = $this->getInstructions();
         $text = (string) $configured->getContent();
-        if ($guidelines !== []) {
-            $text .= PHP_EOL . '<TOOLS-GUIDELINES>' . PHP_EOL . implode(PHP_EOL . PHP_EOL, $guidelines) . PHP_EOL . '</TOOLS-GUIDELINES>';
-        }
+        $text .= self::guidelinesBlock($guidelines);
 
         $instructions = new SystemMessage($text);
         if ($configured->isCached()) {
@@ -334,6 +340,48 @@ class ConcreteCmsAgent extends Agent
         }
 
         return [$instructions, $tools];
+    }
+
+    /**
+     * The system prompt for one request (GroupedChatNode, P3.2-2): the toolkit guidelines only for the toolkits with a
+     * tool offered, and each listing only its tools offered, in the same form as resolveTools(). Instructions that
+     * don't end with the guidelines resolveTools() built (changed on the way) are sent unchanged.
+     *
+     * @param list<string> $offered tool names
+     */
+    private function systemPromptForTools(SystemMessage $instructions, array $offered): SystemMessage
+    {
+        $text = (string) $instructions->getContent();
+        $all = [];
+        $shown = [];
+        foreach ($this->toolkitGuidelines as [$guidelines, $names]) {
+            $all[] = $guidelines . PHP_EOL . implode(PHP_EOL . '- ', $names);
+            $names = array_values(array_intersect($names, $offered));
+            if ($names !== []) {
+                $shown[] = $guidelines . PHP_EOL . implode(PHP_EOL . '- ', $names);
+            }
+        }
+        $full = self::guidelinesBlock($all);
+        if ($full === '' || !str_ends_with($text, $full)) {
+            return $instructions;
+        }
+
+        $system = new SystemMessage(substr($text, 0, -strlen($full)) . self::guidelinesBlock($shown));
+        if ($instructions->isCached()) {
+            $system->cache();
+        }
+
+        return $system;
+    }
+
+    /**
+     * @param list<string> $guidelines each toolkit's heading, guidelines and tool names
+     */
+    private static function guidelinesBlock(array $guidelines): string
+    {
+        return $guidelines === []
+            ? ''
+            : PHP_EOL . '<TOOLS-GUIDELINES>' . PHP_EOL . implode(PHP_EOL . PHP_EOL, $guidelines) . PHP_EOL . '</TOOLS-GUIDELINES>';
     }
 
     /**
@@ -423,7 +471,8 @@ class ConcreteCmsAgent extends Agent
     
     protected function provider(): AIProviderInterface
     {
-        return new OpenAI(
+        // P3.2-2: Neuron's OpenAI provider, accepting a call to a tool the request didn't offer (RoutedOpenAI).
+        return new RoutedOpenAI(
             key: Config::get('katalysis.ai.open_ai_key'),
             model: Config::get('katalysis.ai.open_ai_model', 'gpt-4o'),
             // BF-22: a request the service doesn't answer fails after this many seconds (Neuron's default is 300; one
@@ -481,6 +530,7 @@ CAPABILITIES:
 - Only fall back to step-by-step guidance when the required write tool is genuinely unavailable or the target context is incomplete
 
 GUIDELINES:
+- Each request offers only some of your tools. When the task needs one you don't have, call `get_tool_group` to add its group before saying it can't be done
 - When the user says "this page" or asks for counts/edits on the current page, start by calling `get_current_page_context` and use that page ID/path as the primary scope
 - When the user asks "what page are we on?", says they moved/navigated pages, or asks for content "on this page", call `get_current_page_context` first in that same turn and do not rely on prior-turn page context
 - For questions like "how many content blocks are on this page", prefer `list_page_blocks_by_type(pageID, blockTypeHandle)` over site-wide searches
