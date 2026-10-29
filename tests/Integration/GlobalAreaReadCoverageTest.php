@@ -72,25 +72,25 @@ final class GlobalAreaReadCoverageTest extends ConcreteTestCase
     #[DataProvider('readToolProvider')]
     public function testTheToolShowsTheGlobalAreasBlocksMarkedShared(string $tool): void
     {
-        [$inputs] = $this->setUpPage($tool);
+        [$inputs, , $bID] = $this->setUpPage($tool);
         ThrowawayPages::actAs('neuron_content_editor');
 
         $output = ToolByName::run($tool, $inputs);
 
-        $this->assertStringContainsString(self::TEXT, $output, "{$tool} doesn't show the global area's block: {$output}");
+        $this->assertStringContainsString(self::shown($tool, $bID), $output, "{$tool} doesn't show the global area's block: {$output}");
         $this->assertMatchesRegularExpression('/"globalArea"|\ba global area\b/', $output, "{$tool} doesn't mark it as a global area: {$output}");
     }
 
     #[DataProvider('readToolProvider')]
     public function testTheToolHidesThemFromAUserWhoMayNotViewTheStack(string $tool): void
     {
-        [$inputs, $stackID] = $this->setUpPage($tool);
+        [$inputs, $stackID, $bID] = $this->setUpPage($tool);
         $this->grants->takeAway($stackID, 'view_page', ['neuron_content_editor']);
         ThrowawayPages::actAs('neuron_content_editor');
 
         $output = ToolByName::run($tool, $inputs);
 
-        $this->assertStringNotContainsString(self::TEXT, $output, "{$tool} showed a global area the user may not view: {$output}");
+        $this->assertStringNotContainsString(self::shown($tool, $bID), $output, "{$tool} showed a global area the user may not view: {$output}");
     }
 
     public function testEveryReadToolThatTakesAPageIsCovered(): void
@@ -116,7 +116,7 @@ final class GlobalAreaReadCoverageTest extends ConcreteTestCase
     /**
      * A global area holding one Content block, on a page under /neuron-test, and the tool's inputs.
      *
-     * @return array{array<string, mixed>, int}
+     * @return array{array<string, mixed>, int, int} inputs, stack page ID, the global area's block ID
      */
     private function setUpPage(string $tool): array
     {
@@ -131,6 +131,12 @@ final class GlobalAreaReadCoverageTest extends ConcreteTestCase
             default => ['pageID' => $pageID],
         };
 
-        return [$inputs, $stackID];
+        return [$inputs, $stackID, $bID];
+    }
+
+    /** What shows the block in the tool's result: its text, or, for a tool that lists block IDs only, its table row. */
+    private static function shown(string $tool, int $bID): string
+    {
+        return $tool === 'list_page_blocks_by_type' ? "| {$bID} |" : self::TEXT;
     }
 }
