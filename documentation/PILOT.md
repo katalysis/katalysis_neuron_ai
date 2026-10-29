@@ -14,6 +14,7 @@ For Glyn, installing Neuron on a Katalysis site from **30 October 2026**. The pi
 - **Database:** a full dump (`mysqldump`).
 - **Files:** `application/files` and `application/config`, and the `packages/` folder if it already holds other packages.
 - Keep both until the pilot on that site ends.
+- **Backups taken after the install contain the API key**, which is stored in `application/config`. Keep them private, as you would the key itself.
 
 ## 2. Install
 
@@ -23,6 +24,7 @@ For Glyn, installing Neuron on a Katalysis site from **30 October 2026**. The pi
 
 **Settings** are under **Dashboard → System & Settings → AI → Neuron AI**. Only the super user can open the page at first (the "Configure Neuron AI" permission).
 - **OpenAI API key:** enter it here. It's stored in Concrete's config and never shown to the browser or the model. Don't put it in a committed file.
+- **Reinstalling resets the settings.** The install saves the defaults, so the API key is blanked and must be entered again.
 - **Model:** `gpt-4o`, the default and the only model the scenarios have run on.
 
 **Two settings with no page.** Set them only to change the defaults:
