@@ -148,7 +148,8 @@
 
                 const data = await response.json();
                 if (!data.success) {
-                    this.restoreMessages();
+                    // P3.9-4: say so, rather than show the browser's copy as if it had loaded.
+                    this.loadFailed(data);
                     return;
                 }
 
@@ -183,7 +184,7 @@
                 ));
                 this.updateDeleteCurrentVisibility();
             } catch (error) {
-                this.restoreMessages();
+                this.loadFailed(error);
             }
 
             this.afterChangeReload();
@@ -211,6 +212,12 @@
         },
         
         // Replaces the messages area with the saved history, if there is any. Returns whether it did.
+        // P3.9-4: a chat that couldn't be loaded: the browser's copy if it has one, and a message saying so.
+        loadFailed(data) {
+            const restored = this.restoreMessages();
+            this.addMessage(window.NeuronChatFormat.loadFailureText(data, restored), 'assistant', false);
+        },
+
         restoreMessages() {
             let restored = false;
             try {
@@ -949,11 +956,11 @@
                     }
                 } else {
                     this.messages.innerHTML = '';
-                    this.showFailure(data, 'Error: Could not load chat. ');
+                    this.addMessage(window.NeuronChatFormat.loadFailureText(data, false), 'assistant', false);
                 }
             } catch (error) {
                 this.messages.innerHTML = '';
-                this.addMessage('Error loading chat: ' + error.message, 'assistant');
+                this.addMessage(window.NeuronChatFormat.loadFailureText(error, false), 'assistant', false);
             }
         },
         
