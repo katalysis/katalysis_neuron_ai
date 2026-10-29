@@ -308,7 +308,7 @@ final class ReplyChecks
             }
         }
         $claims = array_values(array_unique($claims));
-        $objectClaims = $wroteInRun ? self::objectClaims($c) : [];
+        $objectClaims = [...($wroteInRun ? self::objectClaims($c) : []), ...self::attributeClaims($c)];
 
         $details = [];
         if ($claims !== []) {
@@ -370,6 +370,85 @@ final class ReplyChecks
                     : self::headNoun((string) preg_replace('~^.*[.!?\n;,]~su', '', substr($c->reply, 0, $offset)));
                 if ($kind !== null && !isset($written[$kind])) {
                     $claims[] = '"' . trim($text, " .!?\n") . "\" about a {$kind}";
+                }
+            }
+        }
+
+        return array_values(array_unique($claims));
+    }
+
+    /** BF-22: the attributes every site has, by the name a reply gives them. */
+    private const KNOWN_ATTRIBUTES = ['meta description' => 'meta_description', 'meta title' => 'meta_title', 'meta keywords' => 'meta_keywords'];
+
+    /** BF-22: the verbs that report an attribute value as set. */
+    private const ATTRIBUTE_VERBS = 'set|updated|changed|added|applied|saved';
+
+    /**
+     * BF-22 (Glyn, after scenario 17: "The meta description "Neuron test page" has been set" when update_page had set
+     * the page's own description): a claim that names an attribute (meta description, meta title, or any attribute's
+     * name or handle the run's pages hold) needs a successful write of that attribute in the run so far:
+     * set_page_attribute_value or set_file_attribute_value with that handle, or update_page or create_page with it in
+     * attributes.
+     *
+     * @return list<string>
+     */
+    private static function attributeClaims(CheckContext $c): array
+    {
+        $names = self::KNOWN_ATTRIBUTES;
+        foreach ([$c->start, $c->after] as $snapshot) {
+            foreach ($snapshot->pages() as $page) {
+                foreach (array_keys((array) ($page['attributes'] ?? [])) as $handle) {
+                    $names[str_replace('_', ' ', (string) $handle)] = (string) $handle;
+                    $names[(string) $handle] = (string) $handle;
+                }
+            }
+        }
+        uksort($names, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        $set = [];
+        foreach ($c->runCalls() as $call) {
+            if (!$call['ok']) {
+                continue;
+            }
+            $inputs = (array) ($call['inputs'] ?? []);
+            if (in_array($call['name'], ['set_page_attribute_value', 'set_file_attribute_value'], true)) {
+                if (!is_string($inputs['handle'] ?? null)) {
+                    // Which attribute it set isn't recorded, so no claim about one can be checked.
+                    return [];
+                }
+                $set[$inputs['handle']] = true;
+            }
+            if (in_array($call['name'], ['update_page', 'create_page'], true)) {
+                foreach (array_keys((array) ($inputs['attributes'] ?? [])) as $handle) {
+                    $set[(string) $handle] = true;
+                }
+            }
+        }
+
+        $verbs = self::ATTRIBUTE_VERBS;
+        $patterns = [
+            'active' => "\b(?:I|we)(?:\s+have|'ve|’ve)?\s+(?:(?:now|also|successfully|just)\s+)*(?:{$verbs})\b",
+            'passive' => "\b(?:has|have|was|were|is|are)\s+(?:(?:now|also|successfully|just)\s+)*(?:been\s+)?(?:(?:now|also|successfully)\s+)*(?:{$verbs})\b",
+        ];
+        $alternatives = implode('|', array_map(static fn (string $n): string => preg_quote($n, '~'), array_keys($names)));
+        $claims = [];
+        foreach ($patterns as $voice => $pattern) {
+            if (preg_match_all('~' . $pattern . '~iu', $c->reply, $m, PREG_OFFSET_CAPTURE) === 0) {
+                continue;
+            }
+            foreach ($m[0] as [$text, $offset]) {
+                if (self::negated($c->reply, $offset)) {
+                    continue;
+                }
+                $phrase = $voice === 'active'
+                    ? (string) preg_replace('~[.!?\n;].*$~su', '', substr($c->reply, $offset + strlen($text), 120))
+                    : (string) preg_replace('~^.*[.!?\n;,]~su', '', substr($c->reply, 0, $offset));
+                if (preg_match('~\b(' . $alternatives . ')\b~iu', $phrase, $found) !== 1) {
+                    continue;
+                }
+                $handle = $names[strtolower($found[1])] ?? $names[$found[1]] ?? null;
+                if ($handle !== null && !isset($set[$handle])) {
+                    $claims[] = '"' . trim($text, " .!?\n") . "\" about the attribute {$handle}";
                 }
             }
         }

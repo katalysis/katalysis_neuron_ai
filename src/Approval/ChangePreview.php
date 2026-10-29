@@ -135,7 +135,8 @@ final class ChangePreview
         }
         if (isset($inputs['description']) && is_string($inputs['description'])) {
             $state['description'] = (string) $page->getCollectionDescription();
-            $details[] = self::change('Description', $visible ? $state['description'] : null, $inputs['description']);
+            // BF-22: not the meta description, which scenario 17's model set this field for.
+            $details[] = self::change('Page description (not the meta description)', $visible ? $state['description'] : null, $inputs['description']);
         }
         if (isset($inputs['template']) && is_string($inputs['template']) && trim($inputs['template']) !== '') {
             $state['template'] = (string) $page->getPageTemplateHandle();

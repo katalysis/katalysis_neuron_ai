@@ -74,6 +74,7 @@ final class ToolBaseline
         'PeopleToolkit::list_people' => 'BF-6: offset input; limit capped at 100; the description says the result gives the total; P3.5-2: fields input (contact details and the full biography on request)',
         'PeopleToolkit::get_person_details' => 'P3.5-2: fields input (contact details and the full biography on request, B-PII-2)',
         'TopicsToolkit::get_topic_tree_structure' => 'BF-6: the description says what totalTopics counts and how a cut at max_depth is shown; P3.3-1: the description says categories are shown and counted',
+        'PagesToolkit::update_page' => 'BF-22: description says it is the page\'s own description, not the Meta Description attribute, which set_page_attribute_value sets',
         'PagesToolkit::move_page' => 'P3.6-3: re-enabled behind approval; the description says the pages below move too, the old addresses redirect, and a workflow may hold it',
         'PagesToolkit::delete_page' => 'P3.6-3: re-enabled behind approval; the description says it goes to the trash with the pages below, never permanently',
         'FilesToolkit::mark_file_for_deletion' => 'P3.6-3: move_file_to_folder renamed (RENAMED); only moves a file to "Assistant – to delete" for a person to delete (B-T1-11); folderID optional and refused unless that folder',
