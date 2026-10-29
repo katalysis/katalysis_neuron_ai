@@ -716,6 +716,10 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - `no_false_success` recognises attribute names (meta description, meta title, and any attribute's name or handle) as attribute claims, so "the meta description has been set" needs a successful `set_page_attribute_value` for that attribute; unit test with 17's recorded reply
   - the OpenAI request times out after 90 seconds, set in config (`katalysis.ai.provider_timeout`); a timeout fails the turn through the existing failed-turn path, and the panel says the AI service didn't answer in time and to try again; tested without calling the provider
   - scenarios: 17 ×1 after the change; cap $0.15
+- [ ] BF-23 **Every read tool shows global-area blocks** (small; its own PR into `development`; no plan stop; Glyn, after P3.6a). Found in P3.6a: three of the five read tools that list a page's blocks missed its global areas, and scenarios 39 and 40 failed on two of them. Scope:
+  - a test that runs every read tool that lists or returns a page's blocks against a page with a global area, and checks the global-area blocks appear, marked with `globalArea`, for a user who may view them, and don't for one who may not
+  - fix any read tool it catches
+  - scenarios: a free `--fake` run of 39 and 40
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
