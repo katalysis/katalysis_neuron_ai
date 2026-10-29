@@ -434,7 +434,7 @@ After permissions, so that approval never stands in for a permission check.
   - whether `approve_page_version` ever returns (publishing has been a person's action since P1.7)
   - whether the Tier 2 live writes disabled in P1.13 (the select-option tools, `delete_topic`, `delete_attribute_set`) stay disabled until Phase 6
   - scenarios: 09, 11 and 18 (their expected values change) ×1, after a `--fake` run; cap $0.25. Compared in P3.S3
-- [ ] P3.S3 **Stage 3 comparison** (S; WP-4). Depends on: every Stage 3 task. P3.6-1, P3.6-2 (the full suite) and P3.6a run their own ×3 before merge, so this run covers what P3.6-3 changed after them: 09 and 18 ×3, 11 ×5, from a reset, on gpt-4o. Also 27 and 07 ×1, for P3.6a's changes to the block tools (Glyn, on approving the P3.6a plan; about $0.17 more). The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. **The internal pilot starts after this task is merged.** Cap $0.80 (11 runs).
+- [x] P3.S3 **Stage 3 comparison** (S; WP-4; Done (PR #97)). Depends on: every Stage 3 task. P3.6-1, P3.6-2 (the full suite) and P3.6a run their own ×3 before merge, so this run covers what P3.6-3 changed after them: 09 and 18 ×3, 11 ×5, from a reset, on gpt-4o. Also 27 and 07 ×1, for P3.6a's changes to the block tools (Glyn, on approving the P3.6a plan; about $0.17 more). The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. **The internal pilot starts after this task is merged.** Cap $0.80 (11 runs); raised to $1.40 for 13 runs, with 07 and 27 (Glyn, at the task's start).
 
 #### Stage 4: a lean agent
 The prompt cut is last because it removes the rules that the earlier tasks turned into code.
