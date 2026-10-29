@@ -136,7 +136,11 @@ final class ToolRoutingTest extends ConcreteTestCase
         $this->assertLessThanOrEqual(ToolGroups::MAX_TOOLS, count($second->tools));
         $this->assertStringNotContainsString('TopicsToolkit', (string) $first->systemPrompt?->getContent());
         $this->assertStringContainsString('TopicsToolkit', (string) $second->systemPrompt?->getContent(), 'the group brings its guidelines');
-        $this->assertStringContainsString('"ok":true', self::results($provider)['call_group'] ?? '');
+        $result = self::results($provider)['call_group'] ?? '';
+        $this->assertStringContainsString('"ok":true', $result);
+        // The user's tools in the group, so a model looking for a tool that doesn't exist learns it from the list.
+        $this->assertStringContainsString('"list_topic_trees"', $result);
+        $this->assertStringNotContainsString('delete_topic', $result, 'a disabled tool is not listed');
     }
 
     public function testAPauseKeepsTheGroupsAndADeniedToolStaysRefusedAfterGetToolGroup(): void
