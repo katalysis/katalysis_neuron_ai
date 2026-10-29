@@ -21,5 +21,5 @@ expect:
   reply:
     # It says it wasn't done and asks what to do instead. The meaning, not one phrase.
     matches_all:
-      - "(not|n't|wasn't|haven't|hasn't|didn't|won't) (been )?(renamed|changed|updated|made|applied|done)|(denied|declined|rejected|cancell?ed|chose not)|left[^.]{0,30}(as it (is|was)|unchanged)"
-      - '\?|(let me know|tell me)[^.]{0,40}(instead|else|differently|how|what|prefer|want|like)'
+      - "(not|n't|wasn't|haven't|hasn't|didn't|won't) (been )?(renamed|changed|updated|made|applied|done|approved)|(denied|declined|rejected|cancell?ed|chose not)|left[^.]{0,30}(as it (is|was)|unchanged)"
+      - '\?|(let me know|tell me)[^.]{0,80}(instead|else|differently|alternative|how|what|prefer|want|like)'
