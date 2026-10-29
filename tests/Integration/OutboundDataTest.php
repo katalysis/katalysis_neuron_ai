@@ -23,7 +23,7 @@ use NeuronAI\Agent\Observability\ToolCalled;
 use NeuronAI\Observability\ListenerRegistry;
 use NeuronAI\Observability\ObservabilityEvent;
 use NeuronAI\Providers\AIProviderInterface;
-use NeuronAI\Providers\OpenAI\OpenAI;
+use Katalysis\NeuronAi\Agent\RoutedOpenAI;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Tools\ToolCall;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -37,7 +37,8 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  * Inspector ones) switch nothing on, and the only requests a turn makes are the provider's.
  *
  * Only the core toolkit list and the provider are replaced: one harmless tool, and either FakeAIProvider or Neuron's
- * real OpenAI provider with a dummy key and a recording HTTP client. No network, no API key, no chat stored.
+ * real OpenAI provider (the agent's RoutedOpenAI, P3.2-2) with a dummy key and a recording HTTP client. No network,
+ * no API key, no chat stored.
  */
 final class OutboundDataTest extends ConcreteTestCase
 {
@@ -224,7 +225,8 @@ final class OutboundDataTest extends ConcreteTestCase
             ]]]),
         ];
 
-        $agent = $this->agent(new OpenAI(key: 'p27-not-a-key', model: 'gpt-4o', httpClient: $client));
+        // P3.2-2: the provider the agent uses (RoutedOpenAI): read_note, the only tool, isn't offered for this message.
+        $agent = $this->agent(new RoutedOpenAI(key: 'p27-not-a-key', model: 'gpt-4o', httpClient: $client));
         $agent->chat(new UserMessage('Read the note.'));
 
         $sent = array_map(static fn (HttpRequest $r): string => $r->method->value . ' ' . $r->uri, $client->requests);

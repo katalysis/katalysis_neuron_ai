@@ -29,6 +29,7 @@ read  get_page_children
 read  get_page_content
 read  get_people_image_file_ids
 read  get_person_details
+read  get_tool_group
 read  get_topic_by_name
 read  get_topic_details
 read  get_topic_tree_structure

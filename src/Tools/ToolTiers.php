@@ -106,6 +106,8 @@ final class ToolTiers
         'discard_draft_version',
         'get_version_content',
         'approve_page_version',
+        // Tool groups (P3.2-2): adds a group of tools to the request; changes nothing
+        'get_tool_group',
     ];
 
     /**

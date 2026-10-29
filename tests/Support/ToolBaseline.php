@@ -14,6 +14,7 @@ use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
+use Katalysis\NeuronAi\Tools\ToolGroupsToolkit;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
 use Katalysis\NeuronAi\Tools\UserAttributesToolkit;
 use Katalysis\NeuronAi\Tools\UsersToolkit;
@@ -147,6 +148,17 @@ final class ToolBaseline
     ];
 
     /**
+     * Toolkits added after the v3 capture, with the task and the reason, in the order the agent registers them (after
+     * the captured ones). There is nothing captured to compare them with: capturedDefinitions() takes them as they are
+     * defined, and capturedOffered() offers them last, with no guidelines.
+     *
+     * @var array<string, array{class: class-string<ToolkitInterface>, tools: list<string>, reason: string}>
+     */
+    public const ADDED_TOOLKITS = [
+        'ToolGroupsToolkit' => ['class' => ToolGroupsToolkit::class, 'tools' => ['get_tool_group'], 'reason' => 'P3.2-2: each request offers only some tool groups; get_tool_group adds one'],
+    ];
+
+    /**
      * P3.3-4: toolkits split out of a captured one, with the tools they took, in the order the agent registers them
      * (straight after the toolkit they came from). The tools are unchanged; they are compared under their new toolkit,
      * which has no guidelines. The capture is never edited.
@@ -227,6 +239,9 @@ final class ToolBaseline
             $result[] = $entry;
             array_push($result, ...$split);
         }
+        foreach (self::ADDED_TOOLKITS as $toolkit) {
+            $result[] = ['guidelines' => null, 'tools' => $toolkit['tools']];
+        }
 
         return $result;
     }
@@ -284,7 +299,7 @@ final class ToolBaseline
             array_push($definitions, ...$split);
         }
 
-        return $definitions;
+        return [...$definitions, ...self::definitions(array_map(static fn (array $added): ToolkitInterface => new $added['class'](), array_values(self::ADDED_TOOLKITS)))];
     }
 
     /**
@@ -309,6 +324,7 @@ final class ToolBaseline
             new TopicsToolkit(),
             new PeopleToolkit(),
             new VersionsToolkit(),
+            new ToolGroupsToolkit(),
         ];
     }
 
