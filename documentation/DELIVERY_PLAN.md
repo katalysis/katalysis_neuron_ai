@@ -428,7 +428,7 @@ After permissions, so that approval never stands in for a permission check.
   - **test whether `neuron_editor` is stopped by Concrete's permissions alone** when adding a block through a global area, with the BF-2 refusal switched off in the test (Glyn, after BF-2; BF-2 couldn't tell, because its refusal comes first)
   - turn on `SystemPageGuard::stackEditingEnabled()`; system single pages and page type defaults stay refused; B-WRT-5 (b) to "met"
   - tests per tool on a throwaway global area (BF-2's fixture); scenarios (keeps its own ×3 before merge, WP-4): a global-area edit through a page (draft, notice, other pages unchanged until approval), and an editor without stack permission refused, ×3; cap $0.50
-- [ ] P3.6-3 **Re-enable tools behind approval** (M; safety). Depends on: P3.6-2 and P3.2-1. Glyn decides each:
+- [x] P3.6-3 **Re-enable tools behind approval** (M; safety; Done (PR #93)). Depends on: P3.6-2 and P3.2-1. Glyn decides each:
   - `delete_page` (disabled since P1.13; its `DisabledTools` reason says it returns only behind approval) and `move_page` (scenario 09)
   - `move_file_to_folder`, as the delete redirect: when used for a delete request it can only target "Assistant – to delete" (B-T1-11; moved here from P3.5, because restricting it and re-enabling it are one change)
   - whether `approve_page_version` ever returns (publishing has been a person's action since P1.7)
