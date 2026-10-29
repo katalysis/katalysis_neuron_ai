@@ -206,7 +206,8 @@ final class ApprovalFlowTest extends ConcreteTestCase
         $this->assertCount(1, $cards);
         $this->assertSame('Change page', $cards[0]['action']);
         $this->assertStringContainsString('Approval approve', $cards[0]['target']);
-        $this->assertStringContainsString('Description: (empty) → "Approved description"', implode("\n", $cards[0]['details']));
+        // BF-22: the field is labelled so it can't be taken for the meta description.
+        $this->assertStringContainsString('Page description (not the meta description): (empty) → "Approved description"', implode("\n", $cards[0]['details']));
         $this->assertStringContainsString('unpublished', $cards[0]['note']);
 
         // The next request: a new agent, the run read back from the database.
