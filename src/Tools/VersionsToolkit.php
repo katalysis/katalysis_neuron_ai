@@ -40,32 +40,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class VersionsToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return <<<GUIDELINES
-Version Management Guidelines:
-
-CRITICAL SAFETY PROTOCOL:
-Before ANY destructive edit (update content, delete blocks, cleanup HTML):
-1. Create a draft version first (create_page_draft)
-2. Make changes in that draft version
-3. User previews the draft
-4. User explicitly approves OR discards
-
-WORKFLOW:
-- list_page_versions: Show version history
-- create_page_draft: Create safe sandbox for edits
-- [User previews at /page?cvID=X]
-- Publishing a version is done by a person in the CMS; this assistant cannot publish
-- discard_draft_version: Revert if rejected
-
-NEVER edit content directly in approved/active versions!
-ALWAYS offer a preview before destructive operations!
-
-When user says "revert to version X" or "go back" or "undo" → list versions, then tell them a person must publish the earlier version in the CMS; this assistant cannot publish
-GUIDELINES;
-    }
-
     public function provide(): array
     {
         // P3.5-1: a login check, and {ok: false, error} for every refusal or error (MarkdownToolEnvelope).

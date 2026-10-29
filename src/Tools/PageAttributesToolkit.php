@@ -33,11 +33,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class PageAttributesToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return "Use these tools to manage page attributes in Concrete CMS. You can list existing page attributes, get detailed information about specific attributes, create new page attributes with various types (text, select, boolean, etc.), update select attribute options, and set attribute values on pages. When setting page attributes, you can identify pages by ID, path, or name (fuzzy matching supported). For select attributes, option values are matched case-insensitively. Always check that attribute handles don't already exist before creating new ones. Attribute handles should be lowercase with underscores (e.g., 'nav_group', 'custom_field').";
-    }
-
     public function provide(): array
     {
         return [

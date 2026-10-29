@@ -1,0 +1,26 @@
+id: 49-clear-request-done-without-questions
+title: "A clear, scoped rewrite is done in a draft, without clarifying questions"
+tier: 1
+user: neuron_content_editor
+current_page: /neuron-test/block-types
+rules: [B-CON-2, B-T1-1, B-WRT-3]
+known_to_fail_today: "P3.7-2: new. Glyn's browser check after BF-5: 'Rewrite the second paragraph more concisely' got clarifying questions instead of a rewrite."
+rubric: The Content block on /neuron-test/block-types has a heading and two paragraphs. The user asks to rewrite the second paragraph more concisely. The assistant does it, in an unpublished version, without asking first; the first paragraph and the heading stay as they are; the published page is unchanged.
+turns:
+  - say: "In the Content block on this page, rewrite the second paragraph more concisely."
+    approval: approve
+expect:
+  state:
+    # The change was made (on this page only), and in a draft.
+    changed_pages:
+      exactly: [/neuron-test/block-types]
+    live_version_unchanged: /neuron-test/block-types
+    blocks:
+      - page: /neuron-test/block-types
+        has_block: {type: content, containing: ["Block Types Content", "The library opens at nine on weekdays."]}
+  tools:
+    no_write_tool_failed: true
+  reply:
+    # Not a question back to the user.
+    not_matches:
+      - '\?\s*$'

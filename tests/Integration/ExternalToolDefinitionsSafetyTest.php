@@ -118,8 +118,10 @@ final class ExternalToolDefinitionsSafetyTest extends ConcreteTestCase
     {
         $prompt = $this->systemPrompt(new ConcreteCmsAgent());
 
-        // delete_person is dropped, so the disabled-tools filter re-wraps the toolkit: v3's "# FilteredToolkit" heading.
-        $this->assertStringContainsString("# FilteredToolkit\nToolkit: P28SafetyToolkit\nUse get_p28_note to read the note.\nget_p28_note\n- list_people\n- get_p28_counted\n- get_p28_broken", $prompt);
+        // P3.7-2: headed by the label alone, even though delete_person is dropped and the toolkit re-wrapped: no
+        // "# FilteredToolkit", no "Toolkit:" line, no list of tool names.
+        $this->assertStringContainsString("# P28SafetyToolkit\nUse get_p28_note to read the note.\n</TOOLS-GUIDELINES>", $prompt);
+        $this->assertStringNotContainsString("FilteredToolkit", $prompt);
         $this->assertStringNotContainsString('delete_person', $prompt);
     }
 

@@ -30,11 +30,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class FilesToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return "Use these tools to manage files in Concrete CMS. Use resolve_file_id_from_path before assigning image/file references: Concrete URL folders like /application/files/9215/0056/1806/... are storage segments, not the fID. Never infer fID from URL path numbers. Use create_file_folder to create folders in the file manager. To delete a file, use mark_file_for_deletion: it moves the file to the \"Assistant – to delete\" folder for a person to delete; files are never deleted by the assistant.";
-    }
-
     public function provide(): array
     {
         return [

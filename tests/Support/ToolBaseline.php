@@ -63,7 +63,9 @@ final class ToolBaseline
         'BlocksToolkit::get_block_data' => 'BF-10: versionID defaults to the newest version',
         'BlocksToolkit::list_page_blocks_by_type' => 'BF-10: version (newest by default) replaces includeInactive',
         'BlocksToolkit::search_blocks_by_type' => 'BF-10: version (newest by default) replaces includeInactive; BF-6: offset input, only pages the user can view, the description says the result gives the total',
-        'BlocksToolkit::list_container_blocks' => 'BF-10: version (newest by default) replaces includeInactive',
+        'BlocksToolkit::list_container_blocks' => 'BF-10: version (newest by default) replaces includeInactive; P3.7-2: the description says how areas inside a container are named (from BlocksToolkit\'s dropped guidelines)',
+        'BlocksToolkit::count_blocks_by_type' => 'P3.7-2: the description says it counts across the site, and names list_page_blocks_by_type for one page (from the dropped prompt rule)',
+        'PagesToolkit::create_page' => 'P3.7-2: the description names the agreed label, "Approve Version", not "publishes it from Page Versions"',
         'PagesToolkit::list_pages' => 'BF-6: offset input; limit names its default; the description says the result gives the total and whether there are more; P3.3-5: onlyVisible input (the prompt named it; the tool refused it)',
         'PagesToolkit::get_page_children' => 'BF-6: offset input; limit names its range; the description no longer says "all" and says the result gives the total; P3.3-5: parentID and onlyVisible inputs',
         'FilesToolkit::list_files' => 'BF-6: offset input; limit names its default; the description says newest first and that the result gives the total',
@@ -111,8 +113,27 @@ final class ToolBaseline
      * @var array<string, string> toolkit => reason
      */
     public const GUIDELINES_CHANGED = [
-        'FilesToolkit' => 'P3.6-3: names mark_file_for_deletion for a delete request, in place of move_file_to_folder for organising files',
-        'PagesToolkit' => 'P3.6-3: no longer says moving and deleting pages are not available (they are, behind approval)',
+        // FilesToolkit and PagesToolkit (P3.6-3) are in GUIDELINES_REMOVED since P3.7-2.
+    ];
+
+    /**
+     * Toolkits whose guidelines were removed on purpose after the capture (P3.7-2, plans/P3.7-2.md): what was still true
+     * moved into tool descriptions and results. capturedDefinitions() and capturedOffered() give them none.
+     *
+     * @var array<string, string> toolkit => reason
+     */
+    public const GUIDELINES_REMOVED = [
+        'PagesToolkit' => 'P3.7-2: repeated the descriptions; "publishes it from Page Versions" contradicted the agreed labels (P3.6-3 had changed it)',
+        'BlocksToolkit' => 'P3.7-2: repeated the descriptions; the container area naming moved into list_container_blocks',
+        'FilesToolkit' => 'P3.7-2: repeated the descriptions (resolve_file_id_from_path already says never to infer the fID; P3.6-3 had changed it)',
+        'UsersToolkit' => 'P3.7-2: repeated the descriptions; "modification with caution" was untrue (read-only since P3.5-2)',
+        'PageAttributesToolkit' => 'P3.7-2: repeated the descriptions; named the disabled select-options update',
+        'UserAttributesToolkit' => 'P3.7-2: named setting user attribute values, removed in P3.5-2',
+        'FileAttributesToolkit' => 'P3.7-2: repeated the descriptions; named the disabled select-options update',
+        'AttributeSetsToolkit' => 'P3.7-2: repeated the descriptions; named deleting sets and removing attributes from sets (both disabled)',
+        'TopicsToolkit' => 'P3.7-2: repeated the descriptions',
+        'PeopleToolkit' => 'P3.7-2: repeated the descriptions (core people tools until P3.10)',
+        'VersionsToolkit' => 'P3.7-2 (BF-10): untrue since the approval cards and caused the model to ask before acting; going live and undo are in DraftState\'s results',
     ];
 
     /**
@@ -225,6 +246,9 @@ final class ToolBaseline
                 if (array_intersect($tools, DisabledTools::names()) === [] && is_string($entry['guidelines'])) {
                     $entry['guidelines'] = (string) preg_replace('/^Toolkit: ' . preg_quote($name, '/') . '\R/', '', $entry['guidelines']);
                 }
+                if (isset(self::GUIDELINES_REMOVED[$name])) {
+                    $entry['guidelines'] = null;
+                }
                 break;
             }
             $entry['tools'] = array_values(array_diff($entry['tools'], $disabled));
@@ -294,6 +318,9 @@ final class ToolBaseline
                 $taken = array_values(array_filter($toolkit['tools'], static fn (array $tool): bool => in_array($tool['name'], $into['tools'], true)));
                 $toolkit['tools'] = array_values(array_filter($toolkit['tools'], static fn (array $tool): bool => !in_array($tool['name'], $into['tools'], true)));
                 $split[] = ['toolkit' => $name, 'guidelines' => null, 'tools' => $taken];
+            }
+            if (isset(self::GUIDELINES_REMOVED[$toolkit['toolkit']])) {
+                $toolkit['guidelines'] = null;
             }
             $definitions[] = $toolkit;
             array_push($definitions, ...$split);

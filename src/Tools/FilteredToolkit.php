@@ -24,10 +24,9 @@ use NeuronAI\Tools\Toolkits\ToolkitInterface;
  * that list correct.
  *
  * Neuron 3 titled a toolkit's guidelines with the toolkit's class short name,
- * so a filtered toolkit's title is "FilteredToolkit" (guidelinesHeading(); P2.4
- * keeps that rendering, P3.7 decides the heading). To keep the original name
- * visible to the model, the guidelines start with a line naming the original
- * toolkit.
+ * so a filtered toolkit's title was "FilteredToolkit" (guidelinesHeading(); P2.4).
+ * The guidelines start with a line naming the original toolkit; since P3.7-2
+ * the prompt heads them with that name instead (ConcreteCmsAgent::resolveTools()).
  *
  * built() is for a toolkit whose tools were built once and are offered as they
  * are, with nothing removed (the result scanner, ExternalToolkitRegistry): its

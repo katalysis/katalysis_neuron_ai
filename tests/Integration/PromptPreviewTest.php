@@ -79,7 +79,8 @@ final class PromptPreviewTest extends ConcreteTestCase
 
         $this->assertStringContainsString('Current Page Path: /neuron-test/columns', $printed);
         $this->assertStringContainsString('User: ' . PromptBaseline::USER_NAME, $printed);
-        $this->assertStringContainsString('<TOOLS-GUIDELINES>', $printed);
+        // P3.7-2: the core toolkits have no guidelines block; the tools offered are printed.
+        $this->assertStringContainsString('===== TOOLS OFFERED (', $printed);
         $this->assertStringContainsString('[Current page for this message: Columns, /neuron-test/columns, ID ' . $page->getCollectionID(), $printed);
         $this->assertStringContainsString("\n\nHello\n", $printed);
         $this->assertStringNotContainsString(PromptPreview::REPLY, $printed, 'only what the model is sent, not the fake reply');

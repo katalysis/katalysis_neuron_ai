@@ -135,7 +135,8 @@ final class AgentPageContextTest extends ConcreteTestCase
         $this->assertStringContainsString('Current Page Path: /neuron-test/columns', $second);
         $this->assertStringContainsString('Current Page ID: ' . $this->columns['id'], $second);
         $this->assertStringNotContainsString('/neuron-test/headings', $second);
-        $this->assertStringStartsWith($agent->getInstructions()->getContent() . "\n<TOOLS-GUIDELINES>", $second, 'the instructions and what is sent must agree');
+        // P3.7-2: the core toolkits have no guidelines, so no block follows unless an external tool is offered.
+        $this->assertStringStartsWith($agent->getInstructions()->getContent(), $second, 'the instructions and what is sent must agree');
         $this->assertStringStartsWith(PageContextTag::build($this->columns['id'], $this->columns['title'], $this->columns['path']) . "\n\n", $this->newestUserText($request), 'the newest message carries the new page\'s tag');
     }
 
@@ -149,8 +150,9 @@ final class AgentPageContextTest extends ConcreteTestCase
         $request = $this->turn($agent, $provider);
         $instructions = $this->sentInstructions($request);
 
-        $this->assertSame(1, substr_count($instructions, '<TOOLS-GUIDELINES>'), 'the guidelines block is added once, not stacked');
-        $this->assertSame(1, substr_count($instructions, '</TOOLS-GUIDELINES>'));
+        // P3.7-2: at most once (none without an external tool offered), never stacked.
+        $this->assertLessThanOrEqual(1, substr_count($instructions, '<TOOLS-GUIDELINES>'), 'the guidelines block is added once, not stacked');
+        $this->assertSame(substr_count($instructions, '<TOOLS-GUIDELINES>'), substr_count($instructions, '</TOOLS-GUIDELINES>'));
         $this->assertSame($toolNames, $this->toolNames($request));
         $this->assertSame(count($toolNames), count(array_unique($toolNames)), 'no duplicate tool names');
     }
@@ -168,7 +170,7 @@ final class AgentPageContextTest extends ConcreteTestCase
         $request = $this->turn($agent, $provider);
         $cleared = $this->sentInstructions($request);
         $this->assertStringNotContainsString('Current Page', $cleared);
-        $this->assertSame(1, substr_count($cleared, '<TOOLS-GUIDELINES>'));
+        $this->assertLessThanOrEqual(1, substr_count($cleared, '<TOOLS-GUIDELINES>'));
         $this->assertSame('Hello', $this->newestUserText($request), 'no page, no tag');
 
         $agent->setRuntimePageContext($this->headings);

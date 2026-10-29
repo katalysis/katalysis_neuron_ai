@@ -29,11 +29,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class UsersToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return "Use these tools to retrieve information about users in Concrete CMS. You can list users, get user details, and check the current user. User creation and modification should be done with caution.";
-    }
-
     public function provide(): array
     {
         return [

@@ -39,6 +39,10 @@ final class Expectations
         $results[] = ReplyChecks::linkedFilesExist($c);
         // Always, named or not (P3.11-1): a reply never reports a change no write tool made.
         $results[] = ReplyChecks::noFalseSuccess($c);
+        // Always, named or not (P3.7-2): what the reply says a write changed matches the write's own `changed` line.
+        $results[] = ReplyChecks::replyMatchesChanged($c);
+        // Always, named or not (P3.7-2, B-REP-1 (b)): links aren't in code formatting. Secondary.
+        $results[] = ReplyChecks::linksNotInCode($c);
 
         return $results;
     }

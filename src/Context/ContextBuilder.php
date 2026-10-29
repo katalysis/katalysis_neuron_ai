@@ -10,6 +10,7 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Katalysis\NeuronAi\Access\CoreAliases;
+use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Access\NeuronPermissions;
 use Katalysis\NeuronAi\Extension\Tier;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
@@ -120,6 +121,9 @@ final class ContextBuilder
     }
 
     /**
+     * When the user can't do something, the line ends with who can grant it, as the tools' refusals do
+     * (ObjectPermissions), so a refusal made from the context alone says it too (P3.7-2, after 11 and 33 in P3.2-2).
+     *
      * @param array<string, bool> $permissions what the user may do on the page, by phrase
      */
     public static function permissionsLine(array $permissions): string
@@ -134,7 +138,7 @@ final class ContextBuilder
             $parts[] = 'cannot ' . implode(', ', $cannot);
         }
 
-        return 'Your permissions on this page: ' . implode('; ', $parts);
+        return 'Your permissions on this page: ' . implode('; ', $parts) . ($cannot !== [] ? '. ' . ObjectPermissions::GRANT_PAGE : '');
     }
 
     public static function tierLine(int $tier): string

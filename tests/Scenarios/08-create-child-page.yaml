@@ -23,3 +23,6 @@ expect:
     matches_all:
       - 'neuron-test/scenario-child|Scenario Child'
       - '(published|unpublished|draft|awaiting|approval)'
+    # P3.7-2: the agreed labels ("Approve Version"), not "publish it from Page Versions" (Glyn's browser check after BF-4).
+    not_matches:
+      - 'publish\w*[^.]{0,40}Page Versions'

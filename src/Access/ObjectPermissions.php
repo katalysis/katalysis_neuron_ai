@@ -27,7 +27,7 @@ use Concrete\Core\Tree\Node\Node;
  */
 final class ObjectPermissions
 {
-    private const GRANT_PAGE = "A site administrator can grant it in the page's Permissions (Sitemap, then the page, then Permissions).";
+    public const GRANT_PAGE = "A site administrator can grant it in the page's Permissions (Sitemap, then the page, then Permissions).";
     private const GRANT_FILE = 'A site administrator can grant it in the File Manager, in the permissions of the file or its folder.';
     private const GRANT_STACK = "A site administrator can grant it under Dashboard > Stacks & Global Areas, in the stack's Permissions.";
     private const GRANT_TASK ='A site administrator can grant it in Dashboard > System & Settings > Permissions & Access > Tasks.';

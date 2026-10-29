@@ -59,11 +59,6 @@ class PagesToolkit extends AbstractToolkit
     use PageToolGuards;
     use BlockSummaries;
 
-    public function guidelines(): ?string
-    {
-        return "Use these tools to manage pages in Concrete CMS. You can list, create, read and update pages. A page made with create_page is unpublished: a person publishes it from Page Versions. Always check permissions before modifying content.";
-    }
-
     public function provide(): array
     {
         return [
@@ -437,7 +432,7 @@ class PagesToolkit extends AbstractToolkit
         $tool = new CallableTool(
             'create_page',
             'Create a new page in Concrete CMS. The page is created unpublished: it has no approved version, so visitors'
-            . ' cannot see it until a person publishes it from Page Versions in the CMS. This assistant cannot publish.'
+            . ' cannot see it until a person opens it and clicks "Approve Version". This assistant cannot publish.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -565,7 +560,7 @@ class PagesToolkit extends AbstractToolkit
             
             return $this->serializePage($page) + DraftState::ofNewPage($page) + [
                 'published' => false,
-                'note' => 'The page is unpublished: visitors cannot see it. A person publishes it from Page Versions in the CMS;'
+                'note' => 'The page is unpublished: visitors cannot see it until a person opens it and clicks "Approve Version";'
                     . ' this assistant cannot publish.',
             ];
         }));

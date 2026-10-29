@@ -45,16 +45,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class BlocksToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return "Use these tools to search for and inspect blocks across the site. " .
-               "WORKFLOW: First use search_blocks_by_type to find blocks and get their blockID, pageID, and areaHandle. " .
-               "For blocks INSIDE CONTAINERS: Look for area handles with ' : ' delimiter (e.g., '12704 : Column 1'). " .
-               "Use list_container_blocks(containerBlockID) to see all nested blocks. " .
-               "Then use get_block_controller_data with blockID, pageID, and the full areaHandle (including container ID) to see the actual content. " .
-               "This is more efficient than querying each page individually when looking for specific block types.";
-    }
-
     public function provide(): array
     {
         // P3.5-1: a login check, and {ok: false, error} for every refusal or error (MarkdownToolEnvelope).
@@ -1372,7 +1362,7 @@ class BlocksToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'count_blocks_by_type',
-            'Get a quick count of how many instances exist for each block type (or a specific type)'
+            'Get a quick count of how many instances exist for each block type (or a specific type) across the site. For one page, use list_page_blocks_by_type.'
         );
 
         $tool->addProperty(new ToolProperty(
@@ -1641,7 +1631,7 @@ class BlocksToolkit extends AbstractToolkit
     {
         $tool = new CallableTool(
             'list_container_blocks',
-            'List all blocks nested inside a specific container block (by container block ID)'
+            'List all blocks nested inside a specific container block (by container block ID). Areas inside a container are named "<containerBlockID> : <area>" (e.g. "12704 : Column 1"): use that full handle with the other block tools.'
         );
 
         $tool->addProperty(new ToolProperty(
