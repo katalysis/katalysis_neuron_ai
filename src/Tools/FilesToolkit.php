@@ -17,6 +17,8 @@ use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\PermittedWindow;
+use Katalysis\NeuronAi\Tools\Utilities\DryRunReached;
+use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -30,7 +32,7 @@ class FilesToolkit extends AbstractToolkit
 {
     public function guidelines(): ?string
     {
-        return "Use these tools to manage files in Concrete CMS. Use resolve_file_id_from_path before assigning image/file references: Concrete URL folders like /application/files/9215/0056/1806/... are storage segments, not the fID. Never infer fID from URL path numbers. Use create_file_folder to create folders in the file manager, and move_file_to_folder to organize files into folders.";
+        return "Use these tools to manage files in Concrete CMS. Use resolve_file_id_from_path before assigning image/file references: Concrete URL folders like /application/files/9215/0056/1806/... are storage segments, not the fID. Never infer fID from URL path numbers. Use create_file_folder to create folders in the file manager. To delete a file, use mark_file_for_deletion: it moves the file to the \"Assistant – to delete\" folder for a person to delete; files are never deleted by the assistant.";
     }
 
     public function provide(): array
@@ -39,40 +41,49 @@ class FilesToolkit extends AbstractToolkit
             $this->makeListFilesTool(),
             $this->makeGetFileTool(),
             $this->makeCreateFileFolderTool(),
-            $this->makeMoveFileToFolderTool(),
+            $this->makeMarkFileForDeletionTool(),
             $this->makeResolveFileIdFromPathTool(),
             $this->makeDeleteFileTool(),
             $this->makeGetFileFoldersTool(),
         ];
     }
 
-    protected function makeMoveFileToFolderTool(): Tool
+    /** P3.6-3 (B-T1-11): the folder a file the user wants deleted goes to, for a person to review and delete. */
+    public const REVIEW_FOLDER = 'Assistant – to delete';
+    /** The same name with a plain hyphen, which the seed and a person may have used. */
+    private const REVIEW_FOLDER_NAMES = [self::REVIEW_FOLDER, 'Assistant - to delete'];
+
+    /**
+     * P3.6-3 (Glyn): move_file_to_folder came back only as the delete redirect, renamed mark_file_for_deletion. It moves
+     * a file to REVIEW_FOLDER (made under the file manager's root if missing) and nowhere else. Nothing is deleted:
+     * the assistant never deletes files (B-T1-11; Concrete 9.5 has no file trash).
+     */
+    protected function makeMarkFileForDeletionTool(): Tool
     {
         $tool = new CallableTool(
-            'move_file_to_folder',
-            'Move a file into a target file manager folder.'
+            'mark_file_for_deletion',
+            'For a request to delete a file: moves the file to the "' . self::REVIEW_FOLDER . '" folder in the file manager, '
+            . 'where a person reviews and deletes it. It deletes nothing, and can\'t move files anywhere else. The folder is '
+            . 'created if it is missing. The user approves the move first.'
         );
 
         $tool->addProperty(new ToolProperty(
             'fileID',
             PropertyType::STRING,
-            'ID or UUID of the file to move',
+            'ID or UUID of the file the user wants deleted, from list_files',
             true
         ));
 
         $tool->addProperty(new ToolProperty(
             'folderID',
             PropertyType::INTEGER,
-            'Target folder ID in the file manager',
-            true
+            'Leave out. Only the "' . self::REVIEW_FOLDER . '" folder is accepted; any other folder is refused.',
+            false
         ));
 
         $tool->setHandler($this->guarded(function (?string $fileID = null, ?int $folderID = null): array {
             if (!$fileID || trim($fileID) === '') {
-                throw new \RuntimeException('move_file_to_folder needs fileID: the file\'s ID or UUID, from list_files. Nothing was changed.');
-            }
-            if (!$folderID || $folderID <= 0) {
-                throw new \RuntimeException('move_file_to_folder needs folderID: the target folder\'s ID, from list_file_folders. Nothing was changed.');
+                throw new \RuntimeException('mark_file_for_deletion needs fileID: the file\'s ID or UUID, from list_files. Nothing was changed.');
             }
 
             $fileID = trim($fileID);
@@ -80,50 +91,72 @@ class FilesToolkit extends AbstractToolkit
             if ((!$file || $file->isError()) && ctype_digit($fileID)) {
                 $file = File::getByID((int) $fileID);
             }
-
             if (!$file || $file->isError()) {
                 throw new \RuntimeException(self::fileNotFound($fileID));
             }
 
-            $destinationFolder = FileFolder::getByID((int) $folderID);
-            if (!$destinationFolder) {
-                throw new \RuntimeException(self::folderNotFound((int) $folderID));
+            $root = (new \Concrete\Core\File\Filesystem())->getRootFolder();
+            if (!$root) {
+                throw new \RuntimeException('The file manager has no root folder on this site, so the file can\'t be moved for review. Tell the user. Nothing was changed.');
+            }
+            $review = self::reviewFolder($root);
+            if ($folderID !== null && $folderID > 0 && ($review === null || (int) $review->getTreeNodeID() !== $folderID)) {
+                throw new \RuntimeException(
+                    'This tool only moves files to "' . self::REVIEW_FOLDER . '" for a person to review and delete; leave folderID out. '
+                    . 'Nothing was changed.'
+                );
             }
 
-            // P3.5-1: the file manager's own checks: the file's Edit File Properties, the target's Add File.
+            // The file manager's own checks: the file's Edit File Properties, and Add File on the folder (or, to make the
+            // folder, on the root).
             ObjectPermissions::deny(ObjectPermissions::editFileProperties($file));
-            ObjectPermissions::deny(ObjectPermissions::addFile($destinationFolder));
+            ObjectPermissions::deny(ObjectPermissions::addFile($review ?? $root));
 
             $sourceNode = $file->getFileNodeObject();
             if (!$sourceNode) {
                 throw new \RuntimeException("File {$fileID} has no place in the file manager's folders, so it can't be moved. Nothing was changed.");
             }
-
             $currentFolder = $file->getFileFolderObject();
-            $currentFolderID = $currentFolder ? (int) $currentFolder->getTreeNodeID() : null;
-            if ($currentFolderID === (int) $folderID) {
-                return [
-                    'moved' => false,
-                    'message' => 'File is already in the destination folder',
-                    'file' => $this->serializeFile($file, includeDetails: true),
-                    'sourceFolderID' => $currentFolderID,
-                    'destinationFolderID' => (int) $folderID,
-                ];
+            if ($review !== null && $currentFolder && (int) $currentFolder->getTreeNodeID() === (int) $review->getTreeNodeID()) {
+                throw new \RuntimeException('The file is already in "' . self::REVIEW_FOLDER . '", waiting for a person to delete it. Nothing was changed.');
             }
 
-            $sourceNode->move($destinationFolder);
+            // An approval check's dry run stops here, with every check above done (P3.6-2, CallCheck).
+            PageDraft::stopIfDryRun();
+
+            $created = $review === null;
+            $review ??= (new \Concrete\Core\File\Filesystem())->addFolder($root, self::REVIEW_FOLDER);
+            $sourceNode->move($review);
 
             return [
                 'moved' => true,
-                'message' => 'File moved successfully',
+                'deleted' => false,
                 'file' => $this->serializeFile($file, includeDetails: true),
-                'sourceFolderID' => $currentFolderID,
-                'destinationFolderID' => (int) $folderID,
-                'destinationFolderPath' => $destinationFolder->getTreeNodeDisplayPath(),
+                'from' => $currentFolder ? $currentFolder->getTreeNodeDisplayPath() : null,
+                'to' => $review->getTreeNodeDisplayPath(),
+                'folderCreated' => $created,
+                'note' => 'Nothing was deleted. The file is in "' . self::REVIEW_FOLDER . '", where a person reviews and deletes it.',
             ];
         }));
 
         return $tool;
+    }
+
+    /** The review folder under the file manager's root, under either spelling, or null. */
+    public static function reviewFolder(?FileFolder $root = null): ?FileFolder
+    {
+        $root ??= (new \Concrete\Core\File\Filesystem())->getRootFolder();
+        if (!$root) {
+            return null;
+        }
+        foreach (self::REVIEW_FOLDER_NAMES as $name) {
+            $folder = $root->getChildFolderByName($name, false);
+            if ($folder instanceof FileFolder) {
+                return $folder;
+            }
+        }
+
+        return null;
     }
 
     protected function makeCreateFileFolderTool(): Tool
@@ -636,6 +669,9 @@ class FilesToolkit extends AbstractToolkit
                 $result = $callback(...$args);
 
                 return $this->normalizeToolResult($result);
+            } catch (DryRunReached $e) {
+                // An approval check's dry run reached the write: not a refusal (P3.6-3, CallCheck).
+                throw $e;
             } catch (\Throwable $e) {
                 return [
                     'ok' => false,

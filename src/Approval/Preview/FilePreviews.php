@@ -9,6 +9,7 @@ use Concrete\Core\File\File;
 use Concrete\Core\File\FileList;
 use Concrete\Core\File\Filesystem;
 use Concrete\Core\Tree\Node\Type\FileFolder;
+use Katalysis\NeuronAi\Tools\FilesToolkit;
 
 /**
  * The approval cards of the file writes (P3.6-2). Files have no draft, so the cards say the change takes effect at once.
@@ -77,6 +78,39 @@ final class FilePreviews
             $parentID > 0 && !$parent instanceof FileFolder
                 ? "Folder {$parentID} not found: it may have been deleted, or the ID is wrong. list_file_folders lists the folders and their IDs. Nothing was changed."
                 : null,
+        ];
+    }
+
+    /** P3.6-3: mark_file_for_deletion, the delete redirect (B-T1-11). */
+    public static function markForDeletion(array $inputs): array
+    {
+        $file = self::file(['fileID' => is_numeric($inputs['fileID'] ?? null) ? (int) $inputs['fileID'] : 0]);
+        $review = FilesToolkit::reviewFolder();
+        $note = 'Nothing is deleted: a person reviews and deletes it there. Anyone who can see that folder can see the file.'
+            . ($review === null ? ' The folder is created first.' : '');
+        if ($file === null) {
+            return [
+                PreviewSupport::entry('Move a file to "' . FilesToolkit::REVIEW_FOLDER . '"', 'a file that was not found', '', [], $note),
+                ['missing' => $inputs['fileID'] ?? null],
+            ];
+        }
+
+        $version = $file->getApprovedVersion();
+        $folder = $file->getFileFolderObject();
+
+        return [
+            PreviewSupport::entry(
+                'Move the file',
+                (string) ($version ? $version->getFileName() : 'file ' . $file->getFileID()) . ' to "' . FilesToolkit::REVIEW_FOLDER . '", for a person to review and delete',
+                '',
+                ['From: ' . ($folder ? $folder->getTreeNodeDisplayPath() : '(no folder)')],
+                $note
+            ),
+            [
+                'fID' => (int) $file->getFileID(),
+                'folder' => $folder ? (int) $folder->getTreeNodeID() : 0,
+                'review' => $review ? (int) $review->getTreeNodeID() : 0,
+            ],
         ];
     }
 

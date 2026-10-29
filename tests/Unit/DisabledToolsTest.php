@@ -70,11 +70,8 @@ final class DisabledToolsTest extends TestCase
                 'delete_all_people',
                 'delete_attribute_set',
                 'delete_file',
-                'delete_page',
                 'delete_person',
                 'delete_topic',
-                'move_file_to_folder',
-                'move_page',
                 'remove_attribute_from_set',
                 'update_file_select_attribute_options',
                 'update_page_select_attribute_options',
@@ -92,12 +89,16 @@ final class DisabledToolsTest extends TestCase
 
     public function testEveryToolDisabledInP113SaysWhenItComesBack(): void
     {
+        // P3.6-3 (Glyn): delete_page, move_page and move_file_to_folder (as mark_file_for_deletion) came back behind
+        // approval; the Tier 2 live writes stay off until Phase 6, and publishing stays a person's action.
         $reasons = DisabledTools::all();
-        foreach (['delete_page', 'move_page'] as $name) {
-            $this->assertStringContainsString('P3.6', $reasons[$name], $name);
-            $this->assertStringContainsString('only behind approval', $reasons[$name], $name);
+        foreach (['update_page_select_attribute_options', 'update_user_select_attribute_options', 'update_file_select_attribute_options', 'delete_topic', 'delete_attribute_set'] as $name) {
+            $this->assertStringContainsString('until Phase 6', $reasons[$name], $name);
         }
-        $this->assertStringContainsString('P3.5', $reasons['move_file_to_folder']);
+        $this->assertStringContainsString("publishing stays a person's action", $reasons['approve_page_version']);
+        foreach (['delete_page', 'move_page', 'move_file_to_folder', 'mark_file_for_deletion'] as $name) {
+            $this->assertArrayNotHasKey($name, $reasons, $name);
+        }
     }
 
     public function testEveryToolOnTheRealListIsRemovedFromToolkitsAndSingleTools(): void

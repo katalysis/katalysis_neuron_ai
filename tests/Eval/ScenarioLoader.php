@@ -22,7 +22,7 @@ final class ScenarioLoader
         'people', 'person_field_empty', 'changed_pages', 'users_unchanged',
     ];
     private const BLOCK_KEYS = ['page', 'area', 'count', 'headings', 'contains_html', 'lacks_html', 'unchanged', 'has_block', 'has_block_unchanged', 'has_block_field'];
-    private const TOOL_KEYS = ['no_write_tool_succeeded', 'no_write_tool_failed', 'not_succeeded', 'not_called', 'called_any', 'succeeded', 'notice_shown', 'notice_absent', 'approval_asked', 'approval_decided', 'no_write_without_approval'];
+    private const TOOL_KEYS = ['no_write_tool_succeeded', 'no_write_tool_failed', 'not_succeeded', 'not_called', 'called_any', 'succeeded', 'notice_shown', 'notice_absent', 'approval_asked', 'approval_decided', 'no_write_without_approval', 'approvals_cover_children'];
     private const REPLY_KEYS = ['matches_all', 'matches_any', 'not_matches', 'shorter_than_prompt', 'lists_recorded_children', 'no_invented_hosts', 'describes_page_only_if_read', 'no_untrusted_links'];
     // P3.2-1: neuron_content_editor holds the Tier 1 key. neuron_editor holds none (the no-access fixture), so the
     // runner refuses it: kept here so the loader still reads an older scenario and the runner says why.
@@ -153,8 +153,10 @@ final class ScenarioLoader
             if (!isset($turn['say']) || !is_string($turn['say']) || trim($turn['say']) === '') {
                 $errors[] = "{$label}: say must be a non-empty string.";
             }
-            if (isset($turn['approval']) && !in_array($turn['approval'], ['approve', 'deny'], true)) {
-                $errors[] = "{$label}: approval must be approve or deny.";
+            if (isset($turn['approval'])) {
+                foreach (ApprovalAnswer::problems($turn['approval']) as $problem) {
+                    $errors[] = "{$label}: {$problem}";
+                }
             }
             if (isset($turn['expect'])) {
                 $errors = array_merge($errors, self::validateExpect($turn['expect'], $label));

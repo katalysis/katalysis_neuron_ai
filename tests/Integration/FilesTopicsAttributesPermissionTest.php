@@ -82,7 +82,8 @@ final class FilesTopicsAttributesPermissionTest extends ConcreteTestCase
     {
         return [
             'create_file_folder' => ['create_file_folder', 'Add File'],
-            'move_file_to_folder' => ['move_file_to_folder', 'Edit File Properties'],
+            // P3.6-3: move_file_to_folder came back as mark_file_for_deletion (Glyn).
+            'mark_file_for_deletion' => ['mark_file_for_deletion', 'Edit File Properties'],
             'delete_file' => ['delete_file', 'Delete File'],
             'set_file_attribute_value' => ['set_file_attribute_value', 'Edit File Properties'],
             'create_page_attribute' => ['create_page_attribute', '/dashboard/pages/attributes'],
@@ -166,7 +167,7 @@ final class FilesTopicsAttributesPermissionTest extends ConcreteTestCase
         $root = (int) $this->app()->make(Filesystem::class)->getRootFolder()->getTreeNodeID();
         $known = match ($tool) {
             'create_file_folder' => ['name' => 'Neuron Test Refused Folder'],
-            'move_file_to_folder' => ['fileID' => (string) $this->seedFileID(), 'folderID' => $root],
+            'mark_file_for_deletion' => ['fileID' => (string) $this->seedFileID()],
             'delete_file' => ['fileID' => $this->seedFileID()],
             'set_file_attribute_value' => ['fileID' => $this->seedFileID(), 'handle' => 'width', 'value' => '10'],
             'update_page_select_attribute_options', 'update_user_select_attribute_options', 'update_file_select_attribute_options'

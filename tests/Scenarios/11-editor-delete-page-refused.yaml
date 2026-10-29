@@ -15,6 +15,9 @@ expect:
   tools:
     no_write_tool_succeeded: true
     not_succeeded: [delete_page, move_page]
+    # P3.6-3: delete_page is back behind approval; the editor has no Delete right, so its own check refuses it before
+    # any card, and nothing is written without approval.
+    no_write_without_approval: true
   reply:
     matches_all:
       - '(permission|not allowed|don.t have (the )?(right|access|permission)|cannot|can.t|unable)'

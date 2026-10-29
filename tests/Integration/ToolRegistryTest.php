@@ -231,9 +231,12 @@ final class ToolRegistryTest extends ConcreteTestCase
         $this->assertSame([], $duplicates, 'Duplicate tool names: ' . implode(', ', $duplicates));
     }
 
-    /** Tools P1.13 disabled because they change the live site outside a draft. Spelled out so that removing one from DisabledTools fails here. */
+    /**
+     * Tools P1.13 disabled because they change the live site outside a draft, and still disabled. Spelled out so that
+     * removing one from DisabledTools fails here. P3.6-3 re-enabled delete_page, move_page and move_file_to_folder (as
+     * mark_file_for_deletion) behind approval (Glyn).
+     */
     private const LIVE_CHANGING_TOOLS = [
-        'delete_page', 'move_page', 'move_file_to_folder',
         'update_page_select_attribute_options', 'update_user_select_attribute_options', 'update_file_select_attribute_options',
         'delete_topic', 'delete_attribute_set', 'update_person_specialisms', 'update_person_topics',
         'update_person', 'add_person',

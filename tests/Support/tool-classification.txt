@@ -14,6 +14,7 @@ write create_topic
 write create_topic_tree
 write create_user_attribute
 write delete_block_from_page_area
+write delete_page
 write discard_draft_version
 read  get_block_controller_data
 read  get_block_data
@@ -49,7 +50,9 @@ read  list_people
 read  list_topic_trees
 read  list_user_attributes
 read  list_users
+write mark_file_for_deletion
 write move_block_between_areas
+write move_page
 write rename_topic
 read  resolve_file_id_from_path
 read  search_blocks_by_type
@@ -63,11 +66,8 @@ off   approve_page_version
 off   delete_all_people
 off   delete_attribute_set
 off   delete_file
-off   delete_page
 off   delete_person
 off   delete_topic
-off   move_file_to_folder
-off   move_page
 off   remove_attribute_from_set
 off   update_file_select_attribute_options
 off   update_page_select_attribute_options

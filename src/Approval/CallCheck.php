@@ -7,6 +7,7 @@ namespace Katalysis\NeuronAi\Approval;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Tools\BatchEditToolkit;
 use Katalysis\NeuronAi\Tools\ContentToolkit;
+use Katalysis\NeuronAi\Tools\FilesToolkit;
 use Katalysis\NeuronAi\Tools\PageAttributesToolkit;
 use Katalysis\NeuronAi\Tools\PagesToolkit;
 use Katalysis\NeuronAi\Tools\ToolKind;
@@ -40,6 +41,10 @@ final class CallCheck
         'move_block_between_areas' => ContentToolkit::class,
         'batch_update_page_content' => BatchEditToolkit::class,
         'batch_update_content_headings' => BatchEditToolkit::class,
+        // P3.6-3: their dry run stops just before Concrete's request, or the file move (PageDraft::stopIfDryRun()).
+        'move_page' => PagesToolkit::class,
+        'delete_page' => PagesToolkit::class,
+        'mark_file_for_deletion' => FilesToolkit::class,
     ];
 
     /**

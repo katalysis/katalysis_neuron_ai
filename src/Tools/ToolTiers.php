@@ -71,7 +71,7 @@ final class ToolTiers
         'get_file',
         'list_file_folders',
         'create_file_folder',
-        'move_file_to_folder',
+        'mark_file_for_deletion',
         'delete_file',
         // Users (read-only at every tier, B-ACC-7)
         'list_users',
