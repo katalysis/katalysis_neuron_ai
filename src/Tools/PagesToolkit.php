@@ -872,6 +872,8 @@ class PagesToolkit extends AbstractToolkit
                 );
             }
             $before = PageTree::summary($page);
+            $oldPath = (string) $page->getCollectionPath();
+            $oldParentID = (int) $page->getCollectionParentID();
 
             // An approval check's dry run stops here, with every check above done (P3.6-2, CallCheck).
             PageDraft::stopIfDryRun();
@@ -894,7 +896,11 @@ class PagesToolkit extends AbstractToolkit
                 // Every page the move took, old path and new (B-CON-3).
                 'pagesMoved' => array_map(static fn (array $p): array => ['name' => $p['name'], 'from' => $p['path'], 'to' => $after[$p['id']] ?? $p['path']], $before),
                 'redirects' => 'The old addresses redirect to the new ones.',
-            ] + WorkflowOutcome::of($done, $summary);
+            ] + ($done ? [
+                // BF-24 (B-WRT-2, B-REP-1 (d)): how to reverse it, for the reply and the turn's Changed line.
+                'undo' => "Moved from {$oldPath}, which redirects to the new address. To undo it, move it back with move_page "
+                    . "(pageID {$moved->getCollectionID()}, newParentID {$oldParentID}), or drag it back in the Sitemap.",
+            ] : []) + WorkflowOutcome::of($done, $summary);
         }));
 
         return $tool;
