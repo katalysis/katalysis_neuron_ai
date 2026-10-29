@@ -26,6 +26,7 @@ use NeuronAI\Workflow\Persistence\DatabasePersistence;
 use NeuronAI\Workflow\Workflow;
 use Katalysis\NeuronAi\Approval\ApprovalLogListener;
 use Katalysis\NeuronAi\Approval\ApprovalService;
+use Katalysis\NeuronAi\Agent\GroupedChatNode;
 use Katalysis\NeuronAi\Approval\ApprovalToolNode;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Chat\TurnChanges;
@@ -235,7 +236,7 @@ class ConcreteCmsAgent extends Agent
     {
         return [
             ...$this->entryNodes(),
-            new \NeuronAI\Agent\Nodes\ChatNode(),
+            new GroupedChatNode(),
             new \NeuronAI\Agent\Nodes\StructuredOutputNode(),
             new ApprovalToolNode($this->toolMaxRuns, $this->toolErrorHandler ?? $this->resolveToolErrorHandler()),
             new \NeuronAI\Agent\Nodes\AwaitToolResultsNode(),

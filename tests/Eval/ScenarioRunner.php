@@ -11,6 +11,7 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\User\UserInfoRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Access\NeuronPermissions;
+use Katalysis\NeuronAi\Agent\OfferedTools;
 use Katalysis\NeuronAi\Approval\ApprovalService;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\PageContextResolver;
@@ -123,6 +124,7 @@ final class ScenarioRunner
 
                 $before = $this->snapshots->take();
                 $logMark = $this->maxLogID();
+                OfferedTools::take();
                 $idsBefore = $this->messageIds($agent);
 
                 $turnStarted = microtime(true);
@@ -148,6 +150,8 @@ final class ScenarioRunner
                     $notice ??= $agent->getTurnNotice();
                 }
                 $turnSeconds = microtime(true) - $turnStarted;
+                // P3.2-2: each request's tools and estimated input tokens (OfferedTools), approval rounds included.
+                $requests = OfferedTools::take();
 
                 $after = $this->snapshots->take();
                 $newMessages = $this->newMessages($agent, $idsBefore);
@@ -189,6 +193,7 @@ final class ScenarioRunner
                     'inventedHosts' => $inventedHosts,
                     'durationSec' => round($turnSeconds, 1),
                     'usage' => $turnUsage,
+                    'requests' => array_map(static fn (array $r): array => ['count' => count($r['tools']), 'tokens' => $r['tokens'], 'tools' => $r['tools']], $requests),
                     'toolCalls' => array_map(fn (array $call): array => $this->truncateCall($call), $calls),
                     // P3.6-1: each call the turn waited on: the tool, what the runner answered, and the outcome.
                     'approvals' => array_map(static fn (array $a): array => array_diff_key($a, ['callId' => true]), $approvals),
