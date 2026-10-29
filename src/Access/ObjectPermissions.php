@@ -149,7 +149,7 @@ final class ObjectPermissions
 
     public static function editStackContents(Page $stack, string $shared): ?string
     {
-        return self::check(new Checker($stack), 'canEditPageContents', [], 'edit_page_contents', 'edit ' . $shared . ', which is shared by every page that shows it,', self::GRANT_STACK);
+        return self::check(new Checker($stack), 'canEditPageContents', [], 'edit_page_contents', 'edit ' . $shared . ' (shared by every page that shows it)', self::GRANT_STACK);
     }
 
     public static function addBlockToStack(Area $stackArea, BlockType $type, string $shared): ?string
