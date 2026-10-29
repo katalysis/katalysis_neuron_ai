@@ -47,6 +47,8 @@ cd httpdocs
 php concrete/bin/concrete5 c5:package:update katalysis_neuron_ai
 ```
 
+**3.5.0 (P3.9-1):** back up first (`documentation/fixtures/backup_dev_db.sh <task-id>`). The update drops the unused `chatHistory` column from `KatalysisNeuronAiChats` (the tables are Doctrine's alone now; the package no longer creates one itself), adds its indexes, and resets an `anthropic_model` of `claude-2` (the old install default, which the settings page refuses) to the provider's default.
+
 ## Configure AI provider
 
 Set at least the OpenAI key in package settings:
