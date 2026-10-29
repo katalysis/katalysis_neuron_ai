@@ -209,7 +209,7 @@ final class TurnChangesTest extends ConcreteTestCase
         $call->setResult((string) json_encode(['id' => 5, 'path' => '/neuron-test/b/a', 'undo' => $undo]));
         $changes(new ToolCalled($call));
 
-        $this->assertStringContainsString($undo, (string) $changes->line());
+        $this->assertSame('Changed: page 5 (' . rtrim($undo, '.') . ').', $changes->line(), 'in brackets after the page');
     }
 
     /** P3.6a: a change to a global area through the page is named on the page's line. */
