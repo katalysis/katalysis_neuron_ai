@@ -55,6 +55,8 @@ class AttributeSetsToolkit extends AbstractToolkit
         ));
 
         $tool->setHandler($this->guarded(function (?string $category = 'collection'): array {
+            // BF-21: Neuron passes null for an omitted input, so the default above never applies on its own.
+            $category = $category ?: 'collection';
             // Get category service
             $app = Application::getFacadeApplication();
             $categoryService = $app->make(CategoryService::class);
@@ -130,6 +132,8 @@ class AttributeSetsToolkit extends AbstractToolkit
             ?string $name = null,
             ?string $category = 'collection'
         ): array {
+            // BF-21: Neuron passes null for an omitted input, so the default above never applies on its own.
+            $category = $category ?: 'collection';
             if (empty($handle) || empty($name)) {
                 throw new \RuntimeException('create_attribute_set needs handle and name. Nothing was changed.');
             }
@@ -190,6 +194,8 @@ class AttributeSetsToolkit extends AbstractToolkit
             ?string $handle = null,
             ?string $category = 'collection'
         ): array {
+            // BF-21: Neuron passes null for an omitted input, so the default above never applies on its own.
+            $category = $category ?: 'collection';
             if (empty($handle)) {
                 throw new \RuntimeException('This tool needs handle: the set\'s handle, from list_attribute_sets. Nothing was changed.');
             }
@@ -260,6 +266,8 @@ class AttributeSetsToolkit extends AbstractToolkit
             ?string $set_handle = null,
             ?string $category = 'collection'
         ): array {
+            // BF-21: Neuron passes null for an omitted input, so the default above never applies on its own.
+            $category = $category ?: 'collection';
             if (empty($attribute_handle) || empty($set_handle)) {
                 throw new \RuntimeException('add_attribute_to_set needs attribute_handle and set_handle. Nothing was changed.');
             }
@@ -340,6 +348,8 @@ class AttributeSetsToolkit extends AbstractToolkit
             ?string $attribute_handle = null,
             ?string $category = 'collection'
         ): array {
+            // BF-21: Neuron passes null for an omitted input, so the default above never applies on its own.
+            $category = $category ?: 'collection';
             if (empty($attribute_handle)) {
                 throw new \RuntimeException('remove_attribute_from_set needs attribute_handle. Nothing was changed.');
             }
