@@ -605,7 +605,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   - task PRs stop editing "Current position": `/next-task` works out the last task done and the next open one from `DELIVERY_PLAN.md`'s ticks and the latest Log entry
   - each task's Log entry goes in its own new file, `documentation/progress/<task-id>.md`; `PROGRESS.md`'s Log section says where they are; existing entries stay where they are
   - `CLAUDE.md`, `/start-task`, `/finish-task` and `/next-task` updated to match
-- [ ] WP-6 **Internal pilot guide** (small; docs only; its own PR into `development`; Glyn, after P3.S3). `documentation/PILOT.md`, for Glyn installing Neuron on a Katalysis site from 30 October 2026. Short and plain. Covers:
+- [x] WP-6 **Internal pilot guide** (small; docs only; its own PR into `development`; Glyn, after P3.S3; Done (PR #99)). `documentation/PILOT.md`, for Glyn installing Neuron on a Katalysis site from 30 October 2026. Short and plain. Covers:
   - pre-install checks (PHP 8.1+, `ext-curl`, the Concrete version, the Neuron pin date), a database and files backup, and rollback (uninstall steps and what they leave behind, including the chat, approvals and workflow-store tables)
   - install and settings: the OpenAI key, model gpt-4o, `katalysis.ai.provider_timeout`, `katalysis.ai.approval.block_limit`, and how to confirm the trash can is on
   - who gets which key: `use_neuron_ai` (Tier 1) for the pilot editors; `neuron_ai_tier_configure` for Administrators only, and what Tier 2 can do (live, behind a card)
