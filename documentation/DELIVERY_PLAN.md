@@ -444,11 +444,11 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - coverage of the home page, dashboard pages and edit mode (scenario 22 covers the home page only)
   - **four new scenarios**, each through the controller path from the panel's payload: an ordinary page (`/neuron-test/headings`), the home page, a dashboard page, and a page in edit mode
   - scenarios: the four new ones ×1; cap $0.30. Compared ×3 in P3.S4
-- [ ] P3.1 **ContextBuilder** (M). Depends on: P3.11-2, and P3.2-1 for the tier.
+- [x] P3.1 **ContextBuilder** (M; Done (PR #102)). Depends on: P3.11-2, and P3.2-1 for the tier.
   - pull the context code out of the agent, and add the area and block tree, the user's permissions on the current page, the tier (B-CTX-3) and the site locale (B-LNG-2). Unit tests
   - a test that starts from the panel's payload (BF-1)
   - the prompt's page snapshot shows block counts but no text previews: `extractContentBlockPreview()` never gets a controller (BF-10)
-  - scenarios: `--fake` of 01, 02, 12, 19, 20, 22; none new or changed, so no paid run. Compared ×3 in P3.S4
+  - scenarios: `--fake` of 01, 02, 12, 19, 20, 22; none new or changed, so no paid run. Compared ×3 in P3.S4. **Changed by Glyn (29 October):** 01, 02, 12, 19, 20, 22 and 42–45 ×1, plus 13 ×1 before and after the change to measure the fixed overhead (P2.9: 8,274 input tokens); priced at measured cost (about $0.67 after, $0.02 before), cap $0.85. If the context adds more than about 15% to the average input tokens per run, say what drives it and propose a trim before merging
 - [ ] P3.2-2 **Tool groups and intent router** (L). Depends on: P3.1, P3.3-4 and P3.3-5.
   - group the tools and send only the relevant groups per request (at most 25 tools per request). The router treats all external tools (today `katalysis_pro`'s, through `ExternalToolkitRegistry`) as one group; providers declaring their own group comes with P5.0 (WP-4)
   - the runner records the number of tools offered on each request
