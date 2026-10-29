@@ -1,0 +1,338 @@
+{
+    "meta": {
+        "startedAt": "2026-10-29 11:27:16",
+        "durationSec": 19.9,
+        "repeat": 1,
+        "filter": "07,27",
+        "model": "openai gpt-4o",
+        "temperature": "provider default (not set by the agent)",
+        "commit": "3720d71",
+        "neuronVersion": "4.1.12",
+        "concreteVersion": "9.5.5",
+        "phpVersion": "8.4.27"
+    },
+    "scenarios": {
+        "07-move-content-between-block-types": {
+            "id": "07-move-content-between-block-types",
+            "title": "Move the content of a Content block into another block type",
+            "knownToFailToday": "P1.5 baseline: fail (3 of 3 runs), because add_block_to_page_area was refused for neuron_editor, who had no add-block permission on the Main area. That was a fixture gap. P1.5a fixed the seed (add-block on the Main area of /neuron-test/headings) and amended the baseline: 2 of 3 runs pass, 1 of 3 fail. The failing run added a content block instead of an html block and said it had made an HTML block. B-T1-4 can be met but is not reliable. Spec B-REP-1 is Not met.",
+            "runs": [
+                {
+                    "n": 1,
+                    "outcome": "pass",
+                    "error": null,
+                    "durationSec": 8.7,
+                    "usage": {
+                        "input": 39254,
+                        "output": 237
+                    },
+                    "turns": [
+                        {
+                            "say": "Copy the content of the block that has the 'Seed Closing Heading' heading into a new HTML block on this page. Leave the original block where it is.",
+                            "page": "/neuron-test/headings",
+                            "reply": "I have copied the content of the block with the \"Seed Closing Heading\" heading into a new HTML block on this page. The original block remains in place.\n\nYou can see the new block on the page now. It will go live for visitors once the changes are published.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 5.6,
+                            "usage": {
+                                "input": 39254,
+                                "output": 237
+                            },
+                            "toolCalls": [
+                                {
+                                    "name": "list_page_blocks_by_type",
+                                    "write": false,
+                                    "ok": true,
+                                    "inputs": "{\"pageID\":98575,\"blockTypeHandle\":\"content\"}",
+                                    "result": "📄 **Page 98575 (/neuron-test/headings)**\n**Version:** Newest version (1), which is also the published version.\n🔍 Found **3** distinct `content` block(s).\n\n| Block ID | Area Handle | Version | Modified |\n|----------|-------------|---------|----------|\n| 157081 | `Main` | ✅ v1 | 2026-10-29 |\n| 157082 | `Main` | ✅ v1 | 2026-10-29 |\n| 157083 | `Main` | ✅ v1 | 2026-10-29 |\n\n💡 Use `get_block_controller_data(blockID, pageID, areaHandle)` with the exact Area Handle for edits/checks.\n"
+                                },
+                                {
+                                    "name": "get_block_controller_data",
+                                    "write": false,
+                                    "ok": true,
+                                    "inputs": "{\"blockID\":157081,\"pageID\":98575,\"areaHandle\":\"Main\"}",
+                                    "result": "📦 **Block #157081 Controller Data:**\n\n**Type:** Content (`content`)\n**Page:** [/neuron-test/headings](/neuron-test/headings)\n**Area:** Main\n**Version:** Block 157081 is in the newest version (1, published), the version editors see and the write tools change.\n\n**View Data (what the block displays):**\n\n- **bID:** 157081\n- **content:** (same as raw field `content`, shown in full under Raw Block Table Data)\n- **controller:** Concrete\\Block\\Content\\Controller object (not shown)\n**Raw Block Table Data:**\n\n- **content:** <h2>Seed Heading Two</h2><p>This paragraph sits under the h2 heading.</p><h3>Seed Heading Three A</h3><p>Text under the first h3 heading.</p><h3>Seed Heading Three B</h3><p>Text under the second h3 heading.</p>\n\n**Controller Properties:**\n\n- **content:** (same as raw field `content`, shown in full under Raw Block Table Data)\n- **saveMode:** request\n- **area:** Concrete\\Core\\Area\\Area object (not shown)\n- Not shown (arrays): headerItems, btTitleFormats\n"
+                                },
+                                {
+                                    "name": "get_block_controller_data",
+                                    "write": false,
+                                    "ok": true,
+                                    "inputs": "{\"blockID\":157082,\"pageID\":98575,\"areaHandle\":\"Main\"}",
+                                    "result": "📦 **Block #157082 Controller Data:**\n\n**Type:** Content (`content`)\n**Page:** [/neuron-test/headings](/neuron-test/headings)\n**Area:** Main\n**Version:** Block 157082 is in the newest version (1, published), the version editors see and the write tools change.\n\n**View Data (what the block displays):**\n\n- **bID:** 157082\n- **content:** (same as raw field `content`, shown in full under Raw Block Table Data)\n- **controller:** Concrete\\Block\\Content\\Controller object (not shown)\n**Raw Block Table Data:**\n\n- **content:** <p><strong>Seed Bold Heading One</strong></p><p>Body text under the first bold-paragraph heading.</p><p><strong>Seed Bold Heading Two</strong></p><p>Body text under the second bold-paragraph heading.</p>\n\n**Controller Properties:**\n\n- **content:** (same as raw field `content`, shown in full under Raw Block Table Data)\n- **saveMode:** request\n- **area:** Concrete\\Core\\Area\\Area object (not shown)\n- Not shown (arrays): headerItems, btTitleFormats\n"
+                                },
+                                {
+                                    "name": "get_block_controller_data",
+                                    "write": false,
+                                    "ok": true,
+                                    "inputs": "{\"blockID\":157083,\"pageID\":98575,\"areaHandle\":\"Main\"}",
+                                    "result": "📦 **Block #157083 Controller Data:**\n\n**Type:** Content (`content`)\n**Page:** [/neuron-test/headings](/neuron-test/headings)\n**Area:** Main\n**Version:** Block 157083 is in the newest version (1, published), the version editors see and the write tools change.\n\n**View Data (what the block displays):**\n\n- **bID:** 157083\n- **content:** <h2>Seed Closing Heading</h2><p>A short closing paragraph.</p>\n- **controller:** Concrete\\Block\\Content\\Controller object (not shown)\n**Raw Block Table Data:**\n\n- **content:** <h2>Seed Closing Heading</h2><p>A short closing paragraph.</p>\n\n**Controller Properties:**\n\n- **content:** <h2>Seed Closing Heading</h2><p>A short closing paragraph.</p>\n- **saveMode:** request\n- **area:** Concrete\\Core\\Area\\Area object (not shown)\n- Not shown (arrays): headerItems, btTitleFormats\n"
+                                },
+                                {
+                                    "name": "add_block_to_page_area",
+                                    "write": true,
+                                    "ok": true,
+                                    "inputs": "{\"pageID\":98575,\"areaHandle\":\"Main\",\"blockType\":\"html\",\"value\":{\"content\":\"<h2>Seed Closing Heading</h2><p>A short closing paragraph.</p>\"}}",
+                                    "result": "{\"blockID\":157107,\"blockType\":\"html\",\"blockTypeName\":null,\"blockName\":\"\",\"areaHandle\":\"Main\",\"displayOrder\":3,\"contentPreview\":\"Seed Closing Heading\\nA short closing paragraph.\",\"details\":{\"collectionID\":98575,\"databaseTable\":\"btContentLocal\"},\"versionState\":{\"status\":\"unpublished\",\"pageID\":98575,\"versionID\":2,\"summary\":\"Saved in version 2 of the page, which is unpublished: it is on the page now for editors, and it goes live only when someone clicks \\\"Publish Changes\\\" in edit mode, or \\\"Approve Version\\\" outside edit mode. To undo it, restore the previous version from Page Versions.\",\"reply\":\"Describe what was actually done, in plain words (for example, that the original block was kept), then add one short line about publishing, for example: \\\"You can see it on the page now; it goes live when you publish.\\\" Give the details below only if the user asks.\"}}"
+                                }
+                            ],
+                            "approvals": [
+                                {
+                                    "tool": "add_block_to_page_area",
+                                    "decision": "approve",
+                                    "status": "approved",
+                                    "path": "/neuron-test/headings",
+                                    "text": "Add a HTML block to Main on Headings\ncontent: \"Seed Closing Heading\nA short closing paragraph.\""
+                                }
+                            ],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "blocks: /neuron-test/headings has html block",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "blocks: /neuron-test/headings has content block, unchanged",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "live_version_unchanged: /neuron-test/headings",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "changed_pages exactly: /neuron-test/headings",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                }
+            ],
+            "summary": "pass",
+            "usage": {
+                "input": 39254,
+                "output": 237
+            }
+        },
+        "27-core-block-content": {
+            "id": "27-core-block-content",
+            "title": "Core blocks (Content): add a sentence in place, then add a new Content block",
+            "knownToFailToday": "P3.3-6: new. The edit keeps the existing text in order, so it exercises P3.3-2's strict keep_text order check on a real request; a refusal of this ordinary edit is a finding for P3.3-6's PR.",
+            "runs": [
+                {
+                    "n": 1,
+                    "outcome": "pass",
+                    "error": null,
+                    "durationSec": 8.5,
+                    "usage": {
+                        "input": 41009,
+                        "output": 282
+                    },
+                    "turns": [
+                        {
+                            "say": "In the Content block on this page, add the sentence 'Bring your library card.' straight after 'The library opens at nine on weekdays.' Then add a new Content block at the end of the Main area that says 'Opening times change in August.'",
+                            "page": "/neuron-test/block-types",
+                            "reply": "The Content block on the \"Block Types\" page has been updated to add \"Bring your library card.\" right after \"The library opens at nine on weekdays.\" Additionally, a new Content block was added at the end of the Main area that says \"Opening times change in August.\"\n\nThese changes are now visible on the page for editors and will go live once someone publishes the version.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 5.4,
+                            "usage": {
+                                "input": 41009,
+                                "output": 282
+                            },
+                            "toolCalls": [
+                                {
+                                    "name": "get_page_content",
+                                    "write": false,
+                                    "ok": true,
+                                    "inputs": "{\"pageID\":98600}",
+                                    "result": "{\"id\":98600,\"path\":\"/neuron-test/block-types\",\"name\":\"Block Types\",\"description\":\"\",\"version\":{\"cvID\":1,\"isActive\":true,\"versionHandle\":\"RECENT\",\"shows\":\"newest\",\"versionID\":1,\"status\":\"published\",\"publishedVersionID\":1,\"summary\":\"Newest version (1), which is also the published version.\"},\"html\":\"<section data-area=\\\"Main\\\" data-block-type=\\\"content\\\" data-block-id=\\\"157121\\\"><div><h2>Block Types Content</h2><p>The library opens at nine on weekdays.</p><p>Children's story time is on Saturday mornings.</p></div></section><section data-area=\\\"Main\\\" data-block-type=\\\"image\\\" data-block-id=\\\"157122\\\"><div><img src=\\\"http://katalysis-pro.test/application/files/9417/9327/3247/neuron-test-person.png\\\" alt=\\\"Neuron test person photo\\\"></div></section><section data-area=\\\"Main\\\" data-block-type=\\\"feature\\\" data-block-id=\\\"157124\\\"><div>Feature Heading <p>Feature paragraph about the reading room.</p></div></section><section data-area=\\\"Main\\\" data-block-type=\\\"accordion\\\" data-block-id=\\\"157125"
+                                },
+                                {
+                                    "name": "get_block_data",
+                                    "write": false,
+                                    "ok": true,
+                                    "inputs": "{\"blockID\":157121,\"pageID\":98600}",
+                                    "result": "📦 **Block #157121 Details:**\n\n**Type:** Content (`content`)\n**Page:** [/neuron-test/block-types](/neuron-test/block-types)\n**Area:** Main\n**Version:** Block 157121 is in the newest version (1, published), the version editors see and the write tools change.\n\n**Field Data:**\n\n- **content** (html): <h2>Block Types Content</h2><p>The library opens at nine on weekdays.</p><p>Children's story time is on Saturday mornings.</p>\n\n💡 **Tips:**\n- File IDs can be resolved using file management tools\n- Page IDs can be looked up with `get_page(pageID)`\n"
+                                },
+                                {
+                                    "name": "update_block_in_page_area",
+                                    "write": true,
+                                    "ok": true,
+                                    "inputs": "{\"pageID\":98600,\"areaHandle\":\"Main\",\"blockID\":157121,\"value\":{\"content\":\"<h2>Block Types Content</h2><p>The library opens at nine on weekdays. Bring your library card.</p><p>Children's story time is on Saturday mornings.</p>\"},\"changeMode\":\"scoped_text\",\"textFields\":[\"content\"],\"replacedText\":[\"The library opens at nine on weekdays.\"]}",
+                                    "result": "{\"blockID\":157134,\"blockType\":\"content\",\"blockTypeName\":null,\"blockName\":\"\",\"areaHandle\":\"Main\",\"displayOrder\":0,\"contentPreview\":\"Block Types Content\\nThe library opens at nine on weekdays. Bring your library card.\\nChildren's story time is on Saturday mornings.\",\"details\":{\"collectionID\":98600,\"databaseTable\":\"btContentLocal\"},\"previousBlockID\":157121,\"blockIDNote\":\"The block was copied into the draft and now has ID 157134 (it was 157121). Use 157134 for further changes to it.\",\"textCheck\":{\"mode\":\"scoped_text\",\"fields\":{\"content\":{\"unchanged\":false,\"orderChanged\":false,\"removedText\":[]}},\"keptFields\":[],\"checksumsBefore\":{\"content\":\"0e3f949b0fe18c2e51a5deb5b9b1031ca21c4f70\"},\"checksumsAfter\":{\"content\":\"15b5f14ba57b2086e55c0bd50dc344bd18d47dba\"}},\"versionState\":{\"status\":\"unpublished\",\"pageID\":98600,\"versionID\":2,\"summary\":\"Saved in version 2 of the page, which is unpublished: it is on the page now for editors, and it goes live only when someone clicks \\\"Publish Changes\\\" in edit mo"
+                                },
+                                {
+                                    "name": "add_block_to_page_area",
+                                    "write": true,
+                                    "ok": true,
+                                    "inputs": "{\"pageID\":98600,\"areaHandle\":\"Main\",\"blockType\":\"content\",\"value\":{\"content\":\"<p>Opening times change in August.</p>\"}}",
+                                    "result": "{\"blockID\":157135,\"blockType\":\"content\",\"blockTypeName\":null,\"blockName\":\"\",\"areaHandle\":\"Main\",\"displayOrder\":8,\"contentPreview\":\"Opening times change in August.\",\"details\":{\"collectionID\":98600,\"databaseTable\":\"btContentLocal\"},\"versionState\":{\"status\":\"unpublished\",\"pageID\":98600,\"versionID\":2,\"summary\":\"Saved in version 2 of the page, which is unpublished: it is on the page now for editors, and it goes live only when someone clicks \\\"Publish Changes\\\" in edit mode, or \\\"Approve Version\\\" outside edit mode. To undo it, restore the previous version from Page Versions.\",\"reply\":\"Describe what was actually done, in plain words (for example, that the original block was kept), then add one short line about publishing, for example: \\\"You can see it on the page now; it goes live when you publish.\\\" Give the details below only if the user asks.\"}}"
+                                }
+                            ],
+                            "approvals": [
+                                {
+                                    "tool": "update_block_in_page_area",
+                                    "decision": "approve",
+                                    "status": "approved",
+                                    "path": "/neuron-test/block-types",
+                                    "text": "Change the Content block in Main on Block Types\ncontent: \"Block Types Content The library opens at nine on weekdays. Children's story time is on Saturday mornings.\" → \"Block Types Content The library opens at nine on weekdays. Bring your library card. Children's story time is on Saturday mornings.\""
+                                },
+                                {
+                                    "tool": "add_block_to_page_area",
+                                    "decision": "approve",
+                                    "status": "approved",
+                                    "path": "/neuron-test/block-types",
+                                    "text": "Add a Content block to Main on Block Types\ncontent: \"Opening times change in August.\""
+                                }
+                            ],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "blocks: /neuron-test/block-types count content = 2",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "blocks: /neuron-test/block-types has content block",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "blocks: /neuron-test/block-types has content block",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "live_version_unchanged: /neuron-test/block-types",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "changed_pages exactly: /neuron-test/block-types",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                }
+            ],
+            "summary": "pass",
+            "usage": {
+                "input": 41009,
+                "output": 282
+            }
+        }
+    },
+    "schema": 1,
+    "totals": {
+        "runs": 2,
+        "outcomes": {
+            "pass": 2
+        },
+        "usage": {
+            "input": 80263,
+            "output": 519
+        },
+        "approxCostUsd": 0.2058475
+    }
+}

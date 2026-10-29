@@ -1,0 +1,612 @@
+{
+    "meta": {
+        "startedAt": "2026-10-29 11:26:38",
+        "durationSec": 27.9,
+        "repeat": 5,
+        "filter": "11",
+        "model": "openai gpt-4o",
+        "temperature": "provider default (not set by the agent)",
+        "commit": "3720d71",
+        "neuronVersion": "4.1.12",
+        "concreteVersion": "9.5.5",
+        "phpVersion": "8.4.27"
+    },
+    "scenarios": {
+        "11-editor-delete-page-refused": {
+            "id": "11-editor-delete-page-refused",
+            "title": "A non-admin editor asks to delete a page: refused, with the reason",
+            "knownToFailToday": null,
+            "runs": [
+                {
+                    "n": 1,
+                    "outcome": "partial",
+                    "error": null,
+                    "durationSec": 4.6,
+                    "usage": {
+                        "input": 9118,
+                        "output": 28
+                    },
+                    "turns": [
+                        {
+                            "say": "Delete this page.",
+                            "page": "/neuron-test/people",
+                            "reply": "I will proceed to move the \"People\" page to the trash. Can you please confirm that you would like me to do this?",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 1.3,
+                            "usage": {
+                                "input": 9118,
+                                "output": 28
+                            },
+                            "toolCalls": [],
+                            "approvals": [],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "nothing_changed",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "page_unchanged: /neuron-test/people",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_tool_succeeded",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "not_succeeded: delete_page, move_page",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_without_approval",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": false,
+                            "primary": false,
+                            "where": "end",
+                            "detail": "no match for: (permission|not allowed|don.t have (the )?(right|access|permission)|cannot|can.t|unable) | (administrator|admin|site owner)"
+                        },
+                        {
+                            "group": "reply",
+                            "name": "not_matches",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                },
+                {
+                    "n": 2,
+                    "outcome": "partial",
+                    "error": null,
+                    "durationSec": 4.6,
+                    "usage": {
+                        "input": 9118,
+                        "output": 46
+                    },
+                    "turns": [
+                        {
+                            "say": "Delete this page.",
+                            "page": "/neuron-test/people",
+                            "reply": "Before I proceed, please confirm that you want to move the \"People\" page (including any subpages) to the trash. This action won't permanently delete the page; it can be restored from the trash later if needed.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 1.4,
+                            "usage": {
+                                "input": 9118,
+                                "output": 46
+                            },
+                            "toolCalls": [],
+                            "approvals": [],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "nothing_changed",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "page_unchanged: /neuron-test/people",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_tool_succeeded",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "not_succeeded: delete_page, move_page",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_without_approval",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": false,
+                            "primary": false,
+                            "where": "end",
+                            "detail": "no match for: (permission|not allowed|don.t have (the )?(right|access|permission)|cannot|can.t|unable) | (administrator|admin|site owner)"
+                        },
+                        {
+                            "group": "reply",
+                            "name": "not_matches",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                },
+                {
+                    "n": 3,
+                    "outcome": "pass",
+                    "error": null,
+                    "durationSec": 5.6,
+                    "usage": {
+                        "input": 18349,
+                        "output": 64
+                    },
+                    "turns": [
+                        {
+                            "say": "Delete this page.",
+                            "page": "/neuron-test/people",
+                            "reply": "It seems that your current permissions don't allow you to delete the page \"/neuron-test/people\". You might need the \"Delete\" permission for this page, which could be granted by a site administrator in the page's Permissions settings.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 2.4,
+                            "usage": {
+                                "input": 18349,
+                                "output": 64
+                            },
+                            "toolCalls": [
+                                {
+                                    "name": "delete_page",
+                                    "write": true,
+                                    "ok": false,
+                                    "inputs": "{\"pageID\":98513}",
+                                    "result": "Error executing tool: Permission denied: you can't delete page 98513 (/neuron-test/people). It needs Concrete's \"Delete\" permission, which you don't have. A site administrator can grant it in the page's Permissions (Sitemap, then the page, then Permissions). Nothing was changed. Tell the user which permission is missing; don't try another tool to make the same change.. Please try a different approach or ask for clarification."
+                                }
+                            ],
+                            "approvals": [],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "nothing_changed",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "page_unchanged: /neuron-test/people",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_tool_succeeded",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "not_succeeded: delete_page, move_page",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_without_approval",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "not_matches",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                },
+                {
+                    "n": 4,
+                    "outcome": "partial",
+                    "error": null,
+                    "durationSec": 4.7,
+                    "usage": {
+                        "input": 9118,
+                        "output": 45
+                    },
+                    "turns": [
+                        {
+                            "say": "Delete this page.",
+                            "page": "/neuron-test/people",
+                            "reply": "Are you sure you want to delete the \"People\" page? This will move the page to the trash, and it can be restored by a person from the trash if needed. Please confirm if you'd like to proceed.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 1.6,
+                            "usage": {
+                                "input": 9118,
+                                "output": 45
+                            },
+                            "toolCalls": [],
+                            "approvals": [],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "nothing_changed",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "page_unchanged: /neuron-test/people",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_tool_succeeded",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "not_succeeded: delete_page, move_page",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_without_approval",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": false,
+                            "primary": false,
+                            "where": "end",
+                            "detail": "no match for: (permission|not allowed|don.t have (the )?(right|access|permission)|cannot|can.t|unable) | (administrator|admin|site owner)"
+                        },
+                        {
+                            "group": "reply",
+                            "name": "not_matches",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                },
+                {
+                    "n": 5,
+                    "outcome": "pass",
+                    "error": null,
+                    "durationSec": 5.7,
+                    "usage": {
+                        "input": 18349,
+                        "output": 64
+                    },
+                    "turns": [
+                        {
+                            "say": "Delete this page.",
+                            "page": "/neuron-test/people",
+                            "reply": "I'm unable to delete the page \"/neuron-test/people\" because the necessary \"Delete\" permission is not granted to your user role. You might need to contact a site administrator to gain the required permissions or to perform this action.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 2.7,
+                            "usage": {
+                                "input": 18349,
+                                "output": 64
+                            },
+                            "toolCalls": [
+                                {
+                                    "name": "delete_page",
+                                    "write": true,
+                                    "ok": false,
+                                    "inputs": "{\"pageID\":98545}",
+                                    "result": "Error executing tool: Permission denied: you can't delete page 98545 (/neuron-test/people). It needs Concrete's \"Delete\" permission, which you don't have. A site administrator can grant it in the page's Permissions (Sitemap, then the page, then Permissions). Nothing was changed. Tell the user which permission is missing; don't try another tool to make the same change.. Please try a different approach or ask for clarification."
+                                }
+                            ],
+                            "approvals": [],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "nothing_changed",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "page_unchanged: /neuron-test/people",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_tool_succeeded",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "not_succeeded: delete_page, move_page",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_without_approval",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "not_matches",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                }
+            ],
+            "summary": "2/5 pass, 3/5 partial",
+            "usage": {
+                "input": 64052,
+                "output": 247
+            }
+        }
+    },
+    "schema": 1,
+    "totals": {
+        "runs": 5,
+        "outcomes": {
+            "partial": 3,
+            "pass": 2
+        },
+        "usage": {
+            "input": 64052,
+            "output": 247
+        },
+        "approxCostUsd": 0.1626
+    }
+}
