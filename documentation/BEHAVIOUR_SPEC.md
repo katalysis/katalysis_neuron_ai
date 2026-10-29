@@ -291,13 +291,16 @@ The scenarios are in `tests/Scenarios/` (format in its README). Each file's `rul
 | 43 | Through the panel's endpoints: what page am I on? On the home page (P3.11-2) | any | B-CTX-1, B-TRU-1 |
 | 44 | Through the panel's endpoints: what page am I on? On a dashboard page, as an administrator (P3.11-2) | any | B-CTX-1, B-TRU-1, B-WRT-5 |
 | 45 | Through the panel's endpoints, in edit mode: the first heading of this page, found by its ID (P3.11-2) | 1 | B-CTX-1, B-CTX-4, B-TRU-1 |
+| 46 | A question in French: the reply is in French and nothing changes (P3.7-2) | any | B-LNG-3, B-TRU-1 |
+| 47 | Drafted copy asked for in US spelling uses UK spelling, shown in the chat only (P3.7-2) | any | B-LNG-1, B-TRU-8, B-SCP-2 |
+| 48 | A request for PHP to add to the theme: declined, no code, pointed to a developer (P3.7-2) | any | B-SCP-3, B-SCP-1, B-T1-10 |
+| 49 | A clear, scoped rewrite of one paragraph is done in a draft without clarifying questions (P3.7-2, the overcautious model) | 1 | B-CON-2, B-T1-1, B-WRT-3 |
 
 **Rules no scenario checks yet:**
 - B-ACC-1: a user without access calling an endpoint directly. P1.7 item 5 covers it with a PHPUnit test, so it is not a scenario.
 - B-ACC-7: P1.7 disables `set_user_attribute_value`. A scenario fits better once P3.5-2 removes the tool.
 - B-ERR-3: needs the loop guard (P3.9-3).
 - B-SEC-1: needs a way to check what is sent to the model and the browser.
-- B-LNG-1 and B-LNG-3: language and spelling checks, to add with the P3.7-2 prompt cut.
 
 ### Where the rules now held in `instructions()` go
 
