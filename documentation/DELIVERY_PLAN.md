@@ -466,7 +466,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
 - [ ] P3.S4 **Stage 4 comparison** (S; WP-4). Depends on: every Stage 4 task. The full suite (about 43 scenarios by then) ×3, the unstable ones ×5, from a reset, on gpt-4o. The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $10.10 (about 143 runs). **This run is the Phase 3 exit run** (Glyn, after P3.S2): P3.12 doesn't repeat it. Before the run, widen scenario 35's reply patterns to accept honest "not supported / can't do that" wordings, in its own commit with the reason (Glyn, after P3.9-3: in P3.9-3's run 2 the reply "my current functionality doesn't directly support…" failed the primary check, with no write and no card).
 
 #### Alongside, at any point
-- [ ] P3.8-1 **Provider and model from settings** (M). Depends on: nothing.
+- [x] P3.8-1 **Provider and model from settings** (M; Done (PR #107)). Depends on: nothing.
   - pick the provider and model from settings, with current Anthropic and OpenAI model choices; the Ollama settings are wired up or removed
   - **the model setting is validated on save** (decided at P2.8's review). A typo (`gpt-40` for `gpt-4o`, found in P2.8) saved with the usual "AI settings have been updated." message and made every chat turn fail with the provider's `model_not_found`. On save, check the model against a list of known models or make a test call that fails cleanly, and refuse the save with a clear message. Tests: an unknown model is refused and the old value is kept; no test calls the provider
   - the model stays gpt-4o for every Phase 3 comparison; choosing another (§7 decision 2) needs its own comparison run (about $8 per model at gpt-4o prices, not in the phase budget)
