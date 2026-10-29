@@ -115,11 +115,8 @@ final class ToolRoutingTest extends ConcreteTestCase
         $this->assertNotContains('list_topic_trees', $sent);
         $this->assertSame(array_values(array_intersect([...ToolGroups::ALWAYS, ...array_merge(...array_values(ToolGroups::GROUPS))], $sent)), $sent, 'each group in ToolGroups\' order');
 
-        // The guidelines are those of the toolkits offered, each listing only its tools offered.
-        $system = (string) $provider->getRecorded()[0]->systemPrompt?->getContent();
-        $this->assertStringContainsString('BlocksToolkit', $system);
-        $this->assertStringNotContainsString('TopicsToolkit', $system);
-        $this->assertStringNotContainsString('- list_users', $system);
+        // P3.7-2: only external toolkits have guidelines, and none is offered here (PromptCutTest covers one that is).
+        $this->assertStringNotContainsString('<TOOLS-GUIDELINES>', (string) $provider->getRecorded()[0]->systemPrompt?->getContent());
     }
 
     public function testGetToolGroupAddsTheGroupFromTheModelsNextStepInTheSameTurn(): void
@@ -134,8 +131,6 @@ final class ToolRoutingTest extends ConcreteTestCase
         $this->assertNotContains('list_topic_trees', self::names($first->tools));
         $this->assertContains('list_topic_trees', self::names($second->tools));
         $this->assertLessThanOrEqual(ToolGroups::MAX_TOOLS, count($second->tools));
-        $this->assertStringNotContainsString('TopicsToolkit', (string) $first->systemPrompt?->getContent());
-        $this->assertStringContainsString('TopicsToolkit', (string) $second->systemPrompt?->getContent(), 'the group brings its guidelines');
         $result = self::results($provider)['call_group'] ?? '';
         $this->assertStringContainsString('"ok":true', $result);
         // The user's tools in the group, so a model looking for a tool that doesn't exist learns it from the list.
