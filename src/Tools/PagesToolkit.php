@@ -678,7 +678,9 @@ class PagesToolkit extends AbstractToolkit
         $tool->addProperty(new ToolProperty(
             'description',
             PropertyType::STRING,
-            'New page description',
+            // BF-22: scenario 17 set this when asked for the meta description (4 runs).
+            'New page description: the page\'s own description field, not the Meta Description attribute. To set meta tags, '
+            . 'use set_page_attribute_value with meta_description or meta_title.',
             false
         ));
 

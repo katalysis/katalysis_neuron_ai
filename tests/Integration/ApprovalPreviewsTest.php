@@ -118,6 +118,18 @@ final class ApprovalPreviewsTest extends ConcreteTestCase
         $this->assertSame(1, $this->versions($cID));
     }
 
+    /** BF-22: in scenario 17 the model set this field when asked for the meta description. */
+    public function testThePageDescriptionIsLabelledSoItIsNotTakenForTheMetaDescription(): void
+    {
+        $page = $this->pages->create('Previews description');
+        $cID = (int) $page->getCollectionID();
+
+        $entry = self::preview('update_page', ['pageID' => $cID, 'description' => 'Neuron test page'])['entry'];
+
+        $this->assertContains('Page description (not the meta description): (empty) → "Neuron test page"', $entry['details']);
+        $this->assertSame(1, $this->versions($cID));
+    }
+
     public function testMoreBlocksThanTheLimitAreCountedInAWarningAndStillListed(): void
     {
         $page = $this->pages->create('Previews limit', ['<p>One.</p>', '<p>Two.</p>', '<p>Three.</p>']);

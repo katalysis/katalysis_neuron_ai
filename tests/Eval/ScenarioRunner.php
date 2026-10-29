@@ -125,7 +125,8 @@ final class ScenarioRunner
                 $calls = $this->toolCalls($newMessages);
                 $turnUsage = $this->usage($newMessages);
                 $logErrors = $this->errorLogs($logMark);
-                $agentError = $reply === self::AGENT_ERROR_REPLY;
+                // BF-22: a provider timeout has its own reply, and is an error run too.
+                $agentError = in_array($reply, [self::AGENT_ERROR_REPLY, ConcreteCmsAgent::TIMEOUT_REPLY], true);
 
                 // BF-12: the run so far, this turn included, for no_invented_hosts and the recorded inventedHosts.
                 $runCalls = array_merge($allCalls, $calls);

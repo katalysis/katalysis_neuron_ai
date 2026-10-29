@@ -11,6 +11,8 @@ use NeuronAI\Chat\History\HistoryTrimmer;
 use NeuronAI\Exceptions\ChatHistoryException;
 use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\OpenAI;
+use NeuronAI\HttpClient\Curl\CurlHttpClient;
+use NeuronAI\Exceptions\HttpException;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
@@ -65,6 +67,13 @@ class ConcreteCmsAgent extends Agent
 {
     /** What handle() returns, and stores, when a turn fails. The scenario runner recognises it. */
     public const ERROR_REPLY = 'I ran into an error processing that request. Please try again.';
+
+    /** BF-22: what a turn replies, and stores, when the AI service didn't answer in time. */
+    public const TIMEOUT_REPLY = "The AI service didn't answer in time, so this request didn't finish. Please try again.";
+
+    /** BF-22: the provider request's timeout, in Concrete config. */
+    public const PROVIDER_TIMEOUT_KEY = 'katalysis.ai.provider_timeout';
+    public const DEFAULT_PROVIDER_TIMEOUT = 90;
 
     /** What handle() and decide() return while a call waits for the user's approval (P3.6-1). Not stored. */
     public const AWAITING_REPLY = 'This needs your approval before anything is changed.';
@@ -418,8 +427,34 @@ class ConcreteCmsAgent extends Agent
     {
         return new OpenAI(
             key: Config::get('katalysis.ai.open_ai_key'),
-            model: Config::get('katalysis.ai.open_ai_model', 'gpt-4o')
+            model: Config::get('katalysis.ai.open_ai_model', 'gpt-4o'),
+            // BF-22: a request the service doesn't answer fails after this many seconds (Neuron's default is 300; one
+            // scenario run waited 842 s).
+            httpClient: new CurlHttpClient(timeout: self::providerTimeout()),
         );
+    }
+
+    /** BF-22: the provider request's timeout in seconds, from katalysis.ai.provider_timeout (default 90). */
+    public static function providerTimeout(): float
+    {
+        $seconds = Config::get(self::PROVIDER_TIMEOUT_KEY, self::DEFAULT_PROVIDER_TIMEOUT);
+
+        return is_numeric($seconds) && (float) $seconds > 0 ? (float) $seconds : (float) self::DEFAULT_PROVIDER_TIMEOUT;
+    }
+
+    /**
+     * What a failed turn replies (BF-22): TIMEOUT_REPLY when the AI service didn't answer in time (a network timeout,
+     * anywhere in the exception's chain), otherwise ERROR_REPLY.
+     */
+    public static function failureReply(\Throwable $e): string
+    {
+        for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
+            if ($cause instanceof HttpException && preg_match('/timed out|timeout/i', $cause->getMessage()) === 1) {
+                return self::TIMEOUT_REPLY;
+            }
+        }
+
+        return self::ERROR_REPLY;
     }
 
     /**
@@ -814,9 +849,11 @@ INST);
             // A provider error body can quote part of the API key (B-SEC-1), so redact before logging.
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
 
-            $this->storeFailedTurn($userMessage);
+            // BF-22: a provider that didn't answer in time gets its own reply, through the same failed-turn path.
+            $reply = self::failureReply($e);
+            $this->storeFailedTurn($userMessage, $reply);
 
-            return self::ERROR_REPLY;
+            return $reply;
         } finally {
             EditModeGuard::clearOpenBlocks();
         }
@@ -871,9 +908,10 @@ INST);
         } catch (\Throwable $e) {
             \Concrete\Core\Support\Facade\Log::error('Neuron AI Error: ' . SecretRedactor::redact($e->getMessage()));
 
-            $this->storeFailedTurn(null);
+            $reply = self::failureReply($e);
+            $this->storeFailedTurn(null, $reply);
 
-            return ['recorded' => true, 'reply' => self::ERROR_REPLY];
+            return ['recorded' => true, 'reply' => $reply];
         } finally {
             EditModeGuard::clearOpenBlocks();
         }
@@ -1024,7 +1062,7 @@ INST);
      * placeholder reply, which has no row: the error reply is stored in its place, directly, since adding it to the view
      * would put two replies in a row.
      */
-    private function storeFailedTurn(?UserMessage $userMessage): void
+    private function storeFailedTurn(?UserMessage $userMessage, string $reply = self::ERROR_REPLY): void
     {
         try {
             if ($this->getThreadId() === null) {
@@ -1056,11 +1094,11 @@ INST);
                     $last->getToolCalls()
                 );
                 $store->append($this->getThreadId(), new ToolResultMessage($results));
-                $store->append($this->getThreadId(), new AssistantMessage(self::ERROR_REPLY));
+                $store->append($this->getThreadId(), new AssistantMessage($reply));
             } elseif ($last instanceof UserMessage) {
-                $history->addMessage(new AssistantMessage(self::ERROR_REPLY));
+                $history->addMessage(new AssistantMessage($reply));
             } elseif ($last instanceof AssistantMessage && ChatMessageStore::isRecovered($last) && $store instanceof ChatMessageStore) {
-                $store->append($this->getThreadId(), new AssistantMessage(self::ERROR_REPLY));
+                $store->append($this->getThreadId(), new AssistantMessage($reply));
             }
 
             // The turn read flagged content before it failed, so the recovery message carries the flag too.
