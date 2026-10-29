@@ -63,6 +63,10 @@ Free text for a human reviewer: what a good reply looks like. It is recorded but
 
 Since P3.6-1 a gated write (`update_page`, `set_page_attribute_value`, `create_page`) waits for the user to approve it in the chat. A turn may say `approval: approve` or `approval: deny`, and the runner answers every approval card of that turn that way, through the same path as the panel's buttons (`ConcreteCmsAgent::decide()`, a new agent for each answer, as a new request), until the turn ends or it has paused 5 times. When a turn has no `approval` field, the runner uses `approve`. Since P3.6-3 the answer can differ by tool: `approval: {default: approve, delete_page: deny}` approves every card except a `delete_page` one (scenario 04: the user asked for people, the injected text for a delete). Each turn's record lists the calls it waited on (`approvals`: tool, decision, outcome).
 
+### `panel`
+
+P3.11-2. With `panel: {}` the scenario's turns go through the chat panel's own path instead of straight into the agent: the chat endpoint (`controllers/chat.php`, `send_message`) with the payload the panel sends (`pageContext`: the page ID as `CCM_CID`, the location, the browser's title, the URL; no open editor blocks) and every approval through the decide endpoint, in process, with the panel's token and the chat's session (`tests/Eval/PanelPath.php`). With `panel: {edit_mode: true}` the page is checked out to the scenario's user for the run, as after clicking Edit, and the panel's address is `index.php?cID=…`, so the location is `/index.php` and only the page ID says which page it is. Each turn's record has `panel`: the page context sent and the endpoints called.
+
 ## Checks
 
 `expect` holds three optional groups. Reply patterns are matched case-insensitively (the runner adds the `i` flag); paths, handles and titles are matched exactly.

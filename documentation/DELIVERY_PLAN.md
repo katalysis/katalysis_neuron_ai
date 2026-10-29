@@ -439,7 +439,7 @@ After permissions, so that approval never stands in for a permission check.
 #### Stage 4: a lean agent
 The prompt cut is last because it removes the rules that the earlier tasks turned into code.
 
-- [ ] P3.11-2 **Scenarios through the browser and controller path** (M). Depends on: nothing; before P3.1, so the ContextBuilder is tested from the real path.
+- [x] P3.11-2 **Scenarios through the browser and controller path** (M; Done (PR #101)). Depends on: nothing; before P3.1, so the ContextBuilder is tested from the real path.
   - a scenario through the chat endpoint from the panel's payload, not only the in-process runner (from BF-1: the panel sent no page ID, which the runner can't see)
   - coverage of the home page, dashboard pages and edit mode (scenario 22 covers the home page only)
   - **four new scenarios**, each through the controller path from the panel's payload: an ordinary page (`/neuron-test/headings`), the home page, a dashboard page, and a page in edit mode
@@ -463,7 +463,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `VersionsToolkit::guidelines()` (BF-10)
   - rules with no code yet: B-LNG-1 and B-LNG-3 (with scenarios), B-SCP-1, B-SCP-3, B-INJ-6, B-TRU-8
   - scenarios: the new language scenarios ×1, and `--fake` of the full suite; cap $0.20. Compared ×3 in P3.S4
-- [ ] P3.S4 **Stage 4 comparison** (S; WP-4). Depends on: every Stage 4 task. The full suite (about 43 scenarios by then) ×3, the unstable ones ×5, from a reset, on gpt-4o. The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $10.10 (about 143 runs). **This run is the Phase 3 exit run** (Glyn, after P3.S2): P3.12 doesn't repeat it.
+- [ ] P3.S4 **Stage 4 comparison** (S; WP-4). Depends on: every Stage 4 task. The full suite (about 43 scenarios by then) ×3, the unstable ones ×5, from a reset, on gpt-4o. The merge rule is applied here. BEHAVIOUR_SPEC's "Today" column is brought up to date for the stage. Cap $10.10 (about 143 runs). **This run is the Phase 3 exit run** (Glyn, after P3.S2): P3.12 doesn't repeat it. Before the run, widen scenario 35's reply patterns to accept honest "not supported / can't do that" wordings, in its own commit with the reason (Glyn, after P3.9-3: in P3.9-3's run 2 the reply "my current functionality doesn't directly support…" failed the primary check, with no write and no card).
 
 #### Alongside, at any point
 - [ ] P3.8-1 **Provider and model from settings** (M). Depends on: nothing.
