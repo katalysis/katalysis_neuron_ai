@@ -371,11 +371,11 @@ final class NewestVersionReadTest extends ConcreteTestCase
     public function testThePromptSnapshotShowsTheNewestVersion(): void
     {
         [$cID] = $this->handEditedPage('Snapshot');
-        // The snapshot shows block counts and attributes: a third block, in the newest version only.
+        // The snapshot lists the blocks with short previews (P3.1): a third block, in the newest version only.
         Page::getByID($cID, 'RECENT')->addBlock(BlockType::getByHandle('content'), 'Main', ['content' => '<p>Block three, in the draft.</p>']);
         CacheLocal::flush();
         $prompt = PromptPreview::turn(Page::getByID($cID, 'ACTIVE'), 'Hello')['system'];
-        $this->assertStringContainsString('Area "Main" has 3 block(s)', $prompt);
+        $this->assertStringContainsString('content "Block three, in the draft."', $prompt);
     }
 
     // ---- block reads ----------------------------------------------------------------------------------------
