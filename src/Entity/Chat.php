@@ -6,10 +6,21 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * Neuron AI Chat Entity
- * Stores conversation history in the database for persistence and analytics
- * 
+ * One chat; its messages are rows in KatalysisNeuronAiChatMessages (ChatMessage, P2.5).
+ *
+ * P3.9-1: the table is Doctrine's alone (the package controller created it too, with other columns and indexes). The
+ * indexes are the ones that SQL had: the session's chat is looked up on every panel request, the chat list is by user,
+ * and P3.9-2 purges by date.
+ *
  * @ORM\Entity
- * @ORM\Table(name="KatalysisNeuronAiChats")
+ * @ORM\Table(
+ *     name="KatalysisNeuronAiChats",
+ *     indexes={
+ *         @ORM\Index(name="idx_session", columns={"sessionId"}),
+ *         @ORM\Index(name="idx_created_by", columns={"createdBy"}),
+ *         @ORM\Index(name="idx_created_date", columns={"createdDate"})
+ *     }
+ * )
  */
 class Chat
 {
@@ -26,16 +37,6 @@ class Chat
      * @ORM\Column(name="`sessionId`", type="string", nullable=true)
      */
     protected $sessionId;
-
-    /**
-     * Unused since P2.5: the messages are rows in KatalysisNeuronAiChatMessages (ChatMessage, ChatMessageStore). The
-     * column stays until P3.9 drops it with the Doctrine-managed table.
-     *
-     * @deprecated
-     * @var string
-     * @ORM\Column(name="`chatHistory`", type="text", nullable=true)
-     */
-    protected $chatHistory = '';
 
     /**
      * @var string
@@ -107,23 +108,6 @@ class Chat
     public function setSessionId(?string $sessionId): self
     {
         $this->sessionId = $sessionId;
-        return $this;
-    }
-
-    /**
-     * @deprecated Unused since P2.5; read the messages through ChatMessageStore.
-     */
-    public function getChatHistory(): string
-    {
-        return $this->chatHistory ?? '';
-    }
-
-    /**
-     * @deprecated Unused since P2.5; write the messages through ChatMessageStore.
-     */
-    public function setChatHistory(string $chatHistory): self
-    {
-        $this->chatHistory = $chatHistory;
         return $this;
     }
 

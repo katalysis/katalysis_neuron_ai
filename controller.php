@@ -18,7 +18,7 @@ class Controller extends Package
 {
     protected $pkgHandle = 'katalysis_neuron_ai';
     protected $appVersionRequired = '9.3';
-    protected $pkgVersion = '3.4.0';
+    protected $pkgVersion = '3.5.0';
     protected $pkgAutoloaderRegistries = [
         'src' => '\Katalysis\NeuronAi'
     ];
@@ -37,7 +37,6 @@ class Controller extends Package
     public function on_start()
     {
         $this->setupAutoloader();
-        $this->createDatabaseTables();
         $this->registerRoutes();
         $this->injectChatPanel();
     }
@@ -110,41 +109,6 @@ class Controller extends Package
         });
     }
 
-    private function createDatabaseTables()
-    {
-        try {
-            $app = Application::getFacadeApplication();
-            /** @var Connection $db */
-            $db = $app->make(Connection::class);
-            
-            // Create KatalysisNeuronAiChats table
-            $sql = "CREATE TABLE IF NOT EXISTS `KatalysisNeuronAiChats` (
-                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                `sessionId` VARCHAR(255) NOT NULL,
-                `chatHistory` LONGTEXT,
-                `firstMessage` TEXT,
-                `lastMessage` TEXT,
-                `userMessageCount` INT DEFAULT 0,
-                `createdBy` INT DEFAULT 0,
-                `createdDate` DATETIME,
-                `updatedDate` DATETIME,
-                `started` DATETIME,
-                `location` VARCHAR(500),
-                INDEX `idx_session` (`sessionId`),
-                INDEX `idx_created_by` (`createdBy`),
-                INDEX `idx_created_date` (`createdDate`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-            
-            $db->executeStatement($sql);
-            
-        } catch (\Exception $e) {
-            // Log error but don't break installation
-            if (function_exists('Log')) {
-                \Log::error('Katalysis Neuron AI: Failed to create database tables - ' . $e->getMessage());
-            }
-        }
-    }
-
     protected $single_pages = array(
         '/dashboard/system/ai' => array(
             'cName' => 'AI'
@@ -158,14 +122,14 @@ class Controller extends Package
     {
         $this->setupAutoloader();
 
+        // The tables come from the package's Doctrine entities (src/Entity), which install creates (P3.9-1).
         $pkg = parent::install();
-
-        $this->createDatabaseTables();
 
         Config::save('katalysis.ai.open_ai_key', '');
         Config::save('katalysis.ai.open_ai_model', 'gpt-4o');
         Config::save('katalysis.ai.anthropic_key', '');
-        Config::save('katalysis.ai.anthropic_model', 'claude-2');
+        // Empty: the provider's default (ModelCatalog). 'claude-2' failed P3.8-1's model check, so the form couldn't save.
+        Config::save('katalysis.ai.anthropic_model', '');
         Config::save('katalysis.ai.ollama_key', '');
         Config::save('katalysis.ai.ollama_url', '');
         Config::save('katalysis.ai.ollama_model', 'llama3.1:8b');
@@ -184,7 +148,13 @@ class Controller extends Package
 
 		$pkg = Package::getByHandle("katalysis_neuron_ai");
 
-        $this->createDatabaseTables();
+        // P3.9-1: Doctrine updates the tables but never drops a column, so the legacy chatHistory (unused since P2.5)
+        // is dropped here, once.
+        \Katalysis\NeuronAi\Chat\ChatTableMigration::dropLegacyChatHistory(Application::getFacadeApplication()->make(Connection::class));
+        // The old install default, which P3.8-1's model check refuses: back to empty (the provider's default).
+        if (Config::get('katalysis.ai.anthropic_model') === 'claude-2') {
+            Config::save('katalysis.ai.anthropic_model', '');
+        }
         $this->installPages($pkg);
         $this->installPermissionKeys($pkg);
 
