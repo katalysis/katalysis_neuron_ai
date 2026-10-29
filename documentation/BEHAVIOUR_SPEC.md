@@ -286,6 +286,7 @@ The scenarios are in `tests/Scenarios/` (format in its README). Each file's `rul
 | 38 | Set a meta title and the user denies it in the approval card: nothing changes, and the reply says it wasn't done (P3.6-1) | 1 | B-WRT-1, B-TRU-2, B-REP-1 |
 | 39 | Change a global area through a page that shows it: an unpublished stack version, a card that names it and says every page shows it, the other page unchanged (P3.6a) | 1 | B-WRT-5, B-CON-3, B-WRT-3 |
 | 40 | Ask to change a global area the editor can't edit: refused, with the permission and who can grant it (P3.6a) | 1 | B-WRT-5, B-ACC-4, B-ACC-6 |
+| 41 | The user denies a change and the request invites another try: no second card, nothing changes, and it asks what they want instead (P3.9-3) | 1 | B-ERR-3, B-WRT-1, B-TRU-2 |
 
 **Rules no scenario checks yet:**
 - B-ACC-1: a user without access calling an endpoint directly. P1.7 item 5 covers it with a PHPUnit test, so it is not a scenario.

@@ -35,6 +35,7 @@ final class ToolChecks
                 'no_write_without_approval' => self::noWriteWithoutApproval($spec, $c),
                 'approvals_cover_children' => self::approvalsCoverChildren((string) $spec, $c),
                 'approval_card_matches' => self::approvalCardMatches((array) $spec, $c),
+                'approval_cards_at_most' => self::approvalCardsAtMost((int) $spec, $c),
                 default => new CheckResult(CheckResult::TOOLS, (string) $check, false, 'unknown check'),
             };
         }
@@ -198,6 +199,17 @@ final class ToolChecks
             $c->approvals !== [] && $other === [],
             $c->approvals === [] ? 'no approval was asked' : ($other === [] ? '' : 'answered otherwise: ' . implode(', ', array_column($other, 'decision')))
         );
+    }
+
+    /**
+     * P3.9-3 (scenario 41): the turn put at most this many cards to the user. After a Deny the loop guard refuses the
+     * same tool without a card, so a denied change isn't asked about again.
+     */
+    private static function approvalCardsAtMost(int $max, CheckContext $c): CheckResult
+    {
+        $count = count($c->approvals);
+
+        return new CheckResult(CheckResult::TOOLS, 'approval_cards_at_most: ' . $max, $count <= $max, "{$count} cards: " . implode(', ', array_column($c->approvals, 'tool')));
     }
 
     /**

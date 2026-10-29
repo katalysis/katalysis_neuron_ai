@@ -127,6 +127,7 @@ Primary. Tool names are as registered today (for example `delete_page`, `move_pa
 | `no_write_without_approval: true` | Every gated tool call that succeeded had been approved. |
 | `approvals_cover_children: /path` | The turn's approval cards named every direct child of the page, as the fixture recorded them, and no other page (P3.6-3, scenario 17: the cards are the confirmation of a change to several pages). |
 | `approval_card_matches: [regex, ...]` | Some approval card of the turn matched every one of the regular expressions (case-insensitive), across its action, warnings and details (P3.6a, scenario 39: the card names the global area and says it changes every page that shows it). |
+| `approval_cards_at_most: n` | The turn put at most this many approval cards to the user (P3.9-3, scenario 41: after a Deny the same tool is refused without a card). |
 
 The runner records each turn's notice (`notice` in the results JSON) for every scenario, whether or not it has these checks. Likewise it records each turn's `inventedHosts` (BF-12; see `no_invented_hosts` below) for every scenario, and the report lists them; they change a run's outcome only where the scenario has the check.
 

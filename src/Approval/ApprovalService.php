@@ -59,6 +59,8 @@ final class ApprovalService
 
     /** What the model is told for each kind of rejection. */
     public const DENY_REASON = 'The user chose Deny.';
+    /** How every Deny's rejection starts (DENY_REASON, or the user's reason after it): what LoopGuard looks for. */
+    public const DENY_PREFIX = 'The user chose Deny';
     public const STALE_REASON = 'The page changed after the preview, so nothing was changed. Show the user a new preview if they still want this.';
     public const NEW_MESSAGE_REASON = 'The user sent a new message instead of approving; this was not done.';
 
