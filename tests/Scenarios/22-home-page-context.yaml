@@ -4,18 +4,21 @@ tier: any
 user: neuron_content_editor
 current_page: /
 rules: [B-CTX-1, B-TRU-1]
-rubric: Names the home page, taken from the page context tool, which must work on the home page (BF-1). Needs no write.
+rubric: Names the home page. Since P3.7-2 the context block names it, so the page context tool is no longer required (it must still work on the home page, BF-1; covered by PHPUnit). Needs no write.
 turns:
   - say: "What page am I on?"
     expect:
       tools:
-        # BF-1: get_current_page_context failed on the home page ("Unable to determine the current page context").
-        succeeded: [get_current_page_context]
+        # P3.7-2: get_current_page_context is no longer required: the context block names the page (the prompt rule that
+        # made the model call it first is dropped). BF-1, the tool failing on the home page, is covered by PHPUnit.
         no_write_tool_succeeded: true
       reply:
+        # P3.7-2: naming the page is now the primary check.
         matches_any:
-          - 'Home'
-          - 'home page'
+          primary: true
+          patterns:
+            - 'Home'
+            - 'home page'
 expect:
   tools:
     notice_absent: true
