@@ -8,7 +8,7 @@ use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Package\PackageService;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Entity\Chat;
-use Katalysis\NeuronAi\Entity\ChatTableMigration;
+use Katalysis\NeuronAi\Chat\ChatTableMigration;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
 
