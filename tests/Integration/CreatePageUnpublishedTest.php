@@ -126,7 +126,7 @@ final class CreatePageUnpublishedTest extends ConcreteTestCase
         foreach ((new PagesToolkit())->tools() as $tool) {
             if ($tool->getName() === 'create_page') {
                 $this->assertStringContainsString('unpublished', $tool->getDescription());
-                $this->assertStringContainsString('Page Versions', $tool->getDescription());
+                $this->assertStringContainsString('Approve Version', $tool->getDescription());
             }
         }
 
@@ -134,7 +134,7 @@ final class CreatePageUnpublishedTest extends ConcreteTestCase
 
         $this->assertFalse($result['published']);
         $this->assertStringContainsString('unpublished', $result['note']);
-        $this->assertStringContainsString('Page Versions', $result['note']);
+        $this->assertStringContainsString('Approve Version', $result['note']);
         $this->assertSame(1, $result['versionID']);
     }
 
