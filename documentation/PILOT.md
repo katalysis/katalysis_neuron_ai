@@ -50,7 +50,7 @@ The assistant never does more than the person could do in Concrete. If an editor
 ## 4. What the assistant does: for the team
 
 - **It works in drafts.** Every change to a page goes into a new, unpublished version. You see it on the page in edit mode, and it goes live only when **you** publish it.
-- **It asks first.** Before any change, a card appears in the chat that says exactly what will change. Nothing happens until you click **Approve**. **Deny** means nothing changes.
+- **It asks first.** Before any change, a card appears in the chat that says exactly what will change. Nothing happens until you click **Approve**. **Deny** means nothing changes, and the assistant won't try that change again in that request; it asks what you want instead.
 - **Global areas (headers, footers, shared banners) affect every page.** The card says "it appears on every page that shows it" and how many pages that is. The change goes into an unpublished version of the shared area:
   - **If you can approve that area:** publishing the page publishes it too.
   - **If you can't:** publishing the page won't publish it; someone who can approves it under **Dashboard → Stacks & Global Areas**. The card says which applies to you.
@@ -82,7 +82,6 @@ Every report becomes a test scenario, so detail matters.
 
 ## 6. Known open items
 
-- **After you click Deny, the model may try the same thing again** with slightly different details, so a second card appears. Deny it again, or tell it to stop. A fix is planned (P3.9-3): after a Deny, the same tool is refused for the rest of that turn.
 - **Chats are kept indefinitely** until retention and an admin purge arrive (P3.9-2). Don't paste personal data into the chat that you wouldn't keep in the CMS.
 - **The model sometimes says it did something that was refused.** The Changed line is the truth. Report it when it happens.
 - **Headers and footers now appear in everything the assistant reads,** so it may suggest changes to them. Each suggestion has its own card.
