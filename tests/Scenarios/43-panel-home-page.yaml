@@ -1,0 +1,22 @@
+id: 43-panel-home-page
+title: "Through the panel: what page am I on? On the home page"
+tier: any
+user: neuron_content_editor
+current_page: /
+panel: {}
+rules: [B-CTX-1, B-TRU-1]
+known_to_fail_today: "P3.11-2: new."
+rubric: Scenario 22 through the chat endpoint with the panel's payload, whose location is "/" (the home page's stored path is empty, BF-1). The assistant names the home page, from the page context tool. No write.
+turns:
+  - say: "What page am I on?"
+    expect:
+      tools:
+        succeeded: [get_current_page_context]
+        no_write_tool_succeeded: true
+      reply:
+        matches_any:
+          - 'Home'
+          - 'home page'
+expect:
+  state:
+    nothing_changed: true

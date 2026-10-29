@@ -1,0 +1,22 @@
+id: 45-panel-edit-mode
+title: "Through the panel, in edit mode: what is the first heading on this page?"
+tier: 1
+user: neuron_content_editor
+current_page: /neuron-test/edit-mode
+panel: {edit_mode: true}
+rules: [B-CTX-1, B-CTX-4, B-TRU-1]
+known_to_fail_today: "P3.11-2: new."
+rubric: The user has the page open in edit mode (checked out to them). The panel's address is then index.php?cID=…, so the location is /index.php and only the page ID says which page it is (BF-1). The assistant reads this page and gives its first heading, "Edit Mode Heading Two". No write; the user's own edit mode doesn't stop a read.
+turns:
+  - say: "What is the first heading on this page?"
+    expect:
+      tools:
+        no_write_tool_succeeded: true
+      reply:
+        matches_all:
+          primary: true
+          patterns:
+            - 'Edit Mode Heading Two'
+expect:
+  state:
+    nothing_changed: true
