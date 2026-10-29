@@ -720,6 +720,11 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - a test that runs every read tool that lists or returns a page's blocks against a page with a global area, and checks the global-area blocks appear, marked with `globalArea`, for a user who may view them, and don't for one who may not
   - fix any read tool it catches
   - scenarios: a free `--fake` run of 39 and 40
+- [ ] BF-24 **`move_page` says how to undo** (small; its own PR into `development`; no plan stop; Glyn, after P3.S3). Found in P3.S3: scenario 09 was partial 3/3 because the reply never said how to reverse the move (B-WRT-2, B-REP-1 (d)). Scope:
+  - `move_page`'s result carries an undo line: the old path, that the old address redirects, and how to move it back
+  - `TurnChanges` uses it on the Changed line
+  - a red-first test
+  - scenarios: 09 ×1 after the change; cap $0.15
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
