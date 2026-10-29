@@ -6,6 +6,7 @@ use Config;
 use Concrete\Core\Page\Controller\DashboardPageController;
 use Katalysis\NeuronAi\Access\NeuronPermissions;
 use Katalysis\NeuronAi\Settings\ApiKeySettings;
+use Katalysis\NeuronAi\Settings\ModelCatalog;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
 
 class NeuronAi extends DashboardPageController
@@ -32,6 +33,11 @@ class NeuronAi extends DashboardPageController
         foreach ($settings->plainValues() as $field => $value) {
             $this->set($field, $value);
         }
+        // P3.8-1: the providers and the models the page offers.
+        $this->set('provider', ModelCatalog::provider($settings->plainValues()['provider'] ?? ''));
+        $this->set('providers', ModelCatalog::LABELS);
+        $this->set('known_models', ModelCatalog::MODELS);
+        $this->set('default_models', ModelCatalog::DEFAULT_MODELS);
 
         // Toolkits other packages registered that can't be built, so the assistant is running without their tools.
         $this->set('external_toolkit_skips', $this->externalToolkitSkips());
@@ -46,8 +52,13 @@ class NeuronAi extends DashboardPageController
         } elseif (!$this->token->validate('ai.settings')) {
             $this->error->add($this->token->getErrorMessage());
         } else {
-            // P3.9-4: a value that can't be stored (ApiKeySettings::refusals()) refuses the whole form.
-            foreach (ApiKeySettings::refusals($this->request->request->all()) as $refusal) {
+            // P3.9-4, P3.8-1: a value that can't be stored (ApiKeySettings::refusals()), or a provider chosen without its
+            // key, refuses the whole form.
+            $post = $this->request->request->all();
+            foreach (ApiKeySettings::refusals($post) as $refusal) {
+                $this->error->add(t($refusal));
+            }
+            if ($refusal = $this->settings()->keyRefusal($post)) {
                 $this->error->add(t($refusal));
             }
         }
