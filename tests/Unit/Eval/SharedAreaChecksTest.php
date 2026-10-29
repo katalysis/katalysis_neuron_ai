@@ -55,4 +55,18 @@ final class SharedAreaChecksTest extends TestCase
         $this->assertFalse($check([$card('Change the Content block in the global area "Neuron Test Banner" on Shared A'), $card('it appears on every page')]), 'both on one card');
         $this->assertFalse($check([]));
     }
+
+    /** P3.9-3 (scenario 41): at most this many cards in the turn. */
+    public function testApprovalCardsAtMostCountsTheTurnsCards(): void
+    {
+        $snapshot = S::make([S::page(1, '/')]);
+        $card = ['tool' => 'update_page', 'callId' => 'c', 'decision' => 'deny', 'status' => 'denied', 'path' => '/x', 'text' => ''];
+        $check = static fn (array $approvals): bool => ToolChecks::run(
+            ['approval_cards_at_most' => 1],
+            new CheckContext($snapshot, $snapshot, $snapshot, [], '', 'p', null, null, null, $approvals)
+        )[0]->passed;
+
+        $this->assertTrue($check([$card]));
+        $this->assertFalse($check([$card, $card]), 'a second card for the denied change');
+    }
 }
