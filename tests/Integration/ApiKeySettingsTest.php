@@ -205,6 +205,24 @@ final class ApiKeySettingsTest extends ConcreteTestCase
         $this->assertNotSame('x', $this->config->get('katalysis.ai.open_ai_model'));
     }
 
+    public function testAnOllamaUrlWithCredentialsRefusesTheWholeSave(): void
+    {
+        // P3.9-4: the URL is shown in plain text, so a password in it is refused, and nothing else is saved either.
+        $this->storeDummyKeys();
+        $this->config->save('katalysis.ai.ollama_url', 'http://localhost:11434');
+        $this->post(['ollama_url' => 'http://admin:s3cret-pass@ollama.example', 'open_ai_model' => 'gpt-4o-mini', 'open_ai_key' => 'sk-dummy-NOT-SAVED-0000']);
+
+        $controller = $this->controller();
+        $controller->save();
+
+        $this->assertSame('http://localhost:11434', $this->config->get('katalysis.ai.ollama_url'));
+        $this->assertNotSame('gpt-4o-mini', $this->config->get('katalysis.ai.open_ai_model'));
+        $this->assertSame(self::DUMMY_OPEN_AI, $this->config->get('katalysis.ai.open_ai_key'));
+        $errors = implode(' ', array_map('strval', (new \ReflectionProperty($controller, 'error'))->getValue($controller)->getList()));
+        $this->assertStringContainsString('Ollama Key', $errors);
+        $this->assertStringNotContainsString('s3cret-pass', $errors);
+    }
+
     public function testABlankSaveKeepsEveryKey(): void
     {
         $this->storeDummyKeys();
