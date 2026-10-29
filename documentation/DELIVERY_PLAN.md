@@ -439,7 +439,7 @@ After permissions, so that approval never stands in for a permission check.
 #### Stage 4: a lean agent
 The prompt cut is last because it removes the rules that the earlier tasks turned into code.
 
-- [ ] P3.11-2 **Scenarios through the browser and controller path** (M). Depends on: nothing; before P3.1, so the ContextBuilder is tested from the real path.
+- [x] P3.11-2 **Scenarios through the browser and controller path** (M; Done (PR #101)). Depends on: nothing; before P3.1, so the ContextBuilder is tested from the real path.
   - a scenario through the chat endpoint from the panel's payload, not only the in-process runner (from BF-1: the panel sent no page ID, which the runner can't see)
   - coverage of the home page, dashboard pages and edit mode (scenario 22 covers the home page only)
   - **four new scenarios**, each through the controller path from the panel's payload: an ordinary page (`/neuron-test/headings`), the home page, a dashboard page, and a page in edit mode
