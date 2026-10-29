@@ -56,6 +56,16 @@ final class LoopGuard
     }
 
     /**
+     * What the model is told when the user denies a call (ApprovalToolNode): not done, not another way, ask instead.
+     * $reason is the Deny's rejection: DENY_REASON, or "The user chose Deny and said: …".
+     */
+    public static function denied(string $tool, string $reason): string
+    {
+        return "TOOL NOT EXECUTED. {$reason} The {$tool} change was not made. Don't make the same change another way, with "
+            . 'this tool or another, in this request. Ask the user what they want instead.';
+    }
+
+    /**
      * The denied tools after a decision: the user's Deny adds the tool. A rejection that isn't the user's Deny (stale,
      * a new message, a call its own checks refused) doesn't.
      *

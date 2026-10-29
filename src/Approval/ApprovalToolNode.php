@@ -38,6 +38,13 @@ final class ApprovalToolNode extends ToolNode
 
             return;
         }
+        if (str_starts_with($reason, ApprovalService::DENY_PREFIX)) {
+            // P3.9-3 (scenario 41): Neuron's text says only "do not attempt this tool again", and the model tried another
+            // tool for the same change. The user's own words, when given, come first.
+            $call->setResult(LoopGuard::denied($call->getName(), $reason));
+
+            return;
+        }
 
         parent::stampRejectionResult($call);
     }
