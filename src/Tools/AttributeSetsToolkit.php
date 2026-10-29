@@ -29,11 +29,6 @@ class AttributeSetsToolkit extends AbstractToolkit
     /** P3.5-1: the Dashboard page Concrete manages attribute sets on; access to it is the permission these tools check. */
     private const SETS_PAGE = '/dashboard/system/attributes/sets';
 
-    public function guidelines(): ?string
-    {
-        return "Use these tools to manage attribute sets in Concrete CMS. Attribute sets organize attributes into logical groups in the CMS interface. You can list existing sets, create new sets, delete sets (attributes are not deleted, just ungrouped), add attributes to sets, and remove attributes from sets. All tools support three categories: 'collection' (for pages), 'user' (for user attributes), and 'file' (for file attributes). The category parameter defaults to 'collection'. When working with sets, you can identify them by their handle (lowercase with underscores).";
-    }
-
     public function provide(): array
     {
         return [

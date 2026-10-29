@@ -23,11 +23,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class TopicsToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return "Use these tools to work with topic trees in Concrete CMS. Topic trees are hierarchical taxonomies used for categorization (e.g., Specialisms, Industries, Categories). You can list available topic trees, browse their structure, search for specific topics by name, and get detailed information about topics including their children. Topic trees are used both directly in custom entities (like People) and through Concrete's attribute system (topics-type attributes on pages/users/files). When working with topics, you can identify them by handle/name or by treeNodeID.";
-    }
-
     public function provide(): array
     {
         return [

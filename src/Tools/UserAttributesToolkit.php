@@ -24,11 +24,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class UserAttributesToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return "Use these tools to manage user attributes in Concrete CMS. You can list existing user attributes, get detailed information about specific attributes, create new user attributes with various types (text, select, boolean, etc.), update select attribute options, and set attribute values on users. When setting user attributes, you can identify users by ID, username, or email. For select attributes, option values are matched case-insensitively. Always check that attribute handles don't already exist before creating new ones. Attribute handles should be lowercase with underscores (e.g., 'department', 'job_title').";
-    }
-
     public function provide(): array
     {
         return [

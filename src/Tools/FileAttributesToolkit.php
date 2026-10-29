@@ -24,11 +24,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class FileAttributesToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return "Use these tools to manage file attributes in Concrete CMS. You can list existing file attributes, get detailed information about specific attributes, create new file attributes with various types (text, select, boolean, etc.), update select attribute options, and set attribute values on files. When setting file attributes, you can identify files by ID or filename. For select attributes, option values are matched case-insensitively. Always check that attribute handles don't already exist before creating new ones. Attribute handles should be lowercase with underscores (e.g., 'copyright_holder', 'license_type').";
-    }
-
     public function provide(): array
     {
         return [

@@ -55,7 +55,7 @@ final class DraftState
             'pageID' => (int) $page->getCollectionID(),
             'versionID' => $versionID,
             'summary' => "The new page is unpublished (version {$versionID}): visitors can't see it until someone opens it "
-                . 'and clicks "Approve Version", or approves it in Page Versions.',
+                . 'and clicks "Approve Version".',
             'reply' => self::NEW_PAGE_REPLY,
         ]];
     }

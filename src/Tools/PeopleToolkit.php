@@ -26,11 +26,6 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class PeopleToolkit extends AbstractToolkit
 {
-    public function guidelines(): ?string
-    {
-        return "Use these tools to manage People in the Katalysis Pro system. People are a custom entity (not pages or users) with properties like name, job title, email, and relationships to Places, Specialisms, and Topics. Specialisms and Topics are topic tree nodes stored in junction tables (KatalysisPeopleSpecialism, KatalysisPeopleTopic). When updating specialisms or topics, provide an array of topic node IDs. Use the Topics toolkit to search for topic IDs by name. People can be identified by ID, name (fuzzy matching), or email.";
-    }
-
     public function provide(): array
     {
         return [

