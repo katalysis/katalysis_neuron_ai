@@ -44,6 +44,7 @@ use Katalysis\NeuronAi\Tools\AttributeSetsToolkit;
 use Katalysis\NeuronAi\Tools\TopicsToolkit;
 use Katalysis\NeuronAi\Tools\PeopleToolkit;
 use Katalysis\NeuronAi\Tools\VersionsToolkit;
+use Katalysis\NeuronAi\Tools\ToolGroups;
 use Katalysis\NeuronAi\Tools\ToolGroupsToolkit;
 use Katalysis\NeuronAi\Tools\ExternalToolkitBuild;
 use Katalysis\NeuronAi\Tools\ExternalToolkitRegistry;
@@ -113,6 +114,9 @@ class ConcreteCmsAgent extends Agent
 
     /** @var list<array{string, list<string>}> each toolkit's heading and guidelines, and its tools (resolveTools()) */
     private array $toolkitGuidelines = [];
+
+    /** @var list<string> the names of every tool the model may call (resolveTools()) */
+    private array $registryNames = [];
 
     /** @var list<int> blocks the user has an editor open on, on the current page (BF-7) */
     private array $openEditorBlockIDs = [];
@@ -269,7 +273,7 @@ class ConcreteCmsAgent extends Agent
             new PeopleToolkit(),
             new VersionsToolkit(),
             // P3.2-2: get_tool_group, always offered (ToolGroups).
-            new ToolGroupsToolkit(),
+            new ToolGroupsToolkit($this->toolsInGroup(...)),
         ];
     }
 
@@ -330,6 +334,8 @@ class ConcreteCmsAgent extends Agent
             }
         }
 
+        $this->registryNames = array_map(static fn (ToolInterface $t): string => $t->getName(), $tools);
+
         $configured = $this->getInstructions();
         $text = (string) $configured->getContent();
         $text .= self::guidelinesBlock($guidelines);
@@ -372,6 +378,16 @@ class ConcreteCmsAgent extends Agent
         }
 
         return $system;
+    }
+
+    /**
+     * The tools the model may call in a tool group (get_tool_group's result, P3.2-2).
+     *
+     * @return list<string>
+     */
+    private function toolsInGroup(string $group): array
+    {
+        return array_values(array_filter($this->registryNames, static fn (string $name): bool => ToolGroups::groupOf($name) === $group));
     }
 
     /**

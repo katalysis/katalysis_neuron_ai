@@ -18,6 +18,14 @@ use NeuronAI\Tools\Toolkits\AbstractToolkit;
  */
 class ToolGroupsToolkit extends AbstractToolkit
 {
+    /**
+     * @param (\Closure(string): list<string>)|null $toolsIn the user's tools in a group (the agent's registry); null
+     *     leaves them out of the result
+     */
+    public function __construct(private readonly ?\Closure $toolsIn = null)
+    {
+    }
+
     public function provide(): array
     {
         return [$this->makeGetToolGroupTool()];
@@ -54,14 +62,20 @@ class ToolGroupsToolkit extends AbstractToolkit
                     throw new \InvalidArgumentException('Unknown group "' . (string) $group . '". Groups: ' . implode(', ', ToolGroups::ORDER) . '.');
                 }
 
-                return [
-                    'ok' => true,
-                    'data' => [
-                        'group' => $group,
-                        'for' => $this->describe($group),
-                        'note' => "The {$group} tools are offered from your next step in this request: call the one you need.",
-                    ],
+                $data = [
+                    'group' => $group,
+                    'for' => $this->describe($group),
+                    'note' => "The {$group} tools are offered from your next step in this request: call the one you need.",
                 ];
+                // The full run showed the model asking again for a group it had when the tool it wanted doesn't
+                // exist; the list tells it there is none.
+                if ($this->toolsIn !== null) {
+                    $data['tools'] = ($this->toolsIn)($group);
+                    $data['note'] = "These are all the {$group} tools you can use, offered from your next step in this request. "
+                        . 'If none of them does what the task needs, there is no tool for it: tell the user, and don\'t ask for the group again.';
+                }
+
+                return ['ok' => true, 'data' => $data];
             } catch (\Throwable $e) {
                 return ['ok' => false, 'error' => $e->getMessage()];
             }
