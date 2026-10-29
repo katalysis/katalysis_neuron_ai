@@ -11,6 +11,7 @@ use Concrete\Core\Block\Command\DeleteBlockCommand;
 use Concrete\Core\Block\Exception\BlockNotFoundException;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Page\Page;
+use Concrete\Core\Page\Stack\Stack;
 use Concrete\Core\Support\Facade\Application;
 use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
@@ -93,19 +94,30 @@ class ContentToolkit extends AbstractToolkit
             $errors = [];
 
             try {
-                $areaHandles = $areaHandle ? [$areaHandle] : Area::getHandleList();
+                // P3.6a: with the page's global areas, which Area::getHandleList() leaves out.
+                $areaHandles = $areaHandle ? [$areaHandle] : array_values(array_unique(array_merge(
+                    Area::getHandleList(),
+                    Application::getFacadeApplication()->make('database')->connection()->fetchFirstColumn(
+                        'SELECT arHandle FROM Areas WHERE cID = ? AND arIsGlobal = 1 ORDER BY arHandle',
+                        [(int) $page->getCollectionID()]
+                    )
+                )));
                 
                 foreach ($areaHandles as $handle) {
                     try {
                         $area = Area::get($page, $handle);
                         if (!$area) {
                             if ($areaHandle === $handle) {
-                                throw new \RuntimeException("Area '{$handle}' does not exist on this page");
+                                // P3.6a (scenario 39): the page's areas, global ones named as such, so a near miss
+                                // ("Banner") finds the right one.
+                                throw new \RuntimeException("Area '{$handle}' does not exist on this page. Its areas: " . $this->areaNames($page) . '.');
                             }
                             continue;
                         }
-                        
-                        $blocks = $area->getAreaBlocksArray($page);
+
+                        // P3.6a: a global area's blocks are on its stack, in the version Concrete shows this user.
+                        $stack = $area->isGlobalArea() ? Stack::getGlobalAreaStackFromName($page, $handle) : null;
+                        $blocks = $area->isGlobalArea() ? ($stack ? $stack->getBlocks(STACKS_AREA_NAME) : []) : $area->getAreaBlocksArray($page);
                         $blockData = [];
                         
                         foreach ($blocks as $block) {
@@ -144,7 +156,7 @@ class ContentToolkit extends AbstractToolkit
                                 'areaHandle' => $handle,
                                 'blockCount' => count($blockData),
                                 'blocks' => $blockData,
-                            ];
+                            ] + ($stack ? ['globalArea' => ['name' => $handle, 'pagesShowingIt' => SharedArea::pagesShowing($stack)[0]]] : []);
                         }
                     } catch (\Exception $e) {
                         $errors[] = "Error reading area '{$handle}': " . $e->getMessage();
@@ -732,6 +744,17 @@ class ContentToolkit extends AbstractToolkit
     public function getBlockToWorkWith(Page $page, string $areaHandle, $blockID): array
     {
         return $this->coreGetBlockToWorkWith($page, $areaHandle, $blockID);
+    }
+
+    /** The page's areas, as "Main, Header Navigation (global area), …", for a refusal that names a wrong one. */
+    private function areaNames(Page $page): string
+    {
+        $rows = Application::getFacadeApplication()->make('database')->connection()->fetchAllAssociative(
+            'SELECT arHandle, arIsGlobal FROM Areas WHERE cID = ? AND arParentID = 0 ORDER BY arHandle',
+            [(int) $page->getCollectionID()]
+        );
+
+        return implode(', ', array_map(static fn (array $r): string => $r['arHandle'] . ((int) $r['arIsGlobal'] === 1 ? ' (global area)' : ''), $rows)) ?: '(none recorded)';
     }
 
     /**
