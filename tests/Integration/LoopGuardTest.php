@@ -144,7 +144,7 @@ final class LoopGuardTest extends ConcreteTestCase
         $this->assertArrayNotHasKey((string) $second->getCallId(), $statuses, 'no card for the repeat');
         $this->assertSame(ApprovalService::PENDING, $statuses[$other->getCallId()]);
         CacheLocal::flush();
-        $this->assertSame('Loop guard deny', (string) Page::getByID($cID, 'RECENT')->getCollectionName(), 'nothing renamed');
+        $this->assertSame((string) $page->getCollectionName(), (string) Page::getByID($cID, 'RECENT')->getCollectionName(), 'nothing renamed');
 
         // The next turn starts afresh: update_page gets a card again.
         $this->agent($chatId, new FakeAIProvider(new AssistantMessage('Left it.')))->decide((string) $other->getCallId(), false);
