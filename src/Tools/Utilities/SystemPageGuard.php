@@ -9,55 +9,64 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Stack\Stack;
 
 /**
- * Writes to system pages are refused (B-WRT-5, BF-1, BF-2).
+ * Writes to system pages are refused (B-WRT-5, BF-1, BF-2, P3.6a).
  *
  * - **System single pages and page type defaults** are refused permanently: the dashboard, account and login pages,
  *   error pages, the trash and drafts containers (pages Concrete marks as system pages), and page type defaults
  *   (master collections, which Concrete doesn't mark as system pages, and which are edited live, without a draft).
- * - **Stacks and global areas** (a global area's content lives on a stack) are refused until stack editing is enabled
- *   (P3.6a): stackEditingEnabled() is false. A stack is whatever Stack::getByID() finds, so multilingual copies count.
+ * - **Stacks and global areas** (a global area's content lives on a stack) are edited only through the block tools,
+ *   as an editor edits them (P3.6a, SharedArea): in an unapproved stack version, with the stack's own permissions, and
+ *   with a notice that the change shows on every page with the area. Every other tool refuses a stack: the assistant
+ *   doesn't rename, move, delete, publish or change the properties of one. A stack is whatever Stack::getByID()
+ *   finds, so multilingual copies count. batch_update_page_content still refuses a global area (refuseGlobalArea()).
  *
  * The assistant may read all of them and use them as the current page. Every write tool that takes a page calls
- * refuse() right after it has found the page, and every block tool calls refuseGlobalArea() for each area it would
- * write to, before any check that could make a draft. SystemPageWriteRefusalTest and GlobalAreaWriteRefusalTest check
- * that every such tool does.
+ * refuse() right after it has found the page. SystemPageWriteRefusalTest and GlobalAreaWriteTest check that every such
+ * tool does.
  */
 final class SystemPageGuard
 {
     /**
-     * Whether the assistant may edit stacks and global areas. Off until P3.6a (draft-only stack versions, the user's
-     * stack permissions, a notice that the change shows on every page with the area).
+     * Whether the block tools may edit stacks and global areas (P3.6a: draft-only stack versions, the user's stack
+     * permissions, a notice that the change shows on every page with the area). Off before P3.6a; false refuses
+     * stacks to the block tools too.
      */
     public static function stackEditingEnabled(): bool
     {
-        return false;
+        return true;
     }
 
     /**
      * @param string $role what the page is to the tool, for the message ("page", "parent page", "new parent page")
+     * @param bool $allowStack true only for the block tools, which edit a stack's blocks in a stack draft (P3.6a)
      */
-    public static function refuse(Page $page, string $role = 'page'): void
+    public static function refuse(Page $page, string $role = 'page', bool $allowStack = false): void
     {
-        if (self::isStack($page) ? !self::stackEditingEnabled() : ($page->isSystemPage() || $page->isMasterCollection())) {
+        if (self::isStack($page)) {
+            if (!$allowStack || !self::stackEditingEnabled()) {
+                throw new \RuntimeException(self::message($page, $role));
+            }
+
+            return;
+        }
+        if ($page->isSystemPage() || $page->isMasterCollection()) {
             throw new \RuntimeException(self::message($page, $role));
         }
     }
 
     /**
-     * Refuses an area of an ordinary page that is a global area: its content lives on a stack.
+     * batch_update_page_content: refuses an area of an ordinary page that is a global area (its content lives on a
+     * stack). Each change to a shared area goes through update_block_in_page_area, with its own approval card and the
+     * notice that it shows on every page (Glyn, P3.6a).
      */
     public static function refuseGlobalArea(Page $page, string $areaHandle): void
     {
-        if (self::stackEditingEnabled()) {
-            return;
-        }
-
         $area = Area::get($page, $areaHandle);
         if ($area instanceof Area && $area->isGlobalArea()) {
             throw new \RuntimeException(sprintf(
                 'The area "%s" on this page is a global area: its content is shared by every page that shows it and is kept '
-                . 'in a stack. The assistant can\'t edit stacks or global areas yet. Nothing was changed. Tell the user they '
-                . 'can edit it themselves in edit mode or under Dashboard > Stacks & Global Areas.',
+                . 'in a stack. batch_update_page_content doesn\'t change global areas. Nothing was changed. Change its blocks '
+                . 'one at a time with update_block_in_page_area, so the user sees each shared change before it is made.',
                 $areaHandle
             ));
         }
@@ -69,8 +78,9 @@ final class SystemPageGuard
         $what = sprintf('The %s "%s"%s', $role, (string) $page->getCollectionName(), $path !== '' ? " ({$path})" : '');
 
         if (self::isStack($page)) {
-            return $what . ' is a stack or global area: its content can be shown on many pages. The assistant can\'t edit '
-                . 'stacks or global areas yet. Nothing was changed. Tell the user they can edit it themselves under '
+            return $what . ' is a stack or global area: its content can be shown on many pages. The assistant can change '
+                . 'only the blocks in it, with the block tools; it doesn\'t rename, move, delete, publish or change the '
+                . 'properties of a stack. Nothing was changed. Tell the user they can do that themselves under '
                 . 'Dashboard > Stacks & Global Areas.';
         }
 
@@ -85,7 +95,7 @@ final class SystemPageGuard
             . 'make this change in the Concrete dashboard themselves.';
     }
 
-    private static function isStack(Page $page): bool
+    public static function isStack(Page $page): bool
     {
         return Stack::getByID((int) $page->getCollectionID()) !== null;
     }

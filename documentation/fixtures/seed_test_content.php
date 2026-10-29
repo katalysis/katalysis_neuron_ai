@@ -63,6 +63,7 @@
  */
 
 use Concrete\Core\Area\Area;
+use Concrete\Core\Area\GlobalArea;
 use Concrete\Core\Area\ContainerArea;
 use Concrete\Core\Block\Block;
 use Concrete\Core\Block\BlockType\BlockType;
@@ -75,6 +76,7 @@ use Concrete\Core\File\Import\ImportException;
 use Concrete\Core\Page\Collection\Version\Version;
 use Concrete\Core\Page\Container\ContainerBlockInstance;
 use Concrete\Core\Page\Page;
+use Concrete\Core\Page\Stack\Stack;
 use Concrete\Core\Page\Template as PageTemplate;
 use Concrete\Core\Page\Type\Type as PageType;
 use Concrete\Core\Permission\Access\Access;
@@ -145,6 +147,15 @@ $seedStatus = (function () use ($args, $output) {
     // The review folder the assistant may create (spec B-T1-11). The script never creates it; --reset removes it only
     // when nothing else is in it. Both the en dash and the plain hyphen spelling are matched.
     $reviewFolderNames = ['Assistant – to delete', 'Assistant - to delete'];
+    // P3.6a: two global areas, shown on /neuron-test/shared-a and /shared-b, for scenarios 39 and 40. The fixture users
+    // may edit the first (its stack has its own permissions), not the second (it keeps the site's, from the home page).
+    $sharedAreas = [
+        'Neuron Test Banner' => '<p>Spring opening hours: Monday to Friday, 9am to 5pm.</p>',
+        'Neuron Test Notice' => '<p>The office is closed on bank holidays.</p>',
+    ];
+    $editableSharedArea = 'Neuron Test Banner';
+    // What the fixture users get on that stack: read it, its versions, and edit its content; not approve it.
+    $sharedAreaKeys = ['view_page', 'view_page_versions', 'edit_page_contents'];
 
     $app = Application::getFacadeApplication();
     /** @var EntityManagerInterface $em */
@@ -347,6 +358,22 @@ $seedStatus = (function () use ($args, $output) {
         return $ids;
     };
     // Files with the fixture's title that are neither the stored file nor carry the marker.
+    // P3.6a: the global areas' stacks, by stored ID, else by name (their names are the script's own; a site seeded
+    // before P3.6a has none).
+    $findStacks = function () use ($db, &$record, $sharedAreas) {
+        $ids = [];
+        foreach (array_keys($sharedAreas) as $name) {
+            $id = (int) ($record['stacks'][$name] ?? 0);
+            if ($id <= 0 || !Stack::getByID($id)) {
+                $id = (int) $db->fetchOne('SELECT cID FROM Stacks WHERE stName = ? AND stType = ?', [$name, Stack::ST_TYPE_GLOBAL_AREA]);
+            }
+            if ($id > 0) {
+                $ids[$name] = $id;
+            }
+        }
+
+        return $ids;
+    };
     $countUnmarkedFiles = function () use ($db, $fileTitle, $fileMarker, $storedFileID) {
         return (int) $db->fetchOne(
             'SELECT COUNT(DISTINCT fID) FROM FileVersions WHERE fvTitle = ? AND (fvDescription IS NULL OR fvDescription <> ?) AND fID <> ?',
@@ -355,7 +382,7 @@ $seedStatus = (function () use ($args, $output) {
     };
     // Writes the IDs of what this script owns. An ID that is already stored and still exists is kept (so a plain run
     // changes nothing); content found by its marker is adopted; anything else is left out.
-    $storeRecord = function () use ($app, $db, &$record, $inspectRoot, $lookupUser, $lookupGroup, $lookupExpress, $findPersonIDs, $findFileIDs, $findPhotoIDs, $hasPeople, $userName, $userEmail, $chatUserName, $chatUserEmail, $contentUserName, $contentUserEmail, $groupMarker, $expressName) {
+    $storeRecord = function () use ($app, $db, &$record, $inspectRoot, $lookupUser, $lookupGroup, $lookupExpress, $findPersonIDs, $findFileIDs, $findPhotoIDs, $hasPeople, $userName, $userEmail, $chatUserName, $chatUserEmail, $contentUserName, $contentUserEmail, $groupMarker, $expressName, $findStacks) {
         // A lookup made before the content was created may be cached as "not found".
         $app->make('cache/request')->flush();
         $data = ['version' => 1];
@@ -387,6 +414,7 @@ $seedStatus = (function () use ($args, $output) {
             $data['photo'] = $photoIDs[0];
         }
         $data['people'] = $hasPeople ? $findPersonIDs() : [];
+        $data['stacks'] = $findStacks();
 
         $db->executeStatement(
             'DELETE FROM Config WHERE configNamespace = ? AND configGroup = ? AND configItem = ?',
@@ -766,6 +794,27 @@ $seedStatus = (function () use ($args, $output) {
             $page->delete();
             $output->writeln('  deleted page tree ' . $pagePath);
         }
+        // P3.6a: the global areas' stacks, with every version (drafts included). Stack::delete() removes the Stacks row
+        // and the pages' global Areas rows; Page::delete() under it leaves the stack's permission rows, its summary
+        // template row and related-edit rows, removed here (an access only its own rows used goes too).
+        foreach ($findStacks() as $stackName => $stackID) {
+            $stackAccessIDs = array_map('intval', $db->fetchFirstColumn('SELECT DISTINCT paID FROM PagePermissionAssignments WHERE cID = ?', [$stackID]));
+            $stack = Stack::getByID($stackID);
+            if ($stack) {
+                $stack->delete();
+            }
+            $db->executeStatement('DELETE FROM PagePermissionAssignments WHERE cID = ?', [$stackID]);
+            $db->executeStatement('DELETE FROM PageSummaryTemplates WHERE cID = ?', [$stackID]);
+            $db->executeStatement('DELETE FROM CollectionVersionRelatedEdits WHERE cID = ? OR cRelationID = ?', [$stackID, $stackID]);
+            foreach ($stackAccessIDs as $paID) {
+                if ($accessUseCount($paID) === 0) {
+                    $db->executeStatement('DELETE FROM PermissionAccessList WHERE paID = ?', [$paID]);
+                    $db->executeStatement('DELETE FROM PermissionAccess WHERE paID = ?', [$paID]);
+                }
+            }
+            $output->writeln('  deleted global area ' . $stackName);
+        }
+        $app->make('cache/request')->flush();
         // Deleting a page leaves the area permission rows of an overridden area behind. Remove the ones for the page
         // remembered above (the page no longer exists), so the checks below see what is really still in use.
         foreach ($fixtureAreaCIDs as $fixtureAreaCID) {
@@ -1087,11 +1136,23 @@ $seedStatus = (function () use ($args, $output) {
 
     // Pages added after P0.6 for the P1.2 scenarios. Each is created only if it is missing, so a site seeded by the
     // earlier version of this script gets them without a reset. They all sit under /neuron-test, so --reset removes them.
-    $ensureScenarioPages = function (Page $root) use ($pagePath, $addPage, $contentType, $output, $findPhotoIDs, $findExpress, $grantKey, $user, $chatUser, $contentUser) {
-        $missing = function (string $path) {
+    $ensureScenarioPages = function (Page $root) use ($pagePath, $addPage, $contentType, $output, $findPhotoIDs, $findExpress, $grantKey, $user, $chatUser, $contentUser, $db, $sharedAreas, $editableSharedArea, $sharedAreaKeys, $findStacks) {
+        $missing = function (string $path) use ($db, $output) {
             $page = Page::getByPath($path);
+            if (!$page || $page->isError()) {
+                return true;
+            }
+            // BF-22 (Glyn, in P3.6a): a page found only through an old path a move kept (a redirect), for example one
+            // a browser check moved and then put in the trash, is not the fixture page. Its old path is removed, so the
+            // page made again gets that path rather than one with "-1" added.
+            $canonical = (string) $db->fetchOne('SELECT cPath FROM PagePaths WHERE cID = ? AND ppIsCanonical = 1', [(int) $page->getCollectionID()]);
+            if ($canonical === $path) {
+                return false;
+            }
+            $db->executeStatement('DELETE FROM PagePaths WHERE cID = ? AND cPath = ? AND ppIsCanonical = 0', [(int) $page->getCollectionID(), $path]);
+            $output->writeln('page ' . $path . ': only an old path of page #' . $page->getCollectionID() . ' (now ' . $canonical . '); that old path removed');
 
-            return !$page || $page->isError();
+            return true;
         };
 
         if ($missing($pagePath . '/injection')) {
@@ -1240,6 +1301,40 @@ $seedStatus = (function () use ($args, $output) {
             $editKey->getPermissionAssignmentObject()->assignPermissionAccess($editAccess);
             $locked->refreshCache();
             $output->writeln('page ' . $pagePath . '/locked: created (the fixture users cannot edit its content)');
+        }
+
+        // P3.6a: the global areas (each a stack with one published Content block), then two pages that show both.
+        $stackIDs = $findStacks();
+        foreach ($sharedAreas as $areaName => $areaContent) {
+            if (isset($stackIDs[$areaName])) {
+                continue;
+            }
+            $stack = Stack::addGlobalArea($areaName);
+            $stackVersion = Page::getByID($stack->getCollectionID(), 'RECENT')->getVersionToModify();
+            $stackVersion->addBlock($contentType, STACKS_AREA_NAME, ['content' => $areaContent]);
+            $stackVersion->getVersionObject()->approve();
+            if ($areaName === $editableSharedArea) {
+                $stackPage = Page::getByID($stack->getCollectionID());
+                $stackPage->setPermissionsToOverride();
+                foreach ([$user, $chatUser, $contentUser] as $fixtureUser) {
+                    foreach ($sharedAreaKeys as $pkHandle) {
+                        $grantKey($stackPage, $pkHandle, UserEntity::getOrCreate($fixtureUser));
+                    }
+                }
+                $stackPage->refreshCache();
+            }
+            $output->writeln('global area ' . $areaName . ': created' . ($areaName === $editableSharedArea ? ' (the fixture users can edit it)' : ' (the fixture users cannot edit it)'));
+        }
+        foreach (['shared-a' => 'Shared A', 'shared-b' => 'Shared B'] as $sharedHandle => $sharedName) {
+            if (!$missing($pagePath . '/' . $sharedHandle)) {
+                continue;
+            }
+            $sharedPage = $addPage($root, $sharedName, $sharedHandle);
+            $sharedPage->addBlock($contentType, 'Main', ['content' => '<p>This page shows the two test global areas. Used by the global-area scenarios.</p>']);
+            foreach (array_keys($sharedAreas) as $areaName) {
+                (new GlobalArea($areaName))->create($sharedPage, $areaName);
+            }
+            $output->writeln('page ' . $pagePath . '/' . $sharedHandle . ': created (shows the two global areas)');
         }
     };
 

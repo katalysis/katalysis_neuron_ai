@@ -29,7 +29,8 @@ final class ObjectPermissions
 {
     private const GRANT_PAGE = "A site administrator can grant it in the page's Permissions (Sitemap, then the page, then Permissions).";
     private const GRANT_FILE = 'A site administrator can grant it in the File Manager, in the permissions of the file or its folder.';
-    private const GRANT_TASK = 'A site administrator can grant it in Dashboard > System & Settings > Permissions & Access > Tasks.';
+    private const GRANT_STACK = "A site administrator can grant it under Dashboard > Stacks & Global Areas, in the stack's Permissions.";
+    private const GRANT_TASK ='A site administrator can grant it in Dashboard > System & Settings > Permissions & Access > Tasks.';
 
     /**
      * The display name for a check that isn't one Concrete key, or a fallback when the key can't be read.
@@ -140,6 +141,30 @@ final class ObjectPermissions
     public static function deleteBlock(Block $block): ?string
     {
         return self::check(new Checker($block), 'canDeleteBlock', [], 'delete_block', 'delete ' . self::block($block), self::GRANT_PAGE . ' Blocks can also have their own permissions, in edit mode.');
+    }
+
+    // ---- Stacks and global areas (P3.6a) --------------------------------------------------------------------------
+    // The same keys, checked on the stack itself, and worded with the stack's name and where its permissions are set.
+    // $shared is how the stack is named, as SharedArea::label() gives it: 'the global area "Header Navigation"'.
+
+    public static function editStackContents(Page $stack, string $shared): ?string
+    {
+        return self::check(new Checker($stack), 'canEditPageContents', [], 'edit_page_contents', 'edit ' . $shared . ' (shared by every page that shows it)', self::GRANT_STACK);
+    }
+
+    public static function addBlockToStack(Area $stackArea, BlockType $type, string $shared): ?string
+    {
+        return self::check(new Checker($stackArea), 'canAddBlock', [$type], 'add_block_to_area', "add a '" . $type->getBlockTypeHandle() . "' block to " . $shared, self::GRANT_STACK);
+    }
+
+    public static function editStackBlock(Block $block, string $shared): ?string
+    {
+        return self::check(new Checker($block), 'canEditBlock', [], 'edit_block', 'edit ' . self::block($block) . ' in ' . $shared, self::GRANT_STACK);
+    }
+
+    public static function deleteStackBlock(Block $block, string $shared): ?string
+    {
+        return self::check(new Checker($block), 'canDeleteBlock', [], 'delete_block', 'remove ' . self::block($block) . ' from ' . $shared, self::GRANT_STACK);
     }
 
     // ---- Files and folders ----------------------------------------------------------------------------------------

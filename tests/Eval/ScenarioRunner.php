@@ -224,7 +224,9 @@ final class ScenarioRunner
                 $decision = ApprovalAnswer::for($answer, (string) $card['tool']);
                 $result = $agent->decide((string) $card['callId'], $decision === 'approve');
                 // P3.6-3: the page each card named, for approvals_cover_children (scenario 17).
-                $approvals[] = ['tool' => (string) $card['tool'], 'callId' => (string) $card['callId'], 'decision' => $decision, 'status' => '', 'path' => (string) ($card['path'] ?? '')];
+                // P3.6a: and what the card said (its action, warnings and details), for approval_card_matches.
+                $approvals[] = ['tool' => (string) $card['tool'], 'callId' => (string) $card['callId'], 'decision' => $decision, 'status' => '', 'path' => (string) ($card['path'] ?? ''),
+                    'text' => implode("\n", [(string) ($card['action'] ?? '') . ' ' . (string) ($card['target'] ?? ''), ...(array) ($card['warnings'] ?? []), ...(array) ($card['details'] ?? [])])];
                 if ($result['reply'] !== null) {
                     $reply = $result['reply'];
                 }

@@ -43,6 +43,9 @@ final class TurnChanges
     /** @var array<int, array{pageID: int, path: string, name: string, tools: list<string>, blockIDs: list<int>, replacedBlockIDs: array<string, int>, versionID: int, isNewPage: bool, kind: string}> */
     private array $pages = [];
 
+    /** @var array<int, array<string, true>> P3.6a: by page, the global areas changed through it, as labels */
+    private array $shared = [];
+
     /** @var array<string, array{kind: string, object: string, tools: list<string>}> successful writes that aren't page drafts */
     private array $others = [];
 
@@ -119,6 +122,12 @@ final class TurnChanges
             }
         }
         $this->pages[$pageID] = $entry;
+        // P3.6a: a change to a global area through this page is in the stack's draft, tied to the page's.
+        if (is_array($data['sharedArea'] ?? null)) {
+            $label = 'with the ' . SecretRedactor::redact((string) ($data['sharedArea']['kind'] ?? 'global area')) . ' "'
+                . SecretRedactor::redact((string) ($data['sharedArea']['name'] ?? '')) . '", shown on every page that has it';
+            $this->shared[$pageID][$label] = true;
+        }
     }
 
     /**
@@ -174,7 +183,8 @@ final class TurnChanges
         $changed = [];
         foreach ($this->pages as $page) {
             $label = ($page['name'] !== '' ? $page['name'] : 'page ' . $page['pageID']) . ($page['path'] !== '' ? ' (' . $page['path'] . ')' : '');
-            $changed[] = $label . ($page['isNewPage'] ? ', a new unpublished page' : ($page['versionID'] > 0 ? ', unpublished version ' . $page['versionID'] : ''));
+            $changed[] = $label . ($page['isNewPage'] ? ', a new unpublished page' : ($page['versionID'] > 0 ? ', unpublished version ' . $page['versionID'] : ''))
+                . (isset($this->shared[$page['pageID']]) ? ' (' . implode('; ', array_keys($this->shared[$page['pageID']])) . ')' : '');
         }
         foreach ($this->others as $other) {
             $changed[] = $other['object'];
@@ -203,6 +213,7 @@ final class TurnChanges
     {
         $this->seen = [];
         $this->pages = [];
+        $this->shared = [];
         $this->others = [];
         $this->refused = [];
         $this->kept = [];

@@ -10,6 +10,7 @@ use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Security\SecretRedactor;
 use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
+use Katalysis\NeuronAi\Tools\Utilities\SharedArea;
 
 /**
  * What the previews share (P3.6-2): the change entry, values as short text, and reads of pages and blocks. Reads only.
@@ -114,15 +115,31 @@ final class PreviewSupport
         return is_string($inputs[$name] ?? null) ? trim($inputs[$name]) : '';
     }
 
-    /** The block in this area of the page's newest version, or null. */
+    /**
+     * The block in this area of the page's newest version, or null. In a global area (P3.6a), the block in the stack's
+     * newest version, where the block tools find it.
+     */
     public static function block(Page $page, string $area, int $bID): ?Block
     {
         if ($bID <= 0) {
             return null;
         }
-        $block = Block::getByID($bID, $page, $area);
+        $shared = self::shared($page, $area);
+        $block = $shared?->isThroughPage()
+            ? Block::getByID($bID, $shared->stackPage(), $shared->stackAreaHandle())
+            : Block::getByID($bID, $page, $area);
 
         return $block && !$block->isError() ? $block : null;
+    }
+
+    /** P3.6a: the stack or global area a block write to this page and area would change, or null. Reads only. */
+    public static function shared(Page $page, string $area): ?SharedArea
+    {
+        try {
+            return SharedArea::of($page, $area);
+        } catch (\RuntimeException) {
+            return null;
+        }
     }
 
     public static function blockType(Block $block): string

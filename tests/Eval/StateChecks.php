@@ -70,6 +70,9 @@ final class StateChecks
                 case 'live_version_unchanged':
                     $results[] = self::liveVersionUnchanged((string) $spec, $c);
                     break;
+                case 'stack_draft':
+                    $results[] = self::stackDraft((string) $spec, $c);
+                    break;
                 case 'file_exists':
                     $results[] = self::fileExists($spec, $c);
                     break;
@@ -437,6 +440,33 @@ final class StateChecks
         }
         if (($before['approvedBlocks'] ?? null) !== ($after['approvedBlocks'] ?? null)) {
             $problems[] = 'the approved version\'s blocks changed';
+        }
+
+        return self::result($name, $problems === [], implode('; ', $problems));
+    }
+
+    /**
+     * stack_draft (P3.6a): the run changed a global area only in a new, unpublished version of its stack (a page under
+     * /!stacks): it has more versions than before, its newest is not approved, and the approved one is as it was.
+     */
+    private static function stackDraft(string $path, CheckContext $c): CheckResult
+    {
+        $name = "stack_draft: {$path}";
+        $before = $c->before->pageByPath($path);
+        $after = $before === null ? null : $c->after->pageByID($before['id']);
+        if ($before === null || $after === null) {
+            return self::result($name, false, 'stack not found in both snapshots');
+        }
+
+        $problems = [];
+        if ($after['versions'] <= $before['versions']) {
+            $problems[] = 'no new version';
+        }
+        if ($after['latestVersion'] === $after['approvedVersion']) {
+            $problems[] = 'the newest version is approved, so the change is live';
+        }
+        if ($before['approvedVersion'] !== $after['approvedVersion'] || ($before['approvedBlocks'] ?? null) !== ($after['approvedBlocks'] ?? null)) {
+            $problems[] = 'the approved version changed';
         }
 
         return self::result($name, $problems === [], implode('; ', $problems));

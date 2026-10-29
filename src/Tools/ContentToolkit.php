@@ -11,6 +11,7 @@ use Concrete\Core\Block\Command\DeleteBlockCommand;
 use Concrete\Core\Block\Exception\BlockNotFoundException;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Page\Page;
+use Concrete\Core\Page\Stack\Stack;
 use Concrete\Core\Support\Facade\Application;
 use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
@@ -21,6 +22,7 @@ use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\DryRunReached;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
+use Katalysis\NeuronAi\Tools\Utilities\SharedArea;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\Utilities\TextIntegrity;
 use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
@@ -92,19 +94,30 @@ class ContentToolkit extends AbstractToolkit
             $errors = [];
 
             try {
-                $areaHandles = $areaHandle ? [$areaHandle] : Area::getHandleList();
+                // P3.6a: with the page's global areas, which Area::getHandleList() leaves out.
+                $areaHandles = $areaHandle ? [$areaHandle] : array_values(array_unique(array_merge(
+                    Area::getHandleList(),
+                    Application::getFacadeApplication()->make('database')->connection()->fetchFirstColumn(
+                        'SELECT arHandle FROM Areas WHERE cID = ? AND arIsGlobal = 1 ORDER BY arHandle',
+                        [(int) $page->getCollectionID()]
+                    )
+                )));
                 
                 foreach ($areaHandles as $handle) {
                     try {
                         $area = Area::get($page, $handle);
                         if (!$area) {
                             if ($areaHandle === $handle) {
-                                throw new \RuntimeException("Area '{$handle}' does not exist on this page");
+                                // P3.6a (scenario 39): the page's areas, global ones named as such, so a near miss
+                                // ("Banner") finds the right one.
+                                throw new \RuntimeException("Area '{$handle}' does not exist on this page. Its areas: " . $this->areaNames($page) . '.');
                             }
                             continue;
                         }
-                        
-                        $blocks = $area->getAreaBlocksArray($page);
+
+                        // P3.6a: a global area's blocks are on its stack, in the version Concrete shows this user.
+                        $stack = $area->isGlobalArea() ? Stack::getGlobalAreaStackFromName($page, $handle) : null;
+                        $blocks = $area->isGlobalArea() ? ($stack ? $stack->getBlocks(STACKS_AREA_NAME) : []) : $area->getAreaBlocksArray($page);
                         $blockData = [];
                         
                         foreach ($blocks as $block) {
@@ -143,7 +156,7 @@ class ContentToolkit extends AbstractToolkit
                                 'areaHandle' => $handle,
                                 'blockCount' => count($blockData),
                                 'blocks' => $blockData,
-                            ];
+                            ] + ($stack ? ['globalArea' => ['name' => $handle, 'pagesShowingIt' => SharedArea::pagesShowing($stack)[0]]] : []);
                         }
                     } catch (\Exception $e) {
                         $errors[] = "Error reading area '{$handle}': " . $e->getMessage();
@@ -243,16 +256,18 @@ class ContentToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
-            SystemPageGuard::refuse($page);
+            SystemPageGuard::refuse($page, 'page', true);
             EditModeGuard::refuse($page);
-            SystemPageGuard::refuseGlobalArea($page, $areaHandle);
-            // P3.5-1 decision 3: no block is added without edit mode's own permission.
-            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
+            // P3.6a: a global area (or a stack itself) is added to in the stack's draft, with the stack's permissions.
+            $shared = SharedArea::of($page, $areaHandle);
 
             $bt = BlockType::getByHandle($blockType);
             if (!$bt) {
                 throw new \RuntimeException(WriteRefusal::unknownBlockType((string) $blockType));
             }
+            $shared?->refuseUnlessAllowed('add', null, $bt);
+            // P3.5-1 decision 3: no block is added without edit mode's own permission.
+            ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
             // P3.3-7: the Level 0 checks (the block's fields, references, required columns; BF-17), then the value as
             // the import-mode save takes it.
@@ -288,9 +303,15 @@ class ContentToolkit extends AbstractToolkit
                 $this->removeNewArea($area, $areaIsNew);
                 throw $e;
             }
-            $block = BlockImportSave::add($draft, $area, $bt, $fields, $prepared);
+            $target = $draft;
+            $targetArea = $area;
+            if ($shared?->isThroughPage()) {
+                $target = $shared->versionToModify($draft);
+                $targetArea = Area::getOrCreate($target, $shared->stackAreaHandle());
+            }
+            $block = BlockImportSave::add($target, $targetArea, $bt, $fields, $prepared);
 
-            return $this->serializeBlock($block, true) + DraftState::of($draft);
+            return $this->serializeBlock($block, true) + DraftState::of($draft) + self::sharedNotice($shared);
         }));
 
         return $tool;
@@ -369,12 +390,14 @@ class ContentToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
-            SystemPageGuard::refuse($page);
+            SystemPageGuard::refuse($page, 'page', true);
             EditModeGuard::refuse($page);
-            SystemPageGuard::refuseGlobalArea($page, $areaHandle);
+            // P3.6a: a global area (or a stack itself) is changed in the stack's draft, with the stack's permissions.
+            $shared = SharedArea::of($page, $areaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
             // P3.6-2: a block an earlier call in this request copied into the draft is changed in its copy.
-            $blockID = PageDraft::followCopies($page, $areaHandle, (int) $blockID);
+            $blockID = self::followCopies($page, $areaHandle, (int) $blockID, $shared);
+            $shared?->refuseUnlessAllowed('edit', $blockID);
             // P3.5-1 decision 3: edit mode's own permission first, then the block's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
@@ -431,7 +454,7 @@ class ContentToolkit extends AbstractToolkit
 
             // Saved once (P3.3-2), in import mode, as UpdatePageBlockCommand saves it but with the save mode it can't
             // pass (P3.3-7).
-            $updatedBlock = BlockImportSave::update($pageToModify, $blockToEdit, $fields, $prepared);
+            $updatedBlock = BlockImportSave::update($shared?->isThroughPage() ? $blockToEdit->getBlockCollectionObject() : $pageToModify, $blockToEdit, $fields, $prepared);
 
             $afterRecord = $this->getBlockTableRecord($dbTable, (int) $updatedBlock->getBlockID());
 
@@ -443,7 +466,7 @@ class ContentToolkit extends AbstractToolkit
                     'checksumsBefore' => TextIntegrity::checksums($beforeRecord, $textPolicy['watchedFields']),
                     'checksumsAfter' => TextIntegrity::checksums($afterRecord, $textPolicy['watchedFields']),
                 ],
-            ] + DraftState::of($pageToModify);
+            ] + DraftState::of($pageToModify) + self::sharedNotice($shared);
         }));
 
         return $tool;
@@ -486,12 +509,14 @@ class ContentToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
-            SystemPageGuard::refuse($page);
+            SystemPageGuard::refuse($page, 'page', true);
             EditModeGuard::refuse($page);
-            SystemPageGuard::refuseGlobalArea($page, $areaHandle);
+            // P3.6a: a global area (or a stack itself) is changed in the stack's draft, with the stack's permissions.
+            $shared = SharedArea::of($page, $areaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
             // P3.6-2: a block an earlier call in this request copied into the draft is removed in its copy.
-            $blockID = PageDraft::followCopies($page, $areaHandle, (int) $blockID);
+            $blockID = self::followCopies($page, $areaHandle, (int) $blockID, $shared);
+            $shared?->refuseUnlessAllowed('delete', $blockID);
 
             // P3.5-1 decision 3: edit mode's own permission first, then the block's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
@@ -506,18 +531,27 @@ class ContentToolkit extends AbstractToolkit
             // Delete in a draft, never in the version the page may be showing. The block stays
             // in the live version, and discarding the draft restores the page.
             $pageToModify = $this->getDraftOf($page);
+            // P3.6a: through a page, a global area's block is removed from the stack's draft, which is related to the
+            // page's draft (Concrete's delete command looks only in the page's draft).
+            $target = $pageToModify;
+            $targetAreaHandle = $area->getAreaHandle();
+            if ($shared?->isThroughPage()) {
+                $block = $this->getBlockToEdit($pageToModify, $area, $areaHandle, $blockID);
+                $target = $block->getBlockCollectionObject();
+                $targetAreaHandle = $shared->stackAreaHandle();
+            }
 
             $command = new DeleteBlockCommand(
                 $block->getBlockID(),
-                $pageToModify->getCollectionID(),
-                $pageToModify->getVersionID(),
-                $area->getAreaHandle()
+                $target->getCollectionID(),
+                $target->getVersionID(),
+                $targetAreaHandle
             );
 
             // Report only what happened (BF-2): the command does nothing, silently, when the draft has no such block.
             $placements = fn (): int => (int) Application::getFacadeApplication()->make('database')->connection()->fetchOne(
                 'SELECT COUNT(*) FROM CollectionVersionBlocks WHERE cID = ? AND cvID = ? AND bID = ?',
-                [$pageToModify->getCollectionID(), $pageToModify->getVersionID(), $block->getBlockID()]
+                [$target->getCollectionID(), $target->getVersionID(), $block->getBlockID()]
             );
             $before = $placements();
             Application::getFacadeApplication()->executeCommand($command);
@@ -530,7 +564,7 @@ class ContentToolkit extends AbstractToolkit
                 'areaHandle' => $areaHandle,
                 'blockID' => $blockID,
                 'deleted' => true,
-            ] + DraftState::of($pageToModify);
+            ] + DraftState::of($pageToModify) + self::sharedNotice($shared);
         }));
 
         return $tool;
@@ -585,13 +619,16 @@ class ContentToolkit extends AbstractToolkit
             if (!$page || $page->isError()) {
                 throw new \RuntimeException(WriteRefusal::pageNotFound((int) $pageID));
             }
-            SystemPageGuard::refuse($page);
+            SystemPageGuard::refuse($page, 'page', true);
             EditModeGuard::refuse($page);
-            SystemPageGuard::refuseGlobalArea($page, $fromAreaHandle);
-            SystemPageGuard::refuseGlobalArea($page, $toAreaHandle);
+            // P3.6a: moving out of a global area removes the block from its stack's draft, and moving into one adds it
+            // there, as edit mode does; each with the stack's permissions.
+            $fromShared = SharedArea::of($page, $fromAreaHandle);
+            $toShared = SharedArea::of($page, $toAreaHandle);
             EditModeGuard::refuseOpenBlock($page, $blockID);
             // P3.6-2: a block an earlier call in this request copied into the draft is moved as its copy.
-            $blockID = PageDraft::followCopies($page, $fromAreaHandle, (int) $blockID);
+            $blockID = self::followCopies($page, $fromAreaHandle, (int) $blockID, $fromShared);
+            $fromShared?->refuseUnlessAllowed('delete', $blockID);
             // P3.5-1 decision 3: edit mode's own permission first, then the block's and the destination area's.
             ObjectPermissions::deny(ObjectPermissions::editPageContents($page));
 
@@ -606,6 +643,9 @@ class ContentToolkit extends AbstractToolkit
             // Check the destination before making a draft, so a refused move leaves no draft behind.
             // (Areas belong to the page, not to a version.) An area made for the check is removed again (P3.3-2).
             $destinationBlockType = $block->getBlockTypeObject();
+            if ($destinationBlockType) {
+                $toShared?->refuseUnlessAllowed('add', null, $destinationBlockType);
+            }
             [$destination, $destinationIsNew] = $this->areaForWrite($page, $toAreaHandle);
             $refusal = $destinationBlockType ? ObjectPermissions::addBlockToArea($destination, $destinationBlockType) : null;
             if ($refusal !== null) {
@@ -620,22 +660,32 @@ class ContentToolkit extends AbstractToolkit
                 $this->removeNewArea($destination, $destinationIsNew);
                 throw $e;
             }
-            $destinationArea = Area::getOrCreate($pageToModify, $toAreaHandle);
+            $destinationPage = $pageToModify;
+            $destinationHandle = $toAreaHandle;
+            if ($toShared?->isThroughPage()) {
+                $destinationPage = $toShared->versionToModify($pageToModify);
+                $destinationHandle = $toShared->stackAreaHandle();
+            }
+            $destinationArea = Area::getOrCreate($destinationPage, $destinationHandle);
 
             $editableBlock = $this->getBlockToEdit($pageToModify, Area::getOrCreate($pageToModify, $fromAreaHandle), $fromAreaHandle, $blockID);
             if (!$editableBlock) {
                 throw new \RuntimeException("Block {$blockID} could not be prepared for moving");
             }
+            // The draft the block is in now: the page's, or the stack's for a global area.
+            $sourcePage = $editableBlock->getBlockCollectionObject();
+            $sourceHandle = $fromShared?->isThroughPage() ? $fromShared->stackAreaHandle() : $fromAreaHandle;
 
-            $editableBlock->move($pageToModify, $destinationArea);
-            $pageToModify->rescanDisplayOrder($fromAreaHandle);
-            $pageToModify->rescanDisplayOrder($toAreaHandle);
+            $editableBlock->move($destinationPage, $destinationArea);
+            $sourcePage->rescanDisplayOrder($sourceHandle);
+            $destinationPage->rescanDisplayOrder($destinationHandle);
 
-            $movedBlock = Block::getByID($editableBlock->getBlockID(), $pageToModify, $destinationArea);
+            $movedBlock = Block::getByID($editableBlock->getBlockID(), $destinationPage, $destinationArea);
 
             return $this->serializeBlock($movedBlock ?: $editableBlock, true)
                 + $this->previousBlockID((int) $blockID, (int) $editableBlock->getBlockID())
-                + DraftState::of($pageToModify);
+                + DraftState::of($pageToModify)
+                + self::sharedNotice($fromShared ?? $toShared);
         }));
 
         return $tool;
@@ -688,12 +738,42 @@ class ContentToolkit extends AbstractToolkit
     }
 
     /**
-     * Concrete's block lookup, refusing a global area first (BF-2): for a global area it reaches into the stack.
+     * Concrete's block lookup. For a global area it reads the block from the stack's newest version (P3.6a; before,
+     * BF-2 refused it here).
      */
     public function getBlockToWorkWith(Page $page, string $areaHandle, $blockID): array
     {
-        SystemPageGuard::refuseGlobalArea($page, $areaHandle);
-
         return $this->coreGetBlockToWorkWith($page, $areaHandle, $blockID);
+    }
+
+    /** The page's areas, as "Main, Header Navigation (global area), …", for a refusal that names a wrong one. */
+    private function areaNames(Page $page): string
+    {
+        $rows = Application::getFacadeApplication()->make('database')->connection()->fetchAllAssociative(
+            'SELECT arHandle, arIsGlobal FROM Areas WHERE cID = ? AND arParentID = 0 ORDER BY arHandle',
+            [(int) $page->getCollectionID()]
+        );
+
+        return implode(', ', array_map(static fn (array $r): string => $r['arHandle'] . ((int) $r['arIsGlobal'] === 1 ? ' (global area)' : ''), $rows)) ?: '(none recorded)';
+    }
+
+    /**
+     * PageDraft::followCopies() on the version the block is in: the stack's, for a global area reached through a page.
+     */
+    private static function followCopies(Page $page, string $areaHandle, int $blockID, ?SharedArea $shared): int
+    {
+        return $shared?->isThroughPage()
+            ? PageDraft::followCopies($shared->stackPage(), $shared->stackAreaHandle(), $blockID)
+            : PageDraft::followCopies($page, $areaHandle, $blockID);
+    }
+
+    /**
+     * P3.6a: a write to a stack or global area tells the model it is shared, on how many pages, and when it goes live.
+     *
+     * @return array{sharedArea?: array<string, mixed>}
+     */
+    private static function sharedNotice(?SharedArea $shared): array
+    {
+        return $shared !== null ? ['sharedArea' => $shared->notice()] : [];
     }
 }

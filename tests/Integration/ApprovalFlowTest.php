@@ -17,6 +17,7 @@ use Katalysis\NeuronAi\Entity\Chat;
 use Katalysis\NeuronAi\Tests\Support\ConcreteBoot;
 use Katalysis\NeuronAi\Tests\Support\ApproveAll;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\GlobalAreaFixture;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\Message;
@@ -262,6 +263,36 @@ final class ApprovalFlowTest extends ConcreteTestCase
         $this->assertSame($versionAfterEdit, (int) self::newest($cID)->getVersionID());
         $this->assertSame([$call->getCallId() => ApprovalService::STALE], $this->statuses($chatId));
         $this->assertStringContainsString(ApprovalService::STALE_REASON, self::sentResults($provider));
+    }
+
+    /** P3.6a: a version of a global area's stack started after its card makes the approval stale; nothing is written. */
+    public function testAStackChangedAfterTheGlobalAreaCardIsNotWritten(): void
+    {
+        $fixture = new GlobalAreaFixture($this->db());
+        ThrowawayPages::actAs('superuser');
+        try {
+            [$handle, $stackID, $bID] = $fixture->globalArea();
+            $page = $fixture->page([$handle]);
+            $chatId = $this->newChat();
+            $call = self::call('update_block_in_page_area', [
+                'pageID' => (int) $page->getCollectionID(), 'areaHandle' => $handle, 'blockID' => $bID,
+                'value' => ['content' => '<p>Original global content</p><p>From the assistant</p>'],
+            ]);
+            $agent = $this->agent($chatId, new FakeAIProvider(self::calls($call)));
+            $agent->handleUserMessage('Change the global area.');
+            $this->assertStringContainsString('the global area "' . $handle . '"', $agent->getApprovalCards()[0]['action']);
+
+            // Someone edits the global area before Approve: a new stack version.
+            self::newest($stackID)->getVersionToModify();
+            $stackVersions = (int) $this->db()->fetchOne('SELECT COUNT(*) FROM CollectionVersions WHERE cID = ?', [$stackID]);
+
+            $this->agent($chatId, new FakeAIProvider(new AssistantMessage('It changed.')))->decide((string) $call->getCallId(), true);
+
+            $this->assertSame([$call->getCallId() => ApprovalService::STALE], $this->statuses($chatId));
+            $this->assertSame($stackVersions, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM CollectionVersions WHERE cID = ?', [$stackID]), 'nothing was written');
+        } finally {
+            $fixture->restore();
+        }
     }
 
     public function testTwoGatedCallsOnOnePageBothApprovedAreBothAppliedAndNeitherIsStale(): void

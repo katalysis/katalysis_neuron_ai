@@ -1,0 +1,30 @@
+id: 39-global-area-edit-through-page
+title: "An editor changes a global area through a page: a stack draft, a card that says every page shows it, the other page unchanged"
+tier: 1
+user: neuron_content_editor
+current_page: /neuron-test/shared-a
+rules: [B-WRT-5, B-CON-3, B-WRT-3]
+known_to_fail_today: "P3.6a: new."
+rubric: /neuron-test/shared-a and /shared-b both show the global area "Neuron Test Banner", which the fixture users may edit (its stack has its own permissions; they can't approve it). The assistant adds the sentence to the banner's Content block in an unpublished version of the stack (P3.6a), after an approval card that names the global area and says the change appears on every page that shows it, with the count. The banner's live version, and /shared-b itself, are unchanged. The reply says the change is shared by every page with the banner and isn't live yet.
+turns:
+  - say: "In the banner on this page, add the sentence 'Closed on Sundays.' after the opening hours."
+    approval: approve
+    expect:
+      tools:
+        # The card names the global area and says it reaches every page that shows it, with how many (B-CON-3).
+        approval_card_matches:
+          - 'Neuron Test Banner'
+          - 'every page'
+          - '\d+ pages?'
+        no_write_without_approval: true
+expect:
+  state:
+    stack_draft: /!stacks/neuron-test-banner
+    blocks:
+      - page: /!stacks/neuron-test-banner
+        has_block: {type: content, containing: ["Spring opening hours", "Closed on Sundays."]}
+    page_unchanged: /neuron-test/shared-b
+  reply:
+    matches_all:
+      - '(every|all|each|other|both) (the )?(pages?|places?)|shared|global area|site-?wide|across the (site|website)|everywhere'
+      - '(draft|unpublished|not (yet )?(published|live)|new version|approv|publish)'

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Tests\Integration;
 
 use Concrete\Core\Application\Application;
+use Concrete\Core\Cache\CacheLocal;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Http\Request;
 use Concrete\Core\Package\PackageService;
@@ -234,6 +235,48 @@ final class SeedResetTest extends TestCase
         $this->assertStringContainsString('Nothing was deleted', $result['output']);
         $this->assertSame($rootBefore, $this->rootPageId());
         $this->assertSame([], self::diffAssoc($before, self::fingerprintCounts()));
+    }
+
+    /**
+     * BF-22's seed fix (Glyn, in P3.6a): a browser check moved /move-me under /move-target, keeping its old path, and
+     * put both in the trash. The old path still found the trashed page, so the seed took it as there and didn't make
+     * it again. Now the old path is removed and the page is made again at its own path.
+     */
+    public function testAPageInTheTrashThatKeptItsOldPathIsMadeAgain(): void
+    {
+        $this->forgetStaleState();
+        CacheLocal::flush();
+        $moveMe = Page::getByPath('/neuron-test/move-me');
+        $target = Page::getByPath('/neuron-test/move-target');
+        $trashedID = (int) $target->getCollectionID();
+        $this->undo[] = function () use ($trashedID): void {
+            CacheLocal::flush();
+            $page = Page::getByID($trashedID);
+            if ($page && !$page->isError() && str_starts_with((string) $page->getCollectionPath(), '/!trash')) {
+                $ids = array_merge([$trashedID], array_map('intval', $this->db()->fetchFirstColumn(
+                    "SELECT cID FROM PagePaths WHERE ppIsCanonical = 1 AND cPath LIKE ?",
+                    [$page->getCollectionPath() . '/%']
+                )));
+                $page->delete();
+                foreach ($ids as $cID) {
+                    $this->db()->executeStatement('DELETE FROM PageSummaryTemplates WHERE cID = ?', [$cID]);
+                }
+            }
+        };
+        $oldID = (int) $moveMe->getCollectionID();
+        $moveMe->move($target);
+        $moveMe->addAdditionalPagePath('/neuron-test/move-me');
+        $target->moveToTrash();
+        CacheLocal::flush();
+        $this->assertSame($oldID, (int) Page::getByPath('/neuron-test/move-me')->getCollectionID(), 'The premise: the old path finds the trashed page.');
+
+        $result = $this->resetExpectingSuccess();
+
+        $this->assertStringContainsString('page /neuron-test/move-me: only an old path of page #' . $oldID, $result['output']);
+        CacheLocal::flush();
+        $again = Page::getByPath('/neuron-test/move-me');
+        $this->assertNotSame($oldID, (int) $again->getCollectionID(), 'made again');
+        $this->assertSame('/neuron-test/move-me', (string) $this->db()->fetchOne('SELECT cPath FROM PagePaths WHERE cID = ? AND ppIsCanonical = 1', [(int) $again->getCollectionID()]));
     }
 
     /** Case 7: the root page was moved away from /neuron-test by hand. */

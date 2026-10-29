@@ -50,6 +50,41 @@ final class DraftOwner
     }
 
     /**
+     * P3.6a: the same for a stack or global area. Concrete never marks a stack's version as new: each edit clones the
+     * newest version, so a change is made on top of any unpublished one, and publishing it publishes both. The card warns
+     * when the newest version is unpublished and someone else's (Glyn, on approving BF-2: never without a warning).
+     *
+     * @param string $label how the card names it: 'the global area "Header Navigation"'
+     * @return array{warnings: list<string>, state: array<string, mixed>}
+     */
+    public static function ofStack(Page $newest, int $userId, string $label): array
+    {
+        $version = $newest->getVersionObject();
+        $pending = $version && !$version->isApproved();
+        $author = $pending ? (int) $version->getVersionAuthorUserID() : 0;
+        $state = ['stackVersion' => (int) $newest->getVersionID(), 'stackAuthor' => $author];
+        if (!$pending || $author === $userId) {
+            return ['warnings' => [], 'state' => $state];
+        }
+
+        $who = $author > 0 ? Application::getFacadeApplication()->make(UserInfoRepository::class)->getByID($author) : null;
+        $date = $version->getVersionDateCreated();
+        $warnings = [sprintf(
+            '%s already has unpublished changes by %s (version %d, %s). Your change is made on top of them, so publishing it publishes theirs too.',
+            ucfirst($label),
+            $who ? (string) $who->getUserName() : 'someone else',
+            (int) $newest->getVersionID(),
+            $date ? date('j M Y H:i', strtotime((string) $date)) : 'date unknown'
+        )];
+        $changes = self::changesAgainstLive($newest);
+        if ($changes !== []) {
+            $warnings[] = 'Those changes: ' . implode('; ', $changes) . '.';
+        }
+
+        return ['warnings' => $warnings, 'state' => $state];
+    }
+
+    /**
      * What the draft changes against the live version, in short words: the page fields, and per area how many blocks
      * were added, changed or removed.
      *

@@ -35,9 +35,9 @@ final class BlockPreviews
             }
         }
 
-        return self::onPage($inputs, 'Add a ' . $typeName . ' block to ' . $area, $details, static fn (Page $page): array => [
+        return self::onPage($inputs, 'Add a ' . $typeName . ' block to ' . self::areaName($inputs, $area), $details, static fn (Page $page): array => [
             'area' => self::areaBlocks($page, $area),
-        ]);
+        ], [], [$area]);
     }
 
     public static function update(array $inputs): array
@@ -69,10 +69,10 @@ final class BlockPreviews
         }
         $type = $block ? PreviewSupport::blockType($block) : 'block';
 
-        return self::onPage($inputs, 'Change the ' . $type . ' block in ' . $area, $details, static fn (): array => [
+        return self::onPage($inputs, 'Change the ' . $type . ' block in ' . self::areaName($inputs, $area), $details, static fn (): array => [
             'block' => $bID,
             'fields' => hash('sha256', (string) json_encode($state)),
-        ]);
+        ], [], [$area]);
     }
 
     public static function delete(array $inputs): array
@@ -86,9 +86,11 @@ final class BlockPreviews
 
         return self::onPage(
             $inputs,
-            'Remove the ' . ($block ? PreviewSupport::blockType($block) : 'block') . ' block in ' . $area,
+            'Remove the ' . ($block ? PreviewSupport::blockType($block) : 'block') . ' block in ' . self::areaName($inputs, $area),
             $text !== '' ? ['It shows: "' . $text . '"'] : [],
-            static fn (): array => ['block' => $bID, 'fields' => hash('sha256', (string) json_encode($state))]
+            static fn (): array => ['block' => $bID, 'fields' => hash('sha256', (string) json_encode($state))],
+            [],
+            [$area]
         );
     }
 
@@ -102,9 +104,11 @@ final class BlockPreviews
 
         return self::onPage(
             $inputs,
-            'Move the ' . ($block ? PreviewSupport::blockType($block) : 'block') . ' block from ' . $from . ' to ' . $to,
+            'Move the ' . ($block ? PreviewSupport::blockType($block) : 'block') . ' block from ' . self::areaName($inputs, $from) . ' to ' . self::areaName($inputs, $to),
             [],
-            static fn (Page $page): array => ['block' => $bID, 'from' => self::areaBlocks($page, $from), 'to' => self::areaBlocks($page, $to)]
+            static fn (Page $page): array => ['block' => $bID, 'from' => self::areaBlocks($page, $from), 'to' => self::areaBlocks($page, $to)],
+            [],
+            [$from, $to]
         );
     }
 
@@ -184,22 +188,50 @@ final class BlockPreviews
     /**
      * The entry for a write on one page: "{action} on {page}", the page's newest version and draft in the state.
      *
+     * P3.6a: for each of $areas that is a stack or global area, the card first says the change appears on every page
+     * that shows it (how many, and a few of them), then warns of someone else's unpublished version of the stack; the
+     * fingerprint covers the stack's newest version and its author.
+     *
      * @param \Closure(Page): array<string, mixed> $state
      * @param list<string> $warnings
+     * @param list<string> $areas the areas of the page the call writes to
      * @return array{0: array<string, mixed>, 1: array<string, mixed>}
      */
-    private static function onPage(array $inputs, string $action, array $details, \Closure $state, array $warnings = []): array
+    private static function onPage(array $inputs, string $action, array $details, \Closure $state, array $warnings = [], array $areas = []): array
     {
         $page = PreviewSupport::newest(PreviewSupport::int($inputs, 'pageID'));
         if ($page === null) {
             return [PreviewSupport::entry($action, 'a page that was not found', '', $details, ''), ['missing' => $inputs['pageID'] ?? null]];
         }
         $draft = DraftOwner::of($page, ApprovalService::currentUserId());
+        $sharedWarnings = [];
+        $sharedState = [];
+        foreach (array_unique($areas) as $area) {
+            $shared = PreviewSupport::shared($page, $area);
+            if ($shared === null) {
+                continue;
+            }
+            $stack = DraftOwner::ofStack($shared->stackPage(), ApprovalService::currentUserId(), $shared->label());
+            $sharedWarnings = [...$sharedWarnings, $shared->notice()['notice'], ...$stack['warnings']];
+            $sharedState['shared'][$shared->stackID()] = $stack['state'];
+        }
 
         return [
-            PreviewSupport::entry($action . ' on', PreviewSupport::name($page), PreviewSupport::path($page), $details, PreviewSupport::VERSION_NOTE, [...$draft['warnings'], ...$warnings]),
-            ['cID' => (int) $page->getCollectionID(), 'cvID' => (int) $page->getVersionID()] + $draft['state'] + $state($page),
+            PreviewSupport::entry($action . ' on', PreviewSupport::name($page), PreviewSupport::path($page), $details, PreviewSupport::VERSION_NOTE, [...$sharedWarnings, ...$draft['warnings'], ...$warnings]),
+            ['cID' => (int) $page->getCollectionID(), 'cvID' => (int) $page->getVersionID()] + $draft['state'] + $sharedState + $state($page),
         ];
+    }
+
+    /** The area as the card names it: its handle, or 'the global area "Name"' for a shared one (P3.6a). */
+    private static function areaName(array $inputs, string $area): string
+    {
+        $page = PreviewSupport::newest(PreviewSupport::int($inputs, 'pageID'));
+        $shared = $page !== null ? PreviewSupport::shared($page, $area) : null;
+        if ($shared === null) {
+            return $area;
+        }
+
+        return $shared->isThroughPage() ? $shared->label() : $area . ' of ' . $shared->label();
     }
 
     /** @return list<int> the block IDs in an area of the page's newest version, in order */

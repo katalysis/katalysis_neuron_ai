@@ -34,6 +34,7 @@ final class ToolChecks
                 'approval_decided' => self::approvalDecided((string) $spec, $c),
                 'no_write_without_approval' => self::noWriteWithoutApproval($spec, $c),
                 'approvals_cover_children' => self::approvalsCoverChildren((string) $spec, $c),
+                'approval_card_matches' => self::approvalCardMatches((array) $spec, $c),
                 default => new CheckResult(CheckResult::TOOLS, (string) $check, false, 'unknown check'),
             };
         }
@@ -229,6 +230,35 @@ final class ToolChecks
         }
 
         return new CheckResult(CheckResult::TOOLS, $name, $problems === [], implode('; ', $problems));
+    }
+
+    /**
+     * P3.6a: some approval card of the turn matched every one of these regular expressions (case-insensitive), across
+     * its action, warnings and details. For scenario 39: the card names the global area and says it changes every page
+     * that shows it.
+     *
+     * @param list<string> $patterns
+     */
+    private static function approvalCardMatches(array $patterns, CheckContext $c): CheckResult
+    {
+        $name = 'approval_card_matches';
+        foreach ($c->approvals as $approval) {
+            $text = (string) ($approval['text'] ?? '');
+            $all = true;
+            foreach ($patterns as $pattern) {
+                if (preg_match('~' . str_replace('~', '\~', (string) $pattern) . '~iu', $text) !== 1) {
+                    $all = false;
+                    break;
+                }
+            }
+            if ($all) {
+                return new CheckResult(CheckResult::TOOLS, $name, true);
+            }
+        }
+
+        return new CheckResult(CheckResult::TOOLS, $name, false, $c->approvals === []
+            ? 'no approval card'
+            : 'no card matched all of: ' . implode(' | ', $patterns));
     }
 
     /**

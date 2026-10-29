@@ -149,7 +149,7 @@ final class DraftCleanup
         }
         $cID = (int) $page->getCollectionID();
         $cvID = (int) $page->getVersionID();
-        self::$tracked[] = ['kind' => $kind, 'cID' => $cID, 'cvID' => $cvID, 'fingerprint' => self::fingerprint($cID, $cvID)];
+        self::$tracked[] = ['kind' => $kind, 'cID' => $cID, 'cvID' => $cvID, 'fingerprint' => self::fingerprint($cID, $cvID), 'stack' => SystemPageGuard::isStack($page)];
     }
 
     /**
@@ -165,6 +165,8 @@ final class DraftCleanup
 
         $notes = [];
         $removedAll = true;
+        // P3.6a: a stack's version first, so its related-edit row is gone before the page draft it is tied to is checked.
+        usort($tracked, static fn (array $a, array $b): int => (int) ($b['stack'] ?? false) <=> (int) ($a['stack'] ?? false));
         foreach ($tracked as $entry) {
             $reason = self::whyKept($entry);
             if ($reason === null) {
@@ -208,7 +210,8 @@ final class DraftCleanup
         if ((int) $db->fetchOne('SELECT MAX(cvID) FROM CollectionVersions WHERE cID = ?', [$cID]) !== $cvID) {
             return 'a newer version exists';
         }
-        if ($entry['kind'] === 'version' && ((int) $row['cvIsNew'] !== 1 || (int) $row['cvIsApproved'] !== 0)) {
+        // P3.6a: Concrete never marks a stack's version as new (Cloner); a save in edit mode makes a newer one instead.
+        if ($entry['kind'] === 'version' && (((int) $row['cvIsNew'] !== 1 && !($entry['stack'] ?? false)) || (int) $row['cvIsApproved'] !== 0)) {
             return 'it has been saved or approved since';
         }
         if ($entry['kind'] === 'page' && (int) $db->fetchOne('SELECT COUNT(*) FROM Pages WHERE cParentID = ?', [$cID]) > 0) {
@@ -242,11 +245,20 @@ final class DraftCleanup
             self::db()->executeStatement('DELETE FROM PageSummaryTemplates WHERE cID = ?', [$entry['cID']]);
         } else {
             $version = $page->getVersionObject();
-            if (!$version || !$version->canDiscard()) {
+            if ($version && ($entry['stack'] ?? false)) {
+                // P3.6a: a stack's version is never "new", so it can't be discarded; Concrete deletes it as discarding a
+                // page draft deletes the stack versions related to it (Version::discard()).
+                $version->delete();
+                self::db()->executeStatement(
+                    'DELETE FROM CollectionVersionRelatedEdits WHERE cRelationID = ? AND cvRelationID = ?',
+                    [$entry['cID'], $entry['cvID']]
+                );
+            } elseif (!$version || !$version->canDiscard()) {
                 return;
+            } else {
+                // Concrete's own discard, as edit mode's "Discard" does.
+                $version->discard();
             }
-            // Concrete's own discard, as edit mode's "Discard" does.
-            $version->discard();
         }
 
         // The request's page cache still holds the version as the newest (PageDraft::cacheAsLatest()); the next call

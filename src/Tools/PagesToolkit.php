@@ -13,6 +13,7 @@ use Concrete\Core\Editor\LinkAbstractor;
 use Concrete\Core\Entity\File\File as FileEntity;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\PageList;
+use Concrete\Core\Page\Stack\Stack;
 use Concrete\Core\Page\Command\DeletePageCommand;
 use Concrete\Core\Page\Template;
 use Concrete\Core\Page\Type\Type as PageType;
@@ -34,6 +35,7 @@ use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\ListWindow;
 use Katalysis\NeuronAi\Tools\Utilities\PermittedWindow;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
+use Katalysis\NeuronAi\Tools\Utilities\SharedArea;
 use Katalysis\NeuronAi\Tools\Utilities\StrictInputTool;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use Katalysis\NeuronAi\Tools\Utilities\WriteRefusal;
@@ -1288,9 +1290,17 @@ class PagesToolkit extends AbstractToolkit
 
         foreach ($areas as $area) {
             $handle = (string) $area->getAreaHandle();
+            $globalArea = null;
 
             try {
-                $areaBlocks = $page->getBlocks($handle);
+                if ($area->isGlobalArea()) {
+                    // P3.6a: a global area's blocks are on its stack, in the version Concrete shows this user there.
+                    $stack = Stack::getGlobalAreaStackFromName($page, $handle);
+                    $areaBlocks = $stack ? $stack->getBlocks(STACKS_AREA_NAME) : [];
+                    $globalArea = $stack ? ['name' => $handle, 'pagesShowingIt' => SharedArea::pagesShowing($stack)[0]] : null;
+                } else {
+                    $areaBlocks = $page->getBlocks($handle);
+                }
                 if (!(new Checker($area))->canViewArea()) {
                     $hidden += count($areaBlocks);
                     continue;
@@ -1323,6 +1333,10 @@ class PagesToolkit extends AbstractToolkit
                     'area' => $handle,
                     'hasText' => $hasText,
                 ];
+                if ($globalArea !== null) {
+                    // Shared by every page that shows the area: a change to it changes them all.
+                    $entry['globalArea'] = $globalArea;
+                }
 
                 // An image block has no text, but its file and alt text are what it shows (P3.3-1).
                 $image = $hasText ? null : $this->blockImage($block);

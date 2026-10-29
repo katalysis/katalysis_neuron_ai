@@ -8,6 +8,7 @@ use Concrete\Core\Attribute\Key\CollectionKey;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\Database\Connection\Connection;
 use Concrete\Core\Page\Page;
+use Katalysis\NeuronAi\Tests\Support\FixtureDrift;
 use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
 
 /**
@@ -112,7 +113,8 @@ final class SnapshotBuilder
                 'children' => $children[$id] ?? [],
             ];
 
-            if ($path === self::FIXTURE_ROOT || str_starts_with($path, self::FIXTURE_ROOT . '/')) {
+            // P3.6a: and the seed's global areas, whose stacks are pages under /!stacks.
+            if ($path === self::FIXTURE_ROOT || str_starts_with($path, self::FIXTURE_ROOT . '/') || str_starts_with($path, FixtureDrift::STACKS)) {
                 $page['attributes'] = $latest === null ? [] : $this->attributes($id, $latest);
                 $page['latestBlocks'] = $latest === null ? [] : $this->blocks($id, $latest);
                 $page['approvedBlocks'] = $approved === null ? [] : $this->blocks($id, $approved);

@@ -50,6 +50,9 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
     /** Inputs that look like page inputs but aren't. */
     private const NOT_PAGE_INPUTS = ['parentFolderID', 'parent_topic_id', 'pageType', 'createParents'];
 
+    /** P3.6a: the tools that may change a stack's blocks (GlobalAreaWriteTest). */
+    private const BLOCK_TOOLS = ['add_block_to_page_area', 'update_block_in_page_area', 'delete_block_from_page_area', 'move_block_between_areas'];
+
     /** @var int[] pages to delete in tearDown(), children first */
     private array $pages = [];
 
@@ -156,23 +159,33 @@ final class SystemPageWriteRefusalTest extends ConcreteTestCase
     }
 
     /**
-     * B-WRT-5 (b): a stack (found by Stack::getByID(), so multilingual copies count too) is refused with the
-     * "not yet" message, not the permanent one, until stack editing is enabled (P3.6a).
+     * B-WRT-5 (b), P3.6a: a stack (found by Stack::getByID(), so multilingual copies count too) is edited only through
+     * the block tools (GlobalAreaWriteTest). Every other tool that takes a page refuses it: the assistant doesn't
+     * rename, move, delete, publish or change the properties of a stack.
+     *
+     * @param class-string<ToolkitInterface> $toolkit
      */
-    public function testAStackIsRefusedUntilStackEditingIsEnabled(): void
+    #[DataProvider('writeToolProvider')]
+    public function testAStackIsChangedOnlyByTheBlockTools(string $toolkit, string $toolName, string $pageInput): void
     {
-        $this->assertFalse(SystemPageGuard::stackEditingEnabled());
-        $this->stacks = new GlobalAreaFixture($this->db());
-        $stackID = $this->stacks->stack();
-        [, $globalAreaStackID] = $this->stacks->globalArea();
+        $this->assertTrue(SystemPageGuard::stackEditingEnabled());
+        if (in_array($toolName, self::BLOCK_TOOLS, true) || !in_array($pageInput, ['pageID', 'parentID', 'newParentID'], true)) {
+            // The block tools are tested in GlobalAreaWriteTest; a stack has no path a PageList or a path lookup finds.
+            $this->addToAssertionCount(1);
 
-        foreach ([$stackID, $globalAreaStackID] as $cID) {
-            $output = $this->runTool(new PagesToolkit(), 'update_page', ['pageID' => $cID, 'name' => 'Changed by the assistant']);
-
-            $this->assertStringContainsString("can't edit stacks or global areas yet", $output);
-            $this->assertStringContainsString('Nothing was changed', $output);
-            $this->assertStringNotContainsString('is a Concrete system page', $output);
+            return;
         }
+        $this->stacks = new GlobalAreaFixture($this->db());
+        [, $stackID] = $this->stacks->globalArea();
+        $stack = Page::getByID($stackID);
+        $before = $this->state($stack);
+
+        $output = $this->runTool(new $toolkit(), $toolName, $this->inputs($toolName, $pageInput, $stack));
+
+        $this->assertSame($before, $this->state($stack), "{$toolName} changed the stack.");
+        $this->assertStringContainsString('only the blocks in it', $output, "{$toolName} did not refuse a stack. It returned: {$output}");
+        $this->assertStringContainsString('Nothing was changed', $output);
+        $this->assertStringNotContainsString('is a Concrete system page', $output);
     }
 
     public function testADashboardPageGetsThePermanentRefusal(): void
