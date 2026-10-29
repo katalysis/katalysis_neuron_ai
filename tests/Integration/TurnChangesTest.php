@@ -199,6 +199,27 @@ final class TurnChangesTest extends ConcreteTestCase
         $this->assertSame([$b1], $all[0]['blockIDs']);
     }
 
+    /** P3.6a: a change to a global area through the page is named on the page's line. */
+    public function testAGlobalAreaChangedThroughThePageIsNamed(): void
+    {
+        $page = $this->pages->create('Turn changes, global area');
+        $cID = (int) $page->getCollectionID();
+        $changes = new TurnChanges();
+
+        $call = new ToolCall('update_block_in_page_area', 'call_shared', ['pageID' => $cID, 'blockID' => 1]);
+        $call->setResult((string) json_encode([
+            'blockID' => 2,
+            'versionState' => ['status' => 'unpublished', 'pageID' => $cID, 'versionID' => 2],
+            'sharedArea' => ['name' => 'Header Banner', 'kind' => 'global area', 'pages' => 12, 'examples' => [], 'notice' => '…'],
+        ]));
+        $changes(new ToolCalled($call));
+
+        $this->assertSame(
+            'Changed: ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . '), unpublished version 2 (with the global area "Header Banner", shown on every page that has it).',
+            $changes->line()
+        );
+    }
+
     public function testCallsWithoutAnIDAreKeyedByNameAndInputs(): void
     {
         $page = $this->pages->create('Turn changes, no call ID');

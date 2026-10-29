@@ -14,6 +14,7 @@ use Concrete\Core\User\UserInfoRepository;
 use Katalysis\NeuronAi\Approval\ApprovalSettings;
 use Katalysis\NeuronAi\Approval\ChangePreview;
 use Katalysis\NeuronAi\Tests\Support\ConcreteTestCase;
+use Katalysis\NeuronAi\Tests\Support\GlobalAreaFixture;
 use Katalysis\NeuronAi\Tests\Support\ThrowawayPages;
 use Katalysis\NeuronAi\Tests\Support\ToolByName;
 use Katalysis\NeuronAi\Tools\ToolKind;
@@ -116,6 +117,43 @@ final class ApprovalPreviewsTest extends ConcreteTestCase
         $this->assertContains('Main (Content): "Second heading" → <h2>', $entry['details']);
         $this->assertContains('Not found: "Missing heading"', $entry['details']);
         $this->assertSame(1, $this->versions($cID));
+    }
+
+    /**
+     * P3.6a: a block write to a global area names it, says first that the change appears on every page that shows it
+     * (how many, and which), and warns when the stack's newest version is someone else's and unpublished. The
+     * fingerprint follows the stack's versions.
+     */
+    public function testAGlobalAreaCardNamesItCountsItsPagesAndWarnsOfAnotherUsersVersion(): void
+    {
+        $fixture = new GlobalAreaFixture($this->db());
+        try {
+            [$handle, $stackID, $bID] = $fixture->globalArea();
+            $pageA = $fixture->page([$handle]);
+            $fixture->page([$handle]);
+            $inputs = ['pageID' => (int) $pageA->getCollectionID(), 'areaHandle' => $handle, 'blockID' => $bID, 'value' => ['content' => '<p>Original global content</p><p>More</p>']];
+            $stackVersions = $this->versions($stackID);
+
+            $first = self::preview('update_block_in_page_area', $inputs);
+            $this->assertStringContainsString('Change the Content block in the global area "' . $handle . '" on', $first['entry']['action']);
+            $this->assertCount(1, $first['entry']['warnings']);
+            $this->assertStringContainsString('appears on every page that shows it (at least 2 pages, e.g. ', $first['entry']['warnings'][0]);
+            $this->assertStringContainsString('content: "Original global content" → "Original global content More"', implode("\n", $first['entry']['details']), 'read from the stack');
+            $this->assertSame($stackVersions, $this->versions($stackID), 'previews write nothing');
+
+            // neuron_chat_editor starts a version of the stack and leaves it unpublished.
+            Request::getInstance()->setCustomRequestUser($this->app()->make(UserInfoRepository::class)->getByUserName('neuron_chat_editor'));
+            CacheLocal::flush();
+            Page::getByID($stackID, 'RECENT')->getVersionToModify();
+            Request::getInstance()->setCustomRequestUser(-1);
+
+            $second = self::preview('update_block_in_page_area', $inputs);
+            $this->assertStringContainsString('already has unpublished changes by neuron_chat_editor', $second['entry']['warnings'][1]);
+            $this->assertStringContainsString('publishing it publishes theirs too', $second['entry']['warnings'][1]);
+            $this->assertNotSame($first['fingerprint'], $second['fingerprint'], 'a new stack version makes the approval stale');
+        } finally {
+            $fixture->restore();
+        }
     }
 
     /** BF-22: in scenario 17 the model set this field when asked for the meta description. */
