@@ -100,8 +100,9 @@ final class TurnChanges
             return;
         }
         if ($pageID <= 0) {
-            // Any other write (a file, a topic, a version, a user, …): recorded by what it names (P3.6-1).
-            $this->recordOther($name, $call->getInputs());
+            // Any other write (a file, a topic, a version, a user, …): recorded by what it names (P3.6-1), with the
+            // undo line a structural change carries (BF-24: move_page).
+            $this->recordOther($name, $call->getInputs(), is_array($data) && is_string($data['undo'] ?? null) ? $data['undo'] : '');
 
             return;
         }
@@ -263,11 +264,11 @@ final class TurnChanges
         return $encoded === false ? $json : $encoded;
     }
 
-    private function recordOther(string $tool, array $inputs): void
+    private function recordOther(string $tool, array $inputs, string $undo = ''): void
     {
         $kind = self::kind($tool);
         $object = self::object($inputs);
-        $label = SecretRedactor::redact($object !== '' ? $kind . ' ' . $object : $kind . ' (' . $tool . ')');
+        $label = SecretRedactor::redact(($object !== '' ? $kind . ' ' . $object : $kind . ' (' . $tool . ')') . ($undo !== '' ? ' (' . rtrim($undo, '.') . ')' : ''));
         $entry = $this->others[$label] ?? ['kind' => $kind, 'object' => $label, 'tools' => []];
         if (!in_array($tool, $entry['tools'], true)) {
             $entry['tools'][] = SecretRedactor::redact($tool);

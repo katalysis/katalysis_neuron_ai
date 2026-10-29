@@ -122,6 +122,31 @@ final class ReenabledToolsTest extends ConcreteTestCase
         $this->assertSame(1, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM PagePaths WHERE cID = ? AND cPath = ? AND ppIsCanonical = 0', [$page->getCollectionID(), $oldPath]), 'the old URL redirects');
     }
 
+    /**
+     * BF-24 (P3.S3, scenario 09 partial 3/3): the result says how to undo the move: the old path, that it redirects,
+     * and how to move it back. Moving it back as the line says works: its own old path doesn't block it.
+     */
+    public function testAMoveSaysHowToUndoItAndMovingItBackWorks(): void
+    {
+        [$page] = $this->pageWithChild('Reenabled undo');
+        $oldParent = Page::getByID((int) $page->getCollectionParentID());
+        $target = $this->pages->create('Reenabled undo target', []);
+        $oldPath = (string) $page->getCollectionPath();
+
+        $result = json_decode(ToolByName::run('move_page', ['pageID' => (int) $page->getCollectionID(), 'newParentID' => (int) $target->getCollectionID()]), true);
+
+        $undo = (string) ($result['undo'] ?? '');
+        $this->assertStringContainsString($oldPath, $undo, 'the old path');
+        $this->assertStringContainsString('redirect', $undo);
+        $this->assertStringContainsString('move_page', $undo);
+        $this->assertStringContainsString('newParentID ' . $oldParent->getCollectionID(), $undo, 'how to move it back');
+
+        $back = ToolByName::run('move_page', ['pageID' => (int) $page->getCollectionID(), 'newParentID' => (int) $oldParent->getCollectionID()]);
+        $this->assertTrue(ToolKind::succeeded($back), $back);
+        CacheLocal::flush();
+        $this->assertSame($oldPath, (string) Page::getByID($page->getCollectionID())->getCollectionPath(), 'back at its old path');
+    }
+
     public function testAMoveUnderItselfOrOntoATakenPathIsRefusedAndTheCardIsNotAsked(): void
     {
         [$page, $child] = $this->pageWithChild('Reenabled loop');
