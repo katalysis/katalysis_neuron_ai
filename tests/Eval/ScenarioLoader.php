@@ -13,7 +13,7 @@ use Symfony\Component\Yaml\Yaml;
  */
 final class ScenarioLoader
 {
-    private const TOP_KEYS = ['id', 'title', 'tier', 'user', 'current_page', 'rules', 'known_to_fail_today', 'rubric', 'setup', 'turns', 'expect', 'inconclusive_unless_read'];
+    private const TOP_KEYS = ['id', 'title', 'tier', 'user', 'current_page', 'rules', 'known_to_fail_today', 'rubric', 'setup', 'turns', 'expect', 'inconclusive_unless_read', 'panel'];
     private const TURN_KEYS = ['say', 'approval', 'current_page', 'expect'];
     private const EXPECT_KEYS = ['state', 'tools', 'reply'];
     private const STATE_KEYS = [
@@ -139,6 +139,21 @@ final class ScenarioLoader
 
         if (array_key_exists('setup', $data)) {
             $errors = array_merge($errors, ScenarioSetup::validate($data['setup']));
+        }
+
+        // P3.11-2: through the panel's endpoints (PanelPath), optionally with the page in edit mode.
+        if (array_key_exists('panel', $data)) {
+            $panel = $data['panel'];
+            if (!is_array($panel) || array_is_list($panel) && $panel !== []) {
+                $errors[] = 'panel must be a mapping ({} for the panel path, or {edit_mode: true}).';
+            } else {
+                foreach (array_diff(array_keys($panel), ['edit_mode']) as $key) {
+                    $errors[] = "panel: unknown key \"{$key}\".";
+                }
+                if (isset($panel['edit_mode']) && !is_bool($panel['edit_mode'])) {
+                    $errors[] = 'panel: edit_mode must be true or false.';
+                }
+            }
         }
 
         foreach ($data['turns'] as $i => $turn) {

@@ -77,6 +77,9 @@ final class ScenarioRunner
         $anyNotice = null;
         $setup = new ScenarioSetup();
         $setupIds = [];
+        $panel = null;
+        $editMode = false;
+        $checkedOut = null;
 
         try {
             $user = $this->loginAs((string) $scenario['user']);
@@ -87,6 +90,16 @@ final class ScenarioRunner
             }
             $start = $this->snapshots->take();
             $chatId = $this->createChat((string) $scenario['id'], $runNumber, $user, (string) $scenario['current_page']);
+
+            // P3.11-2: through the panel's endpoints, with the panel's payload (PanelPath), and in edit mode if asked.
+            if (isset($scenario['panel'])) {
+                $editMode = (bool) ($scenario['panel']['edit_mode'] ?? false);
+                $panel = new PanelPath($this->agentFactory, (string) $this->db()->fetchOne('SELECT sessionId FROM KatalysisNeuronAiChats WHERE id = ?', [$chatId]));
+                if ($editMode) {
+                    $checkedOut = $this->pageAt((string) $scenario['current_page']);
+                    PanelPath::checkOut($checkedOut, $user);
+                }
+            }
 
             $page = (string) $scenario['current_page'];
             $lastReply = '';
@@ -104,20 +117,36 @@ final class ScenarioRunner
                 $this->entityManager()->clear();
                 $agent = ($this->agentFactory)();
                 $agent->setChatId($chatId);
-                $this->setPageContext($agent, $page);
+                if ($panel === null) {
+                    $this->setPageContext($agent, $page);
+                }
 
                 $before = $this->snapshots->take();
                 $logMark = $this->maxLogID();
                 $idsBefore = $this->messageIds($agent);
 
                 $turnStarted = microtime(true);
-                $reply = $agent->handleUserMessage((string) $turn['say']);
-                // The same call controllers/chat.php makes, before any approval round. Recorded for every scenario, so
-                // false notices show up everywhere.
-                $notice = $agent->getTurnNotice();
-                // P3.6-1: a paused turn is answered as the user would, through the panel's path (ConcreteCmsAgent::decide()).
-                [$reply, $agent, $approvals] = $this->answerApprovals($agent, $chatId, $page, $reply, $turn['approval'] ?? 'approve');
-                $notice ??= $agent->getTurnNotice();
+                $panelRecord = null;
+                if ($panel !== null) {
+                    // P3.11-2: the endpoints make their own agents; this one only reads the chat's messages afterwards.
+                    $context = PanelPath::pageContext($this->pageAt($page), $editMode);
+                    $endpointsBefore = count($panel->endpoints());
+                    $body = $panel->send((string) $turn['say'], $context);
+                    $notice = $body['notice'] ?? null;
+                    [$reply, $approvals] = $this->answerPanelApprovals($panel, $body, $context, $chatId, $turn['approval'] ?? 'approve');
+                    $this->entityManager()->clear();
+                    $agent = ($this->agentFactory)();
+                    $agent->setChatId($chatId);
+                    $panelRecord = ['pageContext' => $context, 'endpoints' => array_slice($panel->endpoints(), $endpointsBefore)];
+                } else {
+                    $reply = $agent->handleUserMessage((string) $turn['say']);
+                    // The same call controllers/chat.php makes, before any approval round. Recorded for every scenario, so
+                    // false notices show up everywhere.
+                    $notice = $agent->getTurnNotice();
+                    // P3.6-1: a paused turn is answered as the user would, through the panel's path (ConcreteCmsAgent::decide()).
+                    [$reply, $agent, $approvals] = $this->answerApprovals($agent, $chatId, $page, $reply, $turn['approval'] ?? 'approve');
+                    $notice ??= $agent->getTurnNotice();
+                }
                 $turnSeconds = microtime(true) - $turnStarted;
 
                 $after = $this->snapshots->take();
@@ -165,7 +194,7 @@ final class ScenarioRunner
                     'approvals' => array_map(static fn (array $a): array => array_diff_key($a, ['callId' => true]), $approvals),
                     'logErrors' => $logErrors,
                     'checks' => array_map(static fn (CheckResult $c): array => $c->toArray(), $turnChecks),
-                ];
+                ] + ($panelRecord !== null ? ['panel' => $panelRecord] : []);
             }
 
             if (isset($scenario['expect'])) {
@@ -178,6 +207,12 @@ final class ScenarioRunner
             $hadError = true;
             $run['error'] = get_class($e) . ': ' . $e->getMessage();
         } finally {
+            if ($checkedOut !== null) {
+                PanelPath::checkIn($checkedOut);
+            }
+            if ($panel !== null) {
+                PanelPath::endSession();
+            }
             $setup->undo($setupIds);
         }
 
@@ -244,6 +279,58 @@ final class ScenarioRunner
         }
 
         return [$reply, $agent, $approvals];
+    }
+
+    /**
+     * P3.11-2: answerApprovals() through the panel: every waiting card is answered through the decide endpoint, with
+     * the panel's payload, until the turn stops waiting (at most MAX_APPROVAL_ROUNDS pauses).
+     *
+     * @param array<string, mixed> $body send_message's answer
+     * @param array<string, mixed> $context the panel's pageContext
+     * @return array{string, list<array<string, mixed>>} the turn's final reply, and the calls it waited on
+     */
+    private function answerPanelApprovals(PanelPath $panel, array $body, array $context, int $chatId, mixed $answer): array
+    {
+        $reply = (string) ($body['response'] ?? '');
+        $approvals = [];
+        for ($round = 0; ($body['awaitingApproval'] ?? false) && $round < self::MAX_APPROVAL_ROUNDS; $round++) {
+            $cards = array_filter((array) ($body['approvals'] ?? []), static fn ($card): bool => is_array($card) && ($card['status'] ?? '') === ApprovalService::PENDING);
+            if ($cards === []) {
+                break;
+            }
+            foreach ($cards as $card) {
+                $decision = ApprovalAnswer::for($answer, (string) $card['tool']);
+                $body = $panel->decide((string) $card['callId'], $decision, $context);
+                $approvals[] = ['tool' => (string) $card['tool'], 'callId' => (string) $card['callId'], 'decision' => $decision, 'status' => '', 'path' => (string) ($card['path'] ?? ''),
+                    'text' => implode("\n", [(string) ($card['action'] ?? '') . ' ' . (string) ($card['target'] ?? ''), ...(array) ($card['warnings'] ?? []), ...(array) ($card['details'] ?? [])])];
+                if (($body['response'] ?? null) !== null) {
+                    $reply = (string) $body['response'];
+                }
+            }
+        }
+        if ($body['awaitingApproval'] ?? false) {
+            // As answerApprovals(): still waiting after MAX_APPROVAL_ROUNDS pauses, so the run is ended.
+            $this->entityManager()->clear();
+            ($this->agentFactory)()->setChatId($chatId)->discardRun();
+        }
+
+        $statuses = ApprovalService::make()->statuses($chatId, array_column($approvals, 'callId'));
+        foreach ($approvals as $i => $approval) {
+            $approvals[$i]['status'] = $statuses[$approval['callId']] ?? '';
+        }
+
+        return [$reply, $approvals];
+    }
+
+    /** The scenario's page, found as the chat endpoint finds it (so "/" is the home page). */
+    private function pageAt(string $path): Page
+    {
+        $page = PageContextResolver::pageForPath($path);
+        if ($page === null) {
+            throw new \RuntimeException("The scenario's current page \"{$path}\" does not exist.");
+        }
+
+        return $page;
     }
 
     /**
