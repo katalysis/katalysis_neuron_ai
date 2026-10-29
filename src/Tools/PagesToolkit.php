@@ -1232,14 +1232,17 @@ class PagesToolkit extends AbstractToolkit
     {
         $areas = [];
 
-        foreach (Area::getHandleList() as $handle) {
+        // BF-23: with the page's global areas, which Area::getHandleList() leaves out.
+        foreach (array_values(array_unique(array_merge(Area::getHandleList(), SharedArea::globalAreaHandles($page)))) as $handle) {
             try {
                 $area = Area::get($page, $handle);
                 if (!$area) {
                     continue;
                 }
 
-                $blocks = $area->getAreaBlocksArray($page);
+                // A global area's blocks are on its stack (SharedArea::readableBlocks()), marked as shared.
+                $shared = SharedArea::readableBlocks($page, $handle);
+                $blocks = $shared !== null ? $shared['blocks'] : $area->getAreaBlocksArray($page);
                 if (!is_array($blocks) || $blocks === []) {
                     continue;
                 }
@@ -1248,7 +1251,7 @@ class PagesToolkit extends AbstractToolkit
                     'areaHandle' => $handle,
                     'blockCount' => count($blocks),
                     'blocks' => array_map(fn($block) => $this->serializeBlock($block), $blocks),
-                ];
+                ] + ($shared !== null ? ['globalArea' => $shared['globalArea']] : []);
             } catch (\Throwable $e) {
             }
         }

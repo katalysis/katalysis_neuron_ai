@@ -548,11 +548,7 @@ class BlocksToolkit extends AbstractToolkit
                 
                 $stack = $block->getBlockCollectionID() ? Stack::getByID((int) $block->getBlockCollectionID()) : null;
                 if ($stack) {
-                    // P3.6a: the block tools change it through a page that shows it, with the stack's name as the area.
-                    $kind = (int) $stack->getStackType() === Stack::ST_TYPE_GLOBAL_AREA ? 'global area' : 'stack';
-                    $pages = SharedArea::pagesShowing($stack)[0];
-                    $output .= "**Area:** {$stack->getStackName()} (a {$kind}, shared by every page that shows it: "
-                        . $pages . ($pages === 1 ? ' page' : ' pages') . "; a change to it changes them all)\n";
+                    $output .= self::sharedAreaLine($stack);
                 } elseif ($block->getAreaHandle()) {
                     $output .= "**Area:** {$block->getAreaHandle()}\n";
                 }
@@ -857,7 +853,9 @@ class BlocksToolkit extends AbstractToolkit
                 $output = "📦 **Block #{$blockID} Controller Data:**\n\n";
                 $output .= "**Type:** {$bt->getBlockTypeName()} (`{$bt->getBlockTypeHandle()}`)\n";
                 $output .= "**Page:** [{$page->getCollectionPath()}]({$page->getCollectionPath()})\n";
-                $output .= "**Area:** " . ($resolvedAreaHandle !== '' ? $resolvedAreaHandle : '(unknown)') . "\n";
+                // BF-23: a block on a stack is marked as shared, as get_block_data marks it.
+                $stack = Stack::getByID((int) $page->getCollectionID());
+                $output .= $stack ? self::sharedAreaLine($stack) : "**Area:** " . ($resolvedAreaHandle !== '' ? $resolvedAreaHandle : '(unknown)') . "\n";
                 // BF-10: whether this ID is in the newest version, the one the write tools change.
                 $versionNote = BlockNotFound::readNote((int) $page->getCollectionID(), (int) $blockID);
                 if ($versionNote !== null) {
@@ -964,6 +962,19 @@ class BlocksToolkit extends AbstractToolkit
      * The block in the area it has in $page's version; with $anyVersion, else from its newest placement on the page.
      */
     /**
+     * P3.6a: the area line for a block on a stack. The block tools change it through a page that shows it, with the
+     * stack's name as the area.
+     */
+    private static function sharedAreaLine(Stack $stack): string
+    {
+        $kind = (int) $stack->getStackType() === Stack::ST_TYPE_GLOBAL_AREA ? 'global area' : 'stack';
+        $pages = SharedArea::pagesShowing($stack)[0];
+
+        return "**Area:** {$stack->getStackName()} (a {$kind}, shared by every page that shows it: "
+            . $pages . ($pages === 1 ? ' page' : ' pages') . "; a change to it changes them all)\n";
+    }
+
+    /**
      * P3.6a: the blocks of one type in the page's global areas, from each area's stack in the version Concrete shows
      * this user there, with the number of pages that show the area.
      *
@@ -971,25 +982,22 @@ class BlocksToolkit extends AbstractToolkit
      */
     private function globalAreaBlocksOfType(Page $page, int $btID): array
     {
-        $db = Application::getFacadeApplication()->make('database')->connection();
         $rows = [];
-        foreach ($db->fetchFirstColumn('SELECT arHandle FROM Areas WHERE cID = ? AND arIsGlobal = 1 ORDER BY arHandle', [(int) $page->getCollectionID()]) as $handle) {
-            $stack = Stack::getGlobalAreaStackFromName($page, (string) $handle);
-            if (!$stack) {
-                continue;
-            }
-            $pages = SharedArea::pagesShowing($stack)[0];
-            foreach ($stack->getBlocks(STACKS_AREA_NAME) as $block) {
-                if ((int) $block->getBlockTypeID() !== $btID || !(new Checker($block))->canViewBlock()) {
+        foreach (SharedArea::globalAreaHandles($page) as $handle) {
+            // BF-23: only the blocks the user may view (SharedArea::readableBlocks()).
+            $shared = SharedArea::readableBlocks($page, $handle);
+            foreach ($shared['blocks'] ?? [] as $block) {
+                if ((int) $block->getBlockTypeID() !== $btID) {
                     continue;
                 }
+                $version = $block->getBlockCollectionObject();
                 $modified = (string) $block->getBlockDateLastModified();
                 $rows[] = [
                     'bID' => (int) $block->getBlockID(),
-                    'area' => (string) $handle,
-                    'pages' => $pages,
-                    'approved' => (bool) $stack->getVersionObject()->isApproved(),
-                    'cvID' => (int) $stack->getVersionID(),
+                    'area' => $handle,
+                    'pages' => (int) $shared['globalArea']['pagesShowingIt'],
+                    'approved' => (bool) ($version && $version->getVersionObject() && $version->getVersionObject()->isApproved()),
+                    'cvID' => $version ? (int) $version->getVersionID() : 0,
                     'modified' => $modified !== '' ? date('Y-m-d', strtotime($modified)) : 'N/A',
                 ];
             }

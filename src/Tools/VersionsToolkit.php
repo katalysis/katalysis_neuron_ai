@@ -17,6 +17,7 @@ use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
 use Katalysis\NeuronAi\Tools\Utilities\DraftState;
 use Katalysis\NeuronAi\Tools\Utilities\EditModeGuard;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
+use Katalysis\NeuronAi\Tools\Utilities\SharedArea;
 use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
 use NeuronAI\Tools\Tool;
 use Katalysis\NeuronAi\Tools\Support\CallableTool;
@@ -516,23 +517,29 @@ GUIDELINES;
 
                 $output .= "### Content Areas:\n\n";
 
-                // Use Area::getHandleList() to get all area handles
-                $areaHandles = Area::getHandleList();
-                
+                // Use Area::getHandleList() to get all area handles, and the page's global areas, which it leaves out (BF-23)
+                $areaHandles = array_values(array_unique(array_merge(Area::getHandleList(), SharedArea::globalAreaHandles($page))));
+
                 foreach ($areaHandles as $areaHandle) {
                     $area = Area::get($page, $areaHandle);
                     if (!$area) {
                         continue;
                     }
-                    
+
                     $areaName = $area->getAreaDisplayName();
-                    $blocks = $area->getAreaBlocksArray($page);
-                    
+                    // BF-23: a global area's blocks are on its stack, in the version Concrete shows this user, not in
+                    // the page's version; only those the user may view.
+                    $shared = SharedArea::readableBlocks($page, $areaHandle);
+                    $blocks = $shared !== null ? $shared['blocks'] : $area->getAreaBlocksArray($page);
+
                     if (empty($blocks)) {
                         continue;
                     }
 
-                    $output .= "#### {$areaName} (`{$areaHandle}`)\n";
+                    $output .= "#### {$areaName} (`{$areaHandle}`)"
+                        . ($shared !== null ? " (a global area, shared by every page that shows it: {$shared['globalArea']['pagesShowingIt']} "
+                            . ($shared['globalArea']['pagesShowingIt'] === 1 ? 'page' : 'pages') . '; its blocks are in its stack, not in this version)' : '')
+                        . "\n";
                     $output .= "**Blocks:** " . count($blocks) . "\n\n";
 
                     foreach ($blocks as $block) {
