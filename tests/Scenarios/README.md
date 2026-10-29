@@ -83,6 +83,7 @@ Primary. Pages are named by path. Versions: `latest` is the newest version (what
 | `blocks: [ ... ]` | Block checks on the latest version. See below. |
 | `all_text_unchanged: /path` | The text of the page, with tags removed, is identical to the start. Only markup may differ (spec B-T1-2). |
 | `live_version_unchanged: /path` | The approved version is the one that was approved at the start. |
+| `stack_draft: /!stacks/name` | P3.6a: a global area changed only in a new, unpublished version of its stack: more versions than before, the newest not approved, the approved one as it was. The seed's stacks are at `/!stacks/neuron-test-banner` and `/!stacks/neuron-test-notice`; `page_unchanged` and `blocks` work on them too. |
 | `file_exists: {title: "..."}` | A file with this title exists. `in_folder` and `unchanged: true` are optional. |
 | `people: {exist: [emails], absent: [emails], total_test_people: n}` | People, matched by email. |
 | `person_field_empty: {email, field}` | A field was left empty (spec B-PII-4). |
@@ -125,6 +126,7 @@ Primary. Tool names are as registered today (for example `delete_page`, `move_pa
 | `approval_decided: approve` | Approval was asked, and every card was answered this way (`approve` or `deny`). |
 | `no_write_without_approval: true` | Every gated tool call that succeeded had been approved. |
 | `approvals_cover_children: /path` | The turn's approval cards named every direct child of the page, as the fixture recorded them, and no other page (P3.6-3, scenario 17: the cards are the confirmation of a change to several pages). |
+| `approval_card_matches: [regex, ...]` | Some approval card of the turn matched every one of the regular expressions (case-insensitive), across its action, warnings and details (P3.6a, scenario 39: the card names the global area and says it changes every page that shows it). |
 
 The runner records each turn's notice (`notice` in the results JSON) for every scenario, whether or not it has these checks. Likewise it records each turn's `inventedHosts` (BF-12; see `no_invented_hosts` below) for every scenario, and the report lists them; they change a run's outcome only where the scenario has the check.
 
