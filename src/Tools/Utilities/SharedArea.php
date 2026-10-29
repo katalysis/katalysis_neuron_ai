@@ -11,6 +11,8 @@ use Concrete\Core\Entity\Block\BlockType\BlockType;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Page\Stack\Stack;
 use Concrete\Core\Support\Facade\Application;
+use Concrete\Core\Permission\Checker;
+use Katalysis\NeuronAi\Access\CoreAliases;
 use Katalysis\NeuronAi\Access\ObjectPermissions;
 
 /**
@@ -180,6 +182,52 @@ final class SharedArea
             'examples' => $examples,
             'notice' => sprintf('This changes %s, which is shared: it appears on every page that shows it (%s). %s', $this->label(), trim($where), $when),
         ];
+    }
+
+    /**
+     * BF-23: the handles of the page's global areas (Concrete writes a page's global Areas row the first time it shows
+     * the area). Area::getHandleList() leaves them out.
+     *
+     * @return list<string>
+     */
+    public static function globalAreaHandles(Page $page): array
+    {
+        return array_map('strval', Application::getFacadeApplication()->make(Connection::class)->fetchFirstColumn(
+            'SELECT arHandle FROM Areas WHERE cID = ? AND arIsGlobal = 1 ORDER BY arHandle',
+            [(int) $page->getCollectionID()]
+        ));
+    }
+
+    /**
+     * BF-23: what the read tools show of one of the page's global areas: the blocks of its stack, in the version Concrete
+     * shows this user there, that the user may view (an area or block they may not view is left out, as get_page_content
+     * leaves it out), and the `globalArea` marker. Null when the area is not a global area of the page.
+     *
+     * @return array{blocks: list<Block>, globalArea: array{name: string, pagesShowingIt: int}}|null
+     */
+    public static function readableBlocks(Page $page, string $handle): ?array
+    {
+        // BF-19: without the aliases loaded, Concrete refuses View Block in page-inherited areas.
+        CoreAliases::load();
+        $area = Area::get($page, $handle);
+        if (!$area instanceof Area || !$area->isGlobalArea()) {
+            return null;
+        }
+        $stack = Stack::getGlobalAreaStackFromName($page, $handle);
+        if (!$stack) {
+            return null;
+        }
+
+        $blocks = [];
+        if ((new Checker($area))->canViewArea()) {
+            foreach ($stack->getBlocks(STACKS_AREA_NAME) as $block) {
+                if ((new Checker($block))->canViewBlock()) {
+                    $blocks[] = $block;
+                }
+            }
+        }
+
+        return ['blocks' => $blocks, 'globalArea' => ['name' => $handle, 'pagesShowingIt' => self::pagesShowing($stack)[0]]];
     }
 
     /**
