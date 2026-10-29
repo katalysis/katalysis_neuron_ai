@@ -20,6 +20,19 @@ final class NoTableSqlInControllerTest extends TestCase
         $this->assertStringNotContainsString('createDatabaseTables', $source);
     }
 
+    public function testEveryModelTheInstallSavesIsOneTheSettingsPageAccepts(): void
+    {
+        // Found while doing P3.9-1: install saved anthropic_model 'claude-2', which P3.8-1's check refuses, so a fresh
+        // install's settings form (which posts the saved value back) could never be saved.
+        $source = (string) file_get_contents(dirname(__DIR__, 2) . '/controller.php');
+        preg_match_all("/Config::save\\('katalysis\\.ai\\.(open_ai|anthropic|ollama)_model', '([^']*)'\\)/", $source, $m, PREG_SET_ORDER);
+
+        $this->assertNotSame([], $m);
+        foreach ($m as [, $field, $model]) {
+            $this->assertSame([], \Katalysis\NeuronAi\Settings\ApiKeySettings::refusals([$field . '_model' => $model]), "{$field}_model '{$model}'");
+        }
+    }
+
     public function testThePackageVersionIsAtLeast350SoUpgradeRuns(): void
     {
         $source = (string) file_get_contents(dirname(__DIR__, 2) . '/controller.php');
