@@ -199,8 +199,8 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
         return [
             'open_ai_key' => 'sk-dummy-NEW-VALUE-4455',
             'remove_anthropic_key' => '1',
-            'open_ai_model' => 'changed-model',
-            'anthropic_model' => 'changed-anthropic-model',
+            'open_ai_model' => 'gpt-4o-mini',
+            'anthropic_model' => 'claude-haiku-5-5',
             'ollama_url' => 'http://changed.invalid',
             'ollama_model' => 'changed-ollama-model',
         ];
@@ -252,7 +252,7 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
         $this->assertNotNull($response, 'A successful save redirects back to the page.');
         $this->assertSame('sk-dummy-NEW-VALUE-4455', $this->config->get('katalysis.ai.open_ai_key'));
         $this->assertSame('', $this->config->get('katalysis.ai.anthropic_key'));
-        $this->assertSame('changed-model', $this->config->get('katalysis.ai.open_ai_model'));
+        $this->assertSame('gpt-4o-mini', $this->config->get('katalysis.ai.open_ai_model'));
         $this->assertSame('http://changed.invalid', $this->config->get('katalysis.ai.ollama_url'));
         $flashes = $this->app()->make('session')->getFlashBag()->get('page_message');
         $this->assertSame('success', $flashes[0][0] ?? null);
@@ -273,7 +273,7 @@ final class SettingsSavePermissionTest extends ConcreteTestCase
 
         $this->assertSame('', $controller->errorText());
         $this->assertNotNull($response, 'A successful save redirects back to the page.');
-        $this->assertSame('changed-model', $this->config->get('katalysis.ai.open_ai_model'));
+        $this->assertSame('gpt-4o-mini', $this->config->get('katalysis.ai.open_ai_model'));
         $this->assertSame('sk-dummy-NEW-VALUE-4455', $this->config->get('katalysis.ai.open_ai_key'));
         $this->assertSame('', $this->config->get('katalysis.ai.anthropic_key'));
         $this->assertStringContainsString('type="submit"', $this->renderSettingsPage(), 'The form shows Save to a user who can save.');
