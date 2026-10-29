@@ -23,6 +23,9 @@ final class FixtureDrift
 {
     public const ROOT = '/neuron-test';
 
+    /** P3.6a: the seed's global areas, whose stacks are pages here (Neuron Test Banner, Neuron Test Notice). */
+    public const STACKS = '/!stacks/neuron-test-';
+
     private const NAMESPACE = 'katalysis_neuron_ai';
     private const GROUP = 'fixture';
     private const ITEM = 'pages';
@@ -35,8 +38,8 @@ final class FixtureDrift
         $pages = [];
         foreach ($db->fetchAllAssociative(
             'SELECT pp.cID, pp.cPath FROM PagePaths pp JOIN Pages p ON p.cID = pp.cID
-             WHERE pp.ppIsCanonical = 1 AND (pp.cPath = ? OR pp.cPath LIKE ?) ORDER BY pp.cPath',
-            [self::ROOT, self::ROOT . '/%']
+             WHERE pp.ppIsCanonical = 1 AND (pp.cPath = ? OR pp.cPath LIKE ? OR pp.cPath LIKE ?) ORDER BY pp.cPath',
+            [self::ROOT, self::ROOT . '/%', self::STACKS . '%']
         ) as $row) {
             $cID = (int) $row['cID'];
             $versions = $db->fetchAllAssociative('SELECT * FROM CollectionVersions WHERE cID = ? ORDER BY cvID', [$cID]);

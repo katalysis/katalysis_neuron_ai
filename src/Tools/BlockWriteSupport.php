@@ -10,7 +10,7 @@ use Concrete\Core\Block\Traits\GetBlockToEditTrait;
 use Concrete\Core\Page\Page;
 use Concrete\Core\Support\Facade\Application;
 use Katalysis\NeuronAi\Tools\Utilities\PageDraft;
-use Katalysis\NeuronAi\Tools\Utilities\SystemPageGuard;
+use Katalysis\NeuronAi\Tools\Utilities\SharedArea;
 
 /**
  * P3.3-4: the block-write helpers ContentToolkit and BatchEditToolkit both use: the stored row and the draft copy of
@@ -51,11 +51,18 @@ trait BlockWriteSupport
     }
 
     /**
-     * Concrete's "block to edit", refusing a global area first (BF-2): for a global area it makes a stack version.
+     * Concrete's "block to edit" in the page's draft. For a global area (P3.6a) it is the block in the stack's draft,
+     * which SharedArea makes through PageDraft::of() and relates to the page's draft, as Concrete's own version does
+     * (which would make the stack version itself, past the approval dry run and the clean-up of a failed call).
      */
     public function getBlockToEdit(Page $page, Area $area, string $areaHandle, $blockID): ?Block
     {
-        SystemPageGuard::refuseGlobalArea($page, $areaHandle);
+        $shared = $area->isGlobalArea() ? SharedArea::of($page, $areaHandle) : null;
+        if ($shared !== null) {
+            $page = $shared->versionToModify($page);
+            $areaHandle = $shared->stackAreaHandle();
+            $area = Area::getOrCreate($page, $areaHandle);
+        }
 
         $block = $this->coreGetBlockToEdit($page, $area, $areaHandle, $blockID);
         // P3.6-2: a later call in this request that names the old ID follows the copy (PageDraft::followCopies()).

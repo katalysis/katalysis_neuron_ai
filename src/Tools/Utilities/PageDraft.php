@@ -38,6 +38,13 @@ final class PageDraft
         $latest = Page::getByID($page->getCollectionID(), 'RECENT');
         $draft = $latest->getVersionToModify();
         $created = $draft !== $latest;
+        if ($created && SystemPageGuard::isStack($draft)) {
+            // P3.6a: Concrete never marks a stack's new version as new (Cloner), so each getVersionToModify() on it
+            // would clone it again, a version per step. In memory only, the draft made here counts as new, so this
+            // call's later steps and later calls in this request write to it, as they do to a page's draft. A later
+            // request clones it, as Concrete's edit mode does for every edit to a stack.
+            $draft->getVersionObject()->cvIsNew = 1;
+        }
         if ($created) {
             self::cacheAsLatest($draft);
             // A call that fails later may discard this version, under DraftCleanup's rule (BF-3).

@@ -19,10 +19,10 @@ final class ScenarioLoader
     private const STATE_KEYS = [
         'nothing_changed', 'page_exists', 'page_not_published', 'page_absent', 'page_unchanged', 'page_type', 'attribute',
         'attribute_on_children_of', 'blocks', 'all_text_unchanged', 'live_version_unchanged', 'file_exists',
-        'people', 'person_field_empty', 'changed_pages', 'users_unchanged',
+        'people', 'person_field_empty', 'changed_pages', 'users_unchanged', 'stack_draft',
     ];
     private const BLOCK_KEYS = ['page', 'area', 'count', 'headings', 'contains_html', 'lacks_html', 'unchanged', 'has_block', 'has_block_unchanged', 'has_block_field'];
-    private const TOOL_KEYS = ['no_write_tool_succeeded', 'no_write_tool_failed', 'not_succeeded', 'not_called', 'called_any', 'succeeded', 'notice_shown', 'notice_absent', 'approval_asked', 'approval_decided', 'no_write_without_approval', 'approvals_cover_children'];
+    private const TOOL_KEYS = ['no_write_tool_succeeded', 'no_write_tool_failed', 'not_succeeded', 'not_called', 'called_any', 'succeeded', 'notice_shown', 'notice_absent', 'approval_asked', 'approval_decided', 'no_write_without_approval', 'approvals_cover_children', 'approval_card_matches'];
     private const REPLY_KEYS = ['matches_all', 'matches_any', 'not_matches', 'shorter_than_prompt', 'lists_recorded_children', 'no_invented_hosts', 'describes_page_only_if_read', 'no_untrusted_links'];
     // P3.2-1: neuron_content_editor holds the Tier 1 key. neuron_editor holds none (the no-access fixture), so the
     // runner refuses it: kept here so the loader still reads an older scenario and the runner says why.

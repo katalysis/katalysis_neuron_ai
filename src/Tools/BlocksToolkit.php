@@ -8,6 +8,7 @@ use Concrete\Core\Block\Block;
 use Concrete\Core\Block\BlockType\BlockType;
 use Concrete\Core\File\File;
 use Concrete\Core\Page\Page;
+use Concrete\Core\Page\Stack\Stack;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Concrete\Core\User\User;
@@ -24,6 +25,7 @@ use Katalysis\NeuronAi\Tools\Utilities\BlockFields;
 use Katalysis\NeuronAi\Tools\Utilities\BlockSaveInputs;
 use Katalysis\NeuronAi\Tools\Utilities\PagePathLabel;
 use Katalysis\NeuronAi\Tools\Utilities\PageVersionRead;
+use Katalysis\NeuronAi\Tools\Utilities\SharedArea;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
@@ -502,7 +504,11 @@ class BlocksToolkit extends AbstractToolkit
                 // always failed before BF-10: the area comes from the block's placement. An ID the newest version no
                 // longer holds is still read, from its newest placement, and the version note below says so.
                 $block = $c ? $this->blockOnPage((int) $blockID, $c, !$versionID) : Block::getByID($blockID);
-                
+                // P3.6a: a block in one of the page's global areas is on that area's stack.
+                if (!$block && $c) {
+                    $block = $this->blockInGlobalArea((int) $blockID, $c);
+                }
+
                 if (!$block) {
                     return "❌ Error: Block {$blockID} not found";
                 }
@@ -525,12 +531,19 @@ class BlocksToolkit extends AbstractToolkit
                     }
                 }
                 
-                if ($block->getAreaHandle()) {
+                $stack = $block->getBlockCollectionID() ? Stack::getByID((int) $block->getBlockCollectionID()) : null;
+                if ($stack) {
+                    // P3.6a: the block tools change it through a page that shows it, with the stack's name as the area.
+                    $kind = (int) $stack->getStackType() === Stack::ST_TYPE_GLOBAL_AREA ? 'global area' : 'stack';
+                    $pages = SharedArea::pagesShowing($stack)[0];
+                    $output .= "**Area:** {$stack->getStackName()} (a {$kind}, shared by every page that shows it: "
+                        . $pages . ($pages === 1 ? ' page' : ' pages') . "; a change to it changes them all)\n";
+                } elseif ($block->getAreaHandle()) {
                     $output .= "**Area:** {$block->getAreaHandle()}\n";
                 }
 
                 // BF-10: whether this ID is in the newest version, the one the write tools change.
-                $versionNote = BlockNotFound::readNote((int) ($pageID ?: $block->getBlockCollectionID()), (int) $blockID);
+                $versionNote = BlockNotFound::readNote((int) ($stack ? $block->getBlockCollectionID() : ($pageID ?: $block->getBlockCollectionID())), (int) $blockID);
                 if ($versionNote !== null) {
                     $output .= "**Version:** {$versionNote}\n";
                 }
@@ -935,6 +948,24 @@ class BlocksToolkit extends AbstractToolkit
     /**
      * The block in the area it has in $page's version; with $anyVersion, else from its newest placement on the page.
      */
+    /**
+     * P3.6a: the block in one of the page's global areas, read from that area's stack in the version Concrete shows this
+     * user there (as get_page_content reads it).
+     */
+    private function blockInGlobalArea(int $blockID, Page $page): ?Block
+    {
+        $db = Application::getFacadeApplication()->make('database')->connection();
+        foreach ($db->fetchFirstColumn('SELECT arHandle FROM Areas WHERE cID = ? AND arIsGlobal = 1', [(int) $page->getCollectionID()]) as $handle) {
+            $stack = Stack::getGlobalAreaStackFromName($page, (string) $handle);
+            $block = $stack ? Block::getByID($blockID, $stack, STACKS_AREA_NAME) : null;
+            if ($block && !$block->isError()) {
+                return $block;
+            }
+        }
+
+        return null;
+    }
+
     private function blockOnPage(int $blockID, Page $page, bool $anyVersion): ?Block
     {
         $db = Application::getFacadeApplication()->make('database')->connection();
