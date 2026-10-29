@@ -56,6 +56,14 @@ final class ContextBuilderTest extends ConcreteTestCase
         $this->assertMatchesRegularExpression('/cannot [^\n]*edit contents/', self::contextFromThePanel('/neuron-test/locked'));
     }
 
+    public function testWhatTheUserCannotDoSaysWhoCanGrantIt(): void
+    {
+        // P3.7-2 (P3.2-2's finding in 11 and 33): a refusal from the context alone still says who can grant it.
+        ThrowawayPages::actAs('neuron_content_editor');
+
+        $this->assertMatchesRegularExpression('/cannot [^\n]*edit contents[^\n]*\. A site administrator can grant it in the page\'s Permissions/', self::contextFromThePanel('/neuron-test/locked'));
+    }
+
     public function testInEditModeThePageIsFoundByItsId(): void
     {
         ThrowawayPages::actAs('neuron_content_editor');
