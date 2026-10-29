@@ -45,6 +45,11 @@ class NeuronAi extends DashboardPageController
             $this->error->add(t('You don\'t have permission to change Neuron AI settings.'));
         } elseif (!$this->token->validate('ai.settings')) {
             $this->error->add($this->token->getErrorMessage());
+        } else {
+            // P3.9-4: a value that can't be stored (ApiKeySettings::refusals()) refuses the whole form.
+            foreach (ApiKeySettings::refusals($this->request->request->all()) as $refusal) {
+                $this->error->add(t($refusal));
+            }
         }
 
         if ($this->error->has()) {

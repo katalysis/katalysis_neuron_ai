@@ -780,7 +780,8 @@ final class DraftIsolationTest extends ConcreteTestCase
         $this->actAs('superuser');
         $page = $this->newPage();
         $layoutBlock = $page->addBlock(BlockType::getByHandle('core_area_layout'), 'Main', [
-            'gridType' => 'FF', 'isautomated' => 1, 'spacing' => 0, 'columns' => 2, 'width' => [],
+            // P3.9-4: a width per column, as core reads $post['width'][$i] (an empty list gave four warnings a run; 0 is core's default).
+            'gridType' => 'FF', 'isautomated' => 1, 'spacing' => 0, 'columns' => 2, 'width' => [0, 0],
         ]);
         $layoutBlock = Block::getByID($layoutBlock->getBlockID(), $page, 'Main');
         $layout = $layoutBlock->getController()->getAreaLayoutObject();

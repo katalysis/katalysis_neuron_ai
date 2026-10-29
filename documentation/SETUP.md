@@ -169,6 +169,8 @@ php ../../concrete/bin/concrete c5:exec tests/Support/show_prompt.php
 php ../../concrete/bin/concrete c5:exec tests/Support/show_prompt.php -- --path=/neuron-test/columns --user=neuron_chat_editor --message="Summarise this page"
 ```
 
+Since P3.2-2 the tools offered depend on the message (the tool groups and their router), so try the wording you are checking: "Set the meta title…" offers the attribute tools, "Hello" offers content and pages. The guidelines block appears only when an external toolkit's tool is offered (P3.7-2). Use it before and after a prompt change; `capture_prompt_baseline.php` records the same turn for `PromptBaselineTest`.
+
 ### Full database snapshot (local only, never in git)
 
 A script reset is enough in most cases. To take a snapshot before a task, run `documentation/fixtures/backup_dev_db.sh <task-id>` from the package folder. It writes `$NEURON_BACKUP_DIR/<database>_before_<task-id>_<timestamp>.sql` (mode 600), reads the connection from `database.php` and accepts only a local host. The manual commands below do the same. For a full restore, keep snapshots outside the repo (Glyn uses `~/Herd/backups/`). The dev database is `prodb` on `127.0.0.1:3307`; the password is in `httpdocs/application/config/database.php`. A snapshot contains user password hashes and chat history, so don't copy it anywhere shared.

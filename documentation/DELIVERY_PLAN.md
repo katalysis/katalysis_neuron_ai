@@ -475,7 +475,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
 - [ ] P3.9-1 **The chat table under Doctrine** (S–M; DB schema, so it stops for a plan). Depends on: nothing. Remove the `CREATE TABLE` from `on_start()` and drop the `chatHistory` column, unused since P2.5. Scenarios: none.
 - [ ] P3.9-2 **Chat retention and admin purge** (M; personal data). Depends on: P3.9-1. 90 days by default, configurable, plus an admin purge (B-PII-5). Scenarios: none.
 - [x] P3.9-3 **Loop guard** (M; Done (PR #100)). Depends on: nothing; better after P3.6-1. The same tool isn't repeated with the same arguments after it failed; after one alternative attempt the assistant reports and stops (B-ERR-3), with a new scenario. Scenarios: the new one ×1, and `--fake` of 15; cap $0.10. Compared in the next stage comparison. **Brought ahead of Stage 4 (Glyn, 29 October), because the pilot will hit it first:** the new scenario (41) ×1, 15 ×5 and 35 ×3, priced at their measured costs (15 about $0.11, 35 about $0.13, 41 about $0.06 a run: about $1.00); cap $1.15. Also (found in P3.6-2): in scenario 35 the model asked for `create_page` three times after each call was denied, despite Neuron's "do not attempt this tool again". Scope (Glyn): after the user denies a call, the same tool is refused for the rest of that turn, whatever its inputs, with a message telling the model the user declined and to ask the user what they want instead.
-- [ ] P3.9-4 **Small fixes** (S). Depends on: nothing. Scenarios: none.
+- [x] P3.9-4 **Small fixes** (S; Done (PR #105)). Depends on: nothing. Scenarios: none.
   - credentials in the Ollama URL (found in P1.7a): the URL is stored and shown in plain text, so a URL such as `http://user:pass@host` shows the credentials on the settings page and in any log that includes the URL. Refuse or strip credentials in the URL on save and point people to the Ollama key field, and pass the URL through `SecretRedactor` where it is logged
   - chat history load failures show a clear message to the user (found in P1.11: currently `catch (\Exception)` in `loadExistingMessages()`)
   - test input (P1.12): `tests/Integration/DraftIsolationTest.php` (`newLayoutPage`) builds the layout with `'width' => []`, and core `concrete/blocks/core_area_layout/controller.php:370` reads `$post['width'][$i]`, giving four `Undefined array key` warnings per run. Give the columns widths in the test
@@ -532,6 +532,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   4. the Extensions dashboard page
   5. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
 - P5.2a Nested (container) blocks in batch updates (from P1.8; moved from P3.3 on the roadmap). Since P1.8a, `batch_update_page_content` refuses blocks inside containers and area layout sub-areas with a clear message, before any draft.
+- P5.2b A code check for instruction-like text in the user's own pasted content (scenario 14; P3.7-2's proposal). Approval already blocks the write, so this is about the reply.
 - P5.3 Undo the last change via page versions.
 - P5.4 Pilot with a live client: EPRA if Neuron is reinstated there, otherwise a Katalysis-hosted site. Every failure they report becomes a scenario.
 

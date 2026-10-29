@@ -401,5 +401,19 @@
         return el;
     }
 
-    return { parse, safeHref, renderInto, renderApprovalCard, renderBatchHeader, approvalStatus, renderChangesLine };
+    /**
+     * P3.9-4 (found in P1.11): what the panel says when a chat can't be loaded, from the server's JSON or a thrown
+     * error. $showingLocalCopy: the panel shows its own saved copy of the messages instead, which may be out of date.
+     */
+    function loadFailureText(data, showingLocalCopy) {
+        if (data && data.code === 'invalid_token') {
+            return 'Your session has expired — please reload the page.';
+        }
+        const reason = data && (data.error || data.message);
+        return 'This chat couldn’t be loaded' + (reason ? ' (' + reason + ')' : '') + '.'
+            + (showingLocalCopy ? ' The messages shown are this browser’s copy and may be out of date.' : '')
+            + ' Reload the page to try again.';
+    }
+
+    return { parse, safeHref, renderInto, renderApprovalCard, renderBatchHeader, approvalStatus, renderChangesLine, loadFailureText };
 });

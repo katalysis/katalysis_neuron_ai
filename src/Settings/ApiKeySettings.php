@@ -25,6 +25,9 @@ final class ApiKeySettings
     /** The form field `remove_<key field>` clears that key when it is set to a non-empty value. */
     public const REMOVE_PREFIX = 'remove_';
 
+    /** The refusals (refusals()), in English; the settings page translates them. */
+    public const OLLAMA_URL_CREDENTIALS = 'The Ollama URL can\'t contain a user name or password: it is shown in plain text on this page. Put the key in the Ollama Key field and save the URL without it. Nothing was saved.';
+
     private const CONFIG_PREFIX = 'katalysis.ai.';
 
     public function __construct(private readonly Repository $config)
@@ -59,6 +62,27 @@ final class ApiKeySettings
         }
 
         return $values;
+    }
+
+    /**
+     * Why a posted form can't be saved, as messages for the settings page; [] when it can. Checked before save(), so a
+     * refused form changes nothing. A message never repeats a refused value.
+     *
+     * - The Ollama URL (P3.9-4, found in P1.7a): stored and shown in plain text, so a user name or password in it would
+     *   be shown on this page. Credentials go in the Ollama Key field.
+     *
+     * @param array<string, mixed> $post the posted fields
+     * @return list<string>
+     */
+    public static function refusals(array $post): array
+    {
+        $refusals = [];
+        $url = self::string($post['ollama_url'] ?? '');
+        if ($url !== '' && (parse_url($url, PHP_URL_USER) !== null || parse_url($url, PHP_URL_PASS) !== null || preg_match('~^[a-z][a-z0-9+.-]*://[^/?#]*@~i', $url) === 1)) {
+            $refusals[] = self::OLLAMA_URL_CREDENTIALS;
+        }
+
+        return $refusals;
     }
 
     /**
