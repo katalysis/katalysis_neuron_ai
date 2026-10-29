@@ -71,7 +71,7 @@ class GroupedChatNode extends ChatNode
     private function offer(AgentResources $resources, array $messages): array
     {
         $registry = $resources->tools->all();
-        if ($resources->provider instanceof RoutedOpenAI) {
+        if ($resources->provider instanceof RegistryAwareProvider) {
             $resources->provider->setRegistry($registry);
         }
 

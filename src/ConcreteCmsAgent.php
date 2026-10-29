@@ -27,7 +27,10 @@ use Katalysis\NeuronAi\Approval\ApprovalLogListener;
 use Katalysis\NeuronAi\Approval\ApprovalService;
 use Katalysis\NeuronAi\Agent\GroupedChatNode;
 use Katalysis\NeuronAi\Agent\Instructions;
+use Katalysis\NeuronAi\Agent\RoutedAnthropic;
+use Katalysis\NeuronAi\Agent\RoutedOllama;
 use Katalysis\NeuronAi\Agent\RoutedOpenAI;
+use Katalysis\NeuronAi\Settings\ModelCatalog;
 use Katalysis\NeuronAi\Approval\ApprovalToolNode;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
 use Katalysis\NeuronAi\Chat\TurnChanges;
@@ -489,14 +492,33 @@ class ConcreteCmsAgent extends Agent
     
     protected function provider(): AIProviderInterface
     {
-        // P3.2-2: Neuron's OpenAI provider, accepting a call to a tool the request didn't offer (RoutedOpenAI).
-        return new RoutedOpenAI(
-            key: Config::get('katalysis.ai.open_ai_key'),
-            model: Config::get('katalysis.ai.open_ai_model', 'gpt-4o'),
-            // BF-22: a request the service doesn't answer fails after this many seconds (Neuron's default is 300; one
-            // scenario run waited 842 s).
-            httpClient: new CurlHttpClient(timeout: self::providerTimeout()),
-        );
+        // BF-22: a request the service doesn't answer fails after this many seconds (Neuron's default is 300; one
+        // scenario run waited 842 s).
+        $httpClient = new CurlHttpClient(timeout: self::providerTimeout());
+
+        // P3.8-1: the provider and model the settings name (ModelCatalog; OpenAI and gpt-4o when none is set). Each is
+        // Neuron's provider accepting a call to a tool the request didn't offer (P3.2-2, AcceptsRegistryTools).
+        $provider = ModelCatalog::provider((string) Config::get('katalysis.ai.provider', ''));
+        $model = static fn (string $field): string => ModelCatalog::modelFor($provider, (string) Config::get('katalysis.ai.' . $field, ''));
+
+        return match ($provider) {
+            'anthropic' => new RoutedAnthropic(
+                key: (string) Config::get('katalysis.ai.anthropic_key', ''),
+                model: $model('anthropic_model'),
+                httpClient: $httpClient,
+            ),
+            'ollama' => new RoutedOllama(
+                url: (string) Config::get('katalysis.ai.ollama_url', ''),
+                model: $model('ollama_model'),
+                httpClient: $httpClient,
+                key: (string) Config::get('katalysis.ai.ollama_key', ''),
+            ),
+            default => new RoutedOpenAI(
+                key: (string) Config::get('katalysis.ai.open_ai_key', ''),
+                model: $model('open_ai_model'),
+                httpClient: $httpClient,
+            ),
+        };
     }
 
     /** BF-22: the provider request's timeout in seconds, from katalysis.ai.provider_timeout (default 90). */

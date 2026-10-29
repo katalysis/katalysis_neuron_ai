@@ -53,6 +53,8 @@ Set at least the OpenAI key in package settings:
 
 - Dashboard -> System -> AI -> Neuron AI Settings
 
+**Provider and model (P3.8-1).** The page chooses the provider: OpenAI (the default), Anthropic or Ollama. The chosen provider needs its key (Ollama's is optional, sent as a bearer token), and Ollama needs its URL (e.g. `http://localhost:11434/api`). A model left blank uses the provider's default (`gpt-4o`, `claude-sonnet-5-5`, `llama3.1:8b`). OpenAI and Anthropic models are checked against the list in `src/Settings/ModelCatalog.php` on save, so a typo is refused instead of failing every chat; add a model there when a provider releases one. The scenarios are compared on gpt-4o: another model needs its own comparison run.
+
 Access is controlled by two Concrete task permissions, set at Dashboard -> System & Settings -> Permissions & Access -> Tasks:
 
 - **Use Neuron AI assistant** (`use_neuron_ai`): who gets the chat panel. Administrators have it by default. Registered users only: guests never get the assistant, even if the key is granted to the Guest group.
