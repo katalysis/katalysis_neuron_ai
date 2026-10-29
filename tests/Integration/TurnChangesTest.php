@@ -199,6 +199,19 @@ final class TurnChangesTest extends ConcreteTestCase
         $this->assertSame([$b1], $all[0]['blockIDs']);
     }
 
+    /** BF-24: a move's undo line, from move_page's result, is on the Changed line. */
+    public function testAMoveCarriesItsUndoLine(): void
+    {
+        $changes = new TurnChanges();
+        $undo = 'Moved from /neuron-test/a, which redirects to the new address. To undo it, move it back with move_page (pageID 5, newParentID 4), or drag it back in the Sitemap.';
+
+        $call = new ToolCall('move_page', 'call_move', ['pageID' => 5, 'newParentID' => 9]);
+        $call->setResult((string) json_encode(['id' => 5, 'path' => '/neuron-test/b/a', 'undo' => $undo]));
+        $changes(new ToolCalled($call));
+
+        $this->assertStringContainsString($undo, (string) $changes->line());
+    }
+
     /** P3.6a: a change to a global area through the page is named on the page's line. */
     public function testAGlobalAreaChangedThroughThePageIsNamed(): void
     {
