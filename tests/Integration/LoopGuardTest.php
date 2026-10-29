@@ -137,6 +137,10 @@ final class LoopGuardTest extends ConcreteTestCase
 
         $this->assertSame(ConcreteCmsAgent::AWAITING_REPLY, $result['reply'], 'the other tool waits for its card');
         $sent = self::sentResults($provider);
+        // Scenario 41's first run: after the Deny the model tried create_page_draft for the same rename. The Deny itself
+        // says not to make the change another way.
+        $this->assertStringContainsString('with this tool or another', $sent[$first->getCallId()] ?? '', 'the Deny says not to try another way');
+        $this->assertStringContainsString('Ask the user what they want instead', $sent[$first->getCallId()]);
         $this->assertStringContainsString('The user declined update_page', $sent[$second->getCallId()] ?? '', 'refused, not carded');
         $this->assertStringContainsString('Ask the user what they want instead', $sent[$second->getCallId()]);
         $statuses = $this->statuses($chatId);
