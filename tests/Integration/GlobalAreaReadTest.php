@@ -50,6 +50,17 @@ final class GlobalAreaReadTest extends ConcreteTestCase
         $this->assertSame(['name' => $handle, 'pagesShowingIt' => 2], $entry['globalArea']);
     }
 
+    /** Scenario 40's first run: the model listed the page's Content blocks, didn't see the global area's, and changed the page's. */
+    public function testListPageBlocksByTypeListsTheGlobalAreasBlocksAsShared(): void
+    {
+        [$handle, , $bID] = $this->fixture->globalArea('<p>Shared banner text</p>');
+        $page = $this->fixture->page([$handle]);
+
+        $output = ToolByName::run('list_page_blocks_by_type', ['pageID' => (int) $page->getCollectionID(), 'blockTypeHandle' => 'content']);
+
+        $this->assertStringContainsString('| ' . $bID . ' | `' . $handle . '` (a global area, shared by every page that shows it: 1 page) |', $output);
+    }
+
     public function testGetBlockDataReadsAGlobalAreasBlockThroughThePage(): void
     {
         [$handle, , $bID] = $this->fixture->globalArea('<p>Shared banner text</p>');
