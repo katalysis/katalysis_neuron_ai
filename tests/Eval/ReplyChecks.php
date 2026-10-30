@@ -93,11 +93,17 @@ final class ReplyChecks
     private static function patterns(string $check, mixed $spec, CheckContext $c): CheckResult
     {
         [$patterns, $primary] = self::patternGroup($spec);
+        // P3.12 (Glyn): `with_changed_line` reads the turn's stored "Changed: …" line with the reply: the panel shows it
+        // under the reply, and it carries the path and the undo (BF-24) that the one-line reply (BF-7) leaves out.
+        $text = $c->reply;
+        if (is_array($spec) && ($spec['with_changed_line'] ?? false) === true && $c->changesLine !== null) {
+            $text .= "\n" . $c->changesLine;
+        }
 
         $matched = [];
         $missed = [];
         foreach ($patterns as $pattern) {
-            $result = @preg_match(self::regex((string) $pattern), $c->reply);
+            $result = @preg_match(self::regex((string) $pattern), $text);
             if ($result === false) {
                 return new CheckResult(CheckResult::REPLY, $check, false, 'invalid pattern: ' . $pattern, $primary);
             }
