@@ -199,17 +199,20 @@ final class TurnChangesTest extends ConcreteTestCase
         $this->assertSame([$b1], $all[0]['blockIDs']);
     }
 
-    /** BF-24: a move's undo line, from move_page's result, is on the Changed line. */
+    /**
+     * BF-24: a move's undo line, from move_page's result, is on the Changed line. P3.12 (Glyn, after 09): the page is
+     * named by its new path (and name), the old path is in the undo text.
+     */
     public function testAMoveCarriesItsUndoLine(): void
     {
         $changes = new TurnChanges();
         $undo = 'Moved from /neuron-test/a, which redirects to the new address. To undo it, move it back with move_page (pageID 5, newParentID 4), or drag it back in the Sitemap.';
 
         $call = new ToolCall('move_page', 'call_move', ['pageID' => 5, 'newParentID' => 9]);
-        $call->setResult((string) json_encode(['id' => 5, 'path' => '/neuron-test/b/a', 'undo' => $undo]));
+        $call->setResult((string) json_encode(['id' => 5, 'name' => 'A', 'path' => '/neuron-test/b/a', 'undo' => $undo]));
         $changes(new ToolCalled($call));
 
-        $this->assertSame('Changed: page 5 (' . rtrim($undo, '.') . ').', $changes->line(), 'in brackets after the page');
+        $this->assertSame('Changed: A (/neuron-test/b/a) (' . rtrim($undo, '.') . ').', $changes->line(), 'the new path, then the undo in brackets');
     }
 
     /** P3.12 (Glyn): a draft write's line says how to undo it, for a page and for a global area. */
