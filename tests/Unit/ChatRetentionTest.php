@@ -46,7 +46,8 @@ final class ChatRetentionTest extends TestCase
 
         $this->assertSame(1, preg_match('/\$pkgVersion = \'([\d.]+)\'/', $source, $m));
         $this->assertTrue(version_compare($m[1], '3.6.0', '>='), 'upgrade adds idx_updated_date and the task');
-        $this->assertStringContainsString(ChatRetention::TASK_HANDLE, $source);
+        $this->assertStringContainsString('PurgeChatsTaskController', $source);
+        $this->assertStringContainsString('installTask', $source);
     }
 
     public function testTheFallbackIsDueOnceADay(): void

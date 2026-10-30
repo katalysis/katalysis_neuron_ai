@@ -85,7 +85,7 @@ final class ChatPurgeTest extends ConcreteTestCase
         $this->db()->insert('Logs', ['channel' => 'application', 'time' => strtotime($when), 'message' => $message, 'level' => 200]);
     }
 
-    private function count(string $table, int $chatId): int
+    private function rowsOf(string $table, int $chatId): int
     {
         return (int) $this->db()->fetchOne("SELECT COUNT(*) FROM {$table} WHERE chatId = ?", [$chatId]);
     }
@@ -94,7 +94,7 @@ final class ChatPurgeTest extends ConcreteTestCase
     {
         $old = $this->chat(self::OLD, approval: 'approved');
         $recent = $this->chat(self::RECENT);
-        $this->db()->insert('KatalysisNeuronAiWorkflowStore', ['partition' => bin2hex(self::LOG_MARK . 'old-run'), 'key' => 'k', 'value' => 'v', 'updated_at' => self::OLD]);
+        $this->db()->executeStatement('INSERT INTO KatalysisNeuronAiWorkflowStore (`partition`, `key`, `value`, updated_at) VALUES (?, ?, ?, ?)', [bin2hex(self::LOG_MARK . 'old-run'), 'k', 'v', self::OLD]);
         $this->log('Katalysis Neuron AI: tool update_page, call c1 in chat ' . $old . ': ok ' . self::LOG_MARK . 'old', self::OLD);
         $this->log('Neuron AI Error: ' . self::LOG_MARK . 'old error', self::OLD);
         $this->log('Some other package: ' . self::LOG_MARK . 'not ours', self::OLD);
@@ -103,9 +103,9 @@ final class ChatPurgeTest extends ConcreteTestCase
         $result = $this->purge()->purge(new \DateTimeImmutable(self::CUTOFF));
 
         $this->assertSame(0, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM KatalysisNeuronAiChats WHERE id = ?', [$old]));
-        $this->assertSame(0, $this->count('KatalysisNeuronAiChatMessages', $old), 'messages and their Changed-line meta');
-        $this->assertSame(0, $this->count('KatalysisNeuronAiApprovals', $old));
-        $this->assertSame(1, $this->count('KatalysisNeuronAiChatMessages', $recent), 'the recent chat stays');
+        $this->assertSame(0, $this->rowsOf('KatalysisNeuronAiChatMessages', $old), 'messages and their Changed-line meta');
+        $this->assertSame(0, $this->rowsOf('KatalysisNeuronAiApprovals', $old));
+        $this->assertSame(1, $this->rowsOf('KatalysisNeuronAiChatMessages', $recent), 'the recent chat stays');
         $this->assertSame(0, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM KatalysisNeuronAiWorkflowStore WHERE `partition` = ?', [bin2hex(self::LOG_MARK . 'old-run')]), 'an old run is swept');
         $logs = $this->db()->fetchFirstColumn('SELECT message FROM Logs WHERE message LIKE ?', ['%' . self::LOG_MARK . '%']);
         $this->assertEqualsCanonicalizing(['Some other package: ' . self::LOG_MARK . 'not ours', 'Katalysis Neuron AI: ' . self::LOG_MARK . 'recent'], $logs, 'only our old lines go');
@@ -123,7 +123,7 @@ final class ChatPurgeTest extends ConcreteTestCase
 
         $this->assertGreaterThanOrEqual(1, $counted['waiting'], 'the confirmation can say a change is waiting');
         $this->assertContains($waiting, $this->ended, 'its waiting call is ended (not approved) and its run abandoned');
-        $this->assertSame(0, $this->count('KatalysisNeuronAiApprovals', $waiting));
+        $this->assertSame(0, $this->rowsOf('KatalysisNeuronAiApprovals', $waiting));
     }
 
     public function testAnOwnersPurgeTakesOnlyTheirChatsAndTheirChatsLogLines(): void
@@ -136,8 +136,8 @@ final class ChatPurgeTest extends ConcreteTestCase
         $this->purge()->purge(new \DateTimeImmutable(self::CUTOFF), self::OWNER);
 
         $this->assertSame(1, $counted['chats'], 'only the owner\'s, counted before anything is deleted');
-        $this->assertSame(0, $this->count('KatalysisNeuronAiChatMessages', $mine));
-        $this->assertSame(1, $this->count('KatalysisNeuronAiChatMessages', $theirs), 'another user\'s chat stays');
+        $this->assertSame(0, $this->rowsOf('KatalysisNeuronAiChatMessages', $mine));
+        $this->assertSame(1, $this->rowsOf('KatalysisNeuronAiChatMessages', $theirs), 'another user\'s chat stays');
         $this->assertSame(0, (int) $this->db()->fetchOne('SELECT COUNT(*) FROM Logs WHERE message LIKE ?', ['%in chat ' . $mine . ':%']), 'the deleted chat\'s log lines go, whatever their age');
     }
 
