@@ -58,6 +58,21 @@ final class UnknownBlockFieldsTest extends ConcreteTestCase
         $this->assertSame($versions, $this->versionCount($cID), 'no draft was made');
     }
 
+    public function testTheRefusalTellsTheModelToReadABlockOfThatTypeFirstAndTryAgain(): void
+    {
+        // P3.12 (Glyn, after 31 in P3.S4): the model guessed 'entries' for a new Accordion, got this refusal and gave
+        // up. The refusal now says what to do next: read an existing block of that type, then send it again.
+        [$cID] = $this->pageWith('feature', ['title' => 'Reading Room', 'paragraph' => '<p>Desks.</p>', 'link__which' => 'none']);
+
+        $output = ThrowawayPages::runTool(new ContentToolkit(), 'add_block_to_page_area', [
+            'pageID' => $cID, 'areaHandle' => 'Main', 'blockType' => 'feature',
+            'value' => ['heading' => 'Study Space'],
+        ]);
+
+        $this->assertStringContainsString('read an existing feature block with get_block_data first', $output);
+        $this->assertStringContainsString('then send the change again with its field names', $output);
+    }
+
     public function testUpdatingABlockWithAFieldItDoesNotHaveIsRefusedBeforeAnyDraft(): void
     {
         [$cID, $bID] = $this->pageWith('feature', ['title' => 'Reading Room', 'paragraph' => '<p>Desks.</p>', 'link__which' => 'none']);
