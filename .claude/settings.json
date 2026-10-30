@@ -1,7 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
-    "defaultMode": "acceptEdits",
     "allow": [
       "Bash(php tools/phpunit/vendor/bin/phpunit)",
       "Bash(php tools/phpunit/vendor/bin/phpunit *)",
@@ -70,46 +69,8 @@
       "WebFetch(domain:packagist.org)",
       "WebFetch(domain:repo.packagist.org)",
       "WebFetch(domain:documentation.concretecms.org)",
-      "WebSearch"
-    ],
-    "ask": [
-      "Bash(git branch -d *)",
-      "Bash(git branch -D *)",
-      "Bash(git branch --delete *)",
-      "Bash(git branch -f *)",
-      "Bash(git branch --force *)",
-      "Bash(git branch -m *)",
-      "Bash(git branch -M *)",
-      "Bash(git switch -f *)",
-      "Bash(git switch --force *)",
-      "Bash(git switch * --discard-changes*)",
-      "Bash(git switch --discard-changes *)",
-      "Bash(git config --global *)",
-      "Bash(git config --system *)",
-      "Bash(find * -delete*)",
-      "Bash(find * -exec *)",
-      "Bash(find * -execdir *)",
-      "Bash(find * -ok *)",
-      "Bash(gh pr create)",
-      "Bash(gh pr create *)",
-      "Bash(gh pr edit *)",
-      "Bash(git rebase *)",
-      "Bash(git restore *)",
-      "Bash(git checkout -- *)",
-      "Bash(git stash *)",
-      "Bash(gh api *)",
-      "Bash(mysql *)",
-      "Bash(mysqldump *)",
-      "Bash(php ../../concrete/bin/concrete c5:exec tests/Eval/run_scenarios.php*)",
-      "Bash(composer require *)",
-      "Bash(composer update)",
-      "Bash(composer update *)",
-      "Bash(composer install)",
-      "Bash(composer install *)",
-      "Bash(composer remove *)",
-      "Bash(rm *)",
-      "Edit(/composer.json)",
-      "Edit(/controller.php)"
+      "WebSearch",
+      "Bash(node --test tests/js/*.test.mjs)"
     ],
     "deny": [
       "Read(//**/.env)",
@@ -155,14 +116,57 @@
       "Bash(gh pr merge *)",
       "Bash(mysqladmin *)",
       "Bash(rm -rf *)"
-    ]
+    ],
+    "ask": [
+      "Bash(git branch -d *)",
+      "Bash(git branch -D *)",
+      "Bash(git branch --delete *)",
+      "Bash(git branch -f *)",
+      "Bash(git branch --force *)",
+      "Bash(git branch -m *)",
+      "Bash(git branch -M *)",
+      "Bash(git switch -f *)",
+      "Bash(git switch --force *)",
+      "Bash(git switch * --discard-changes*)",
+      "Bash(git switch --discard-changes *)",
+      "Bash(git config --global *)",
+      "Bash(git config --system *)",
+      "Bash(find * -delete*)",
+      "Bash(find * -exec *)",
+      "Bash(find * -execdir *)",
+      "Bash(find * -ok *)",
+      "Bash(gh pr create)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr edit *)",
+      "Bash(git rebase *)",
+      "Bash(git restore *)",
+      "Bash(git checkout -- *)",
+      "Bash(git stash *)",
+      "Bash(gh api *)",
+      "Bash(mysql *)",
+      "Bash(mysqldump *)",
+      "Bash(php ../../concrete/bin/concrete c5:exec tests/Eval/run_scenarios.php*)",
+      "Bash(composer require *)",
+      "Bash(composer update)",
+      "Bash(composer update *)",
+      "Bash(composer install)",
+      "Bash(composer install *)",
+      "Bash(composer remove *)",
+      "Bash(rm *)",
+      "Edit(/composer.json)",
+      "Edit(/controller.php)"
+    ],
+    "defaultMode": "acceptEdits"
   },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "php \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.php\"" }
+          {
+            "type": "command",
+            "command": "php \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.php\""
+          }
         ]
       }
     ],
@@ -170,14 +174,20 @@
       {
         "matcher": "permission_prompt|idle_prompt",
         "hooks": [
-          { "type": "command", "command": "php \"${CLAUDE_PROJECT_DIR}/.claude/hooks/notify.php\"" }
+          {
+            "type": "command",
+            "command": "php \"${CLAUDE_PROJECT_DIR}/.claude/hooks/notify.php\""
+          }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "php \"${CLAUDE_PROJECT_DIR}/.claude/hooks/notify.php\"" }
+          {
+            "type": "command",
+            "command": "php \"${CLAUDE_PROJECT_DIR}/.claude/hooks/notify.php\""
+          }
         ]
       }
     ]
