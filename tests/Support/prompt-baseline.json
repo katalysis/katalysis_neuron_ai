@@ -1,9 +1,9 @@
 {
     "captured": {
-        "branch": "task/P3.7-2-prompt-cut",
-        "commit": "140121d",
+        "branch": "task/P3.12-fixes",
+        "commit": "f478071",
         "neuron": "4.1.12",
-        "date": "2026-10-29T17:14Z"
+        "date": "2026-10-30T08:52Z"
     },
     "inputs": {
         "page": "/neuron-test/headings",
@@ -22,7 +22,7 @@
             "Current Page Template: full",
             "Current Page Areas and Blocks (block types in order, with shortened previews; get_page_content returns the full text):",
             "- Main: content \"Seed Heading Two This paragraph sits und…\", content \"Seed Bold Heading One Body text under th…\", content \"Seed Closing Heading A short closing par…\"",
-            "Your permissions on this page: can edit contents, edit properties, add sub-pages, publish (approve versions); cannot move it, delete it. A site administrator can grant it in the page's Permissions (Sitemap, then the page, then Permissions).",
+            "Your permissions on this page: can edit contents, edit properties, add sub-pages, publish (approve versions); cannot move it, delete it (a site administrator can grant these in the page's Permissions: Sitemap, then the page, then Permissions)",
             "User: neuron_chat_editor",
             "User ID: {USER_ID}",
             "Assistant tier: 1 (Content)",
@@ -113,7 +113,7 @@
             "Current Page Template: full",
             "Current Page Areas and Blocks (block types in order, with shortened previews; get_page_content returns the full text):",
             "- Main: content \"Seed Heading Two This paragraph sits und…\", content \"Seed Bold Heading One Body text under th…\", content \"Seed Closing Heading A short closing par…\"",
-            "Your permissions on this page: can edit contents, edit properties, add sub-pages, publish (approve versions); cannot move it, delete it. A site administrator can grant it in the page's Permissions (Sitemap, then the page, then Permissions).",
+            "Your permissions on this page: can edit contents, edit properties, add sub-pages, publish (approve versions); cannot move it, delete it (a site administrator can grant these in the page's Permissions: Sitemap, then the page, then Permissions)",
             "User: neuron_chat_editor",
             "User ID: {USER_ID}",
             "Assistant tier: 1 (Content)",

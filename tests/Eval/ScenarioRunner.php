@@ -104,6 +104,7 @@ final class ScenarioRunner
 
             $page = (string) $scenario['current_page'];
             $lastReply = '';
+            $lastChangesLine = null;
             $lastSay = '';
             $says = [];
             $after = $start;
@@ -157,6 +158,8 @@ final class ScenarioRunner
                 $newMessages = $this->newMessages($agent, $idsBefore);
                 $calls = $this->toolCalls($newMessages);
                 $turnUsage = $this->usage($newMessages);
+                // P3.12: the turn's stored "Changed: …" line, which the panel shows under the reply.
+                $changesLine = $this->changesLine($chatId, $idsBefore);
                 $logErrors = $this->errorLogs($logMark);
                 // BF-22: a provider timeout has its own reply, and is an error run too.
                 $agentError = in_array($reply, [self::AGENT_ERROR_REPLY, ConcreteCmsAgent::TIMEOUT_REPLY], true);
@@ -168,7 +171,7 @@ final class ScenarioRunner
 
                 $turnChecks = [];
                 if (isset($turn['expect'])) {
-                    $context = new CheckContext($before, $start, $after, $calls, $reply, (string) $turn['say'], $notice, $runCalls, $says, $approvals);
+                    $context = new CheckContext($before, $start, $after, $calls, $reply, (string) $turn['say'], $notice, $runCalls, $says, $approvals, $changesLine);
                     foreach (Expectations::evaluate($turn['expect'], $context) as $check) {
                         $turnChecks[] = $check->at('turn ' . ($i + 1));
                     }
@@ -181,6 +184,7 @@ final class ScenarioRunner
                 $usage = $this->addUsage($usage, $turnUsage);
                 $hadError = $hadError || $agentError;
                 $lastReply = $reply;
+                $lastChangesLine = $changesLine;
                 $lastSay = (string) $turn['say'];
 
                 $run['turns'][] = [
@@ -193,6 +197,7 @@ final class ScenarioRunner
                     'inventedHosts' => $inventedHosts,
                     'durationSec' => round($turnSeconds, 1),
                     'usage' => $turnUsage,
+                    'changesLine' => $changesLine,
                     'requests' => array_map(static fn (array $r): array => ['count' => count($r['tools']), 'tokens' => $r['tokens'], 'tools' => $r['tools']], $requests),
                     'toolCalls' => array_map(fn (array $call): array => $this->truncateCall($call), $calls),
                     // P3.6-1: each call the turn waited on: the tool, what the runner answered, and the outcome.
@@ -203,7 +208,7 @@ final class ScenarioRunner
             }
 
             if (isset($scenario['expect'])) {
-                $context = new CheckContext($start, $start, $after, $allCalls, $lastReply, $lastSay, $anyNotice, $allCalls, $says, $allApprovals);
+                $context = new CheckContext($start, $start, $after, $allCalls, $lastReply, $lastSay, $anyNotice, $allCalls, $says, $allApprovals, $lastChangesLine);
                 foreach (Expectations::evaluate($scenario['expect'], $context) as $check) {
                     $checks[] = $check->at('end');
                 }
@@ -463,6 +468,31 @@ final class ScenarioRunner
     private function messageIds(ConcreteCmsAgent $agent): array
     {
         return array_fill_keys(array_map(static fn (Message $m): string => $m->getId(), $this->messages($agent)), true);
+    }
+
+    /**
+     * P3.12: the "Changed: …" line stored on this turn's newest reply (TurnChanges::META_KEY), or null.
+     *
+     * @param array<string, true> $idsBefore the chat's message IDs before the turn
+     */
+    private function changesLine(int $chatId, array $idsBefore): ?string
+    {
+        $rows = $this->db()->fetchAllAssociative(
+            "SELECT messageId, meta FROM KatalysisNeuronAiChatMessages WHERE chatId = ? AND role = 'assistant' ORDER BY id DESC LIMIT 5",
+            [$chatId]
+        );
+        foreach ($rows as $row) {
+            if (isset($idsBefore[$row['messageId']])) {
+                return null;
+            }
+            $meta = json_decode((string) $row['meta'], true);
+            $line = is_array($meta) ? ($meta['__meta'][\Katalysis\NeuronAi\Chat\TurnChanges::META_KEY]['line'] ?? null) : null;
+            if (is_string($line)) {
+                return $line;
+            }
+        }
+
+        return null;
     }
 
     /**

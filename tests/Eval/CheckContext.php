@@ -27,6 +27,7 @@ final class CheckContext
      * @param list<string>|null $runPrompts
      * @param list<array{tool: string, callId: string, decision: string, status: string, path?: string}> $approvals P3.6-1: the calls the
      *     turn (or, at scenario level, the run) waited on for approval, with the runner's answer and the outcome
+     * @param string|null $changesLine P3.12: the turn's stored "Changed: …" line, shown under the reply; null when none
      */
     public function __construct(
         public readonly Snapshot $before,
@@ -39,6 +40,7 @@ final class CheckContext
         public readonly ?array $runToolCalls = null,
         public readonly ?array $runPrompts = null,
         public readonly array $approvals = [],
+        public readonly ?string $changesLine = null,
     ) {
     }
 

@@ -21,6 +21,10 @@ expect:
   tools:
     called_any: [move_page]
   reply:
+    # P3.12 (Glyn): read with the turn's stored "Changed: …" line, which the panel shows under the reply (BF-24 put the
+    # path and undo there); the reply itself is one short line since BF-7.
     matches_all:
-      - 'neuron-test/move-target/move-me'
-      - '(undo|move it back|move them back|revert|restore)'
+      with_changed_line: true
+      patterns:
+        - 'neuron-test/move-target/move-me'
+        - '(undo|move it back|move them back|revert|restore)'

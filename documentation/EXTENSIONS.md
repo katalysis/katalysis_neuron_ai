@@ -1,6 +1,6 @@
 # Neuron AI Extension Model
 
-Status: design draft, 19 October 2026. This feeds Phases 2 and 3 of `DELIVERY_PLAN.md`.
+Status: design draft, 19 October 2026; status updated 30 October 2026 (Phase 3 exit). Phase 3 built the Level 0 block adapter (P3.3-7) and one "external" tool group (P3.2-2); the rest of this design (descriptors, capability providers, provider groups, the Extensions page) feeds P5.0 and P5.2 of `DELIVERY_PLAN.md`.
 
 ## The problem
 
@@ -200,12 +200,12 @@ class NeuronProvider implements CapabilityProvider
 
 | Today | Becomes |
 |---|---|
-| Until P3.4 (PR #83): `normalizeCustomBlockPayload`, alias lists, `inferRepeatableLinkContract` in `PagesToolkit`. P3.4 deleted them. | The Level 0 generic block adapter, plus a `link` field type in the descriptor engine |
+| Until P3.4 (PR #83): `normalizeCustomBlockPayload`, alias lists, `inferRepeatableLinkContract` in `PagesToolkit`. P3.4 deleted them. | The Level 0 generic block adapter (**done in P3.3-7**: export metadata, child tables, import-mode `save()`), plus a `link` field type in the descriptor engine (P5.2) |
 | `loadEpraResourceEntries` (hard-coded table) | Level 0 child-table read, or the `entries` field in the EPRA descriptor |
 | `sync_multi_links_to_epra_resources_list` | A transform JSON in the EPRA theme package, plus the core `convert_blocks` tool |
 | `get_doc_download_files_on_page` | A `doc_download` descriptor in the EPRA package, plus the core `list_page_blocks_by_type` |
 | EPRA rules in `instructions()` | `use_when` in the descriptors, plus EPRA guidelines |
-| `KatalysisProEntitiesToolkit` (extends Neuron classes, guarded by `class_exists`) | A `katalysis_pro` `CapabilityProvider` registered via the event. No Neuron classes. |
+| `KatalysisProEntitiesToolkit` (since P2.8: `ToolDefinition`s through `registerToolDefinitions()`, no Neuron classes; offered as the "external" tool group since P3.2-2) | A `katalysis_pro` `CapabilityProvider` registered via the event. No Neuron classes. |
 | `PeopleToolkit` in core (duplicates katalysis_pro's) | Removed from core. People belongs to `katalysis_pro`. |
 | `ExternalToolkitRegistry` (loaded since P1.6; `registerToolDefinitions()` since P2.8) | Replaced by the event and `CapabilityRegistry` in P5.0. Keep `registerToolkitFactory()` and `registerToolDefinitions()` as a shim for one release. |
 

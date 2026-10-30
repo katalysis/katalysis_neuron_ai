@@ -1,6 +1,6 @@
 # CLAUDE.md: Katalysis Neuron AI
 
-A Concrete CMS 9.3+ package (PHP 8.1+) that adds an AI assistant to the CMS. It's built on Neuron AI (`neuron-core/neuron-ai`, bundled in `vendor/`). It's on 3.15.26 now, and an upgrade to 4.x is planned in Phase 2 of the delivery plan.
+A Concrete CMS 9.3+ package (PHP 8.1+) that adds an AI assistant to the CMS. It's built on Neuron AI (`neuron-core/neuron-ai`, bundled in `vendor/`). It's on 4.1.12, pinned exactly (Phase 2 upgraded it from 3.15.26).
 
 Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integration branch: `development`, except where `DELIVERY_PLAN.md` names an `integration/*` branch for a task: those task branches branch from it and PR into it. In Phase 2, P2.2–P2.8 used `integration/neuron4`, which P2.9 merged into `development` (PR #47) and which was then deleted. `main`, `development` and any `integration/*` branch are protected: changes go in only through PRs, with no force pushes and no deletion.
 
@@ -72,10 +72,14 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 ## Layout
 - `controller.php`: package controller (routes, chat panel injection, install/upgrade)
 - `controllers/chat.php`: chat endpoints
-- `src/ConcreteCmsAgent.php`: the agent (provider, instructions, tools, history)
-- `src/Tools/*Toolkit.php`: native toolkits (extend `NeuronAI\Tools\Toolkits\AbstractToolkit`)
+- `src/ConcreteCmsAgent.php`: the agent (provider, tools, history, approvals)
+- `src/Agent/`: the prompt (`Instructions`), tool routing (`GroupRouter`, `GroupedChatNode`, `OfferedTools`) and the providers (`Routed*`, accepting a call to a registry tool not offered)
+- `src/Context/ContextBuilder.php`: the context block (page, blocks, permissions, tier, language)
+- `src/Tools/*Toolkit.php`: native toolkits (extend `NeuronAI\Tools\Toolkits\AbstractToolkit`); `src/Tools/ToolGroups.php`, `ToolTiers.php`, `DisabledTools.php`
 - `src/Tools/ExternalToolkitRegistry.php`: lets other packages register toolkits
-- `src/Entity/`, `src/Chat/ChatMessageStore.php`: chat persistence (Neuron 4 message store, one row per message; P2.5)
+- `src/Approval/`: approval cards, `CallCheck`, the loop guard and the approval log
+- `src/Settings/`: the settings page's keys, provider and model checks (`ModelCatalog`)
+- `src/Entity/`, `src/Chat/`: chat persistence (`ChatMessageStore`, one row per message; P2.5), the Changed line (`TurnChanges`), retention and purge (`ChatRetention`, `ChatPurge`; P3.9-2)
 - `js/chat-panel.js`, `css/chat-panel.css`, `elements/chat_panel.php`: UI
 
 ## Rules

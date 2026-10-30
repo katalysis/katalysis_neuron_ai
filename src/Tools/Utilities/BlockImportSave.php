@@ -345,7 +345,10 @@ final class BlockImportSave
             self::refuseIf("The {$handle} block has no field {$quoted}. Nothing was changed. Its fields are: " . implode(', ', $columns)
                 . ($children === [] ? '' : '; its entries: ' . implode('; ', $children))
                 . ($others === [] ? '' : ' (it also takes: ' . implode(', ', $others) . ')')
-                . '. Send the change again using those field names; get_block_data shows a block\'s current values.');
+                // P3.12 (after 31 in P3.S4: the model guessed, got this refusal and stopped): what to do next.
+                . ". Don't stop here: read an existing {$handle} block with get_block_data first (get_page_blocks or"
+                . ' search_blocks_by_type finds one) to see its fields and how their values look, then send the change again with'
+                . ' its field names.');
         }
         foreach ($fields->childTables() as $table) {
             if (array_key_exists($table, $value)) {

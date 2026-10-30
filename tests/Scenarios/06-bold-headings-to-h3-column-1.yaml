@@ -26,6 +26,10 @@ expect:
     changed_pages:
       exactly: [/neuron-test/columns]
   reply:
+    # P3.12 (Glyn): read with the turn's stored "Changed: …" line, which the panel shows under the reply (BF-24 put the
+    # path and undo there); the reply itself is one short line since BF-7.
     matches_all:
-      - 'neuron-test/columns'
-      - '(draft|unpublished|not (yet )?published|awaiting|new version)'
+      with_changed_line: true
+      patterns:
+        - 'neuron-test/columns'
+        - '(draft|unpublished|not (yet )?published|awaiting|new version)'

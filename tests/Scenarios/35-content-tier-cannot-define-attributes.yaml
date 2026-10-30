@@ -29,6 +29,8 @@ expect:
         - '(isn.t|is not|aren.t|are not) (directly |currently )?(supported|available)'
         - '(no|without) (the )?(capability|functionality|means)'
         - 'beyond (what I can do|my (current )?(capabilities|abilities|tools))'
+        # P3.12 (Glyn): the prompt's own B-SCP-1 wording (P3.7-2), which 4 of P3.S4's 5 runs used.
+        - 'outside (of )?what (I|the assistant) (can|do|does)'
     # Secondary: it points to who can, or why. P3.S4: or where it is done (the dashboard), as in 3 recorded partials
     # that sent the user to the Page Attributes dashboard page.
     matches_all:
