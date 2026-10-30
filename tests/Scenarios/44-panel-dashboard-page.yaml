@@ -11,11 +11,15 @@ turns:
   - say: "What page am I on?"
     expect:
       tools:
-        succeeded: [get_current_page_context]
+        # P3.12 (Glyn; as 22 in P3.7-2): get_current_page_context is no longer required. P3.7-2 dropped the prompt rule
+        # that forced it, because the context block names the page; P3.S4's replies named it correctly in 3 of 3.
         no_write_tool_succeeded: true
       reply:
+        # P3.12: naming the page is now the primary check.
         matches_any:
-          - 'Sitemap'
+          primary: true
+          patterns:
+            - 'Sitemap'
 expect:
   state:
     nothing_changed: true
