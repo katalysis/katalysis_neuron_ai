@@ -251,7 +251,8 @@ final class TurnChangesTest extends ConcreteTestCase
         $changes(new ToolCalled($call));
 
         $this->assertSame(
-            'Changed: ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . '), unpublished version 2 (with the global area "Header Banner", shown on every page that has it).',
+            'Changed: ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . '), unpublished version 2 (with the global area "Header Banner", shown on every page that has it;'
+            . ' undo: discard unpublished version 2 in Dashboard > Stacks & Global Areas).',
             $changes->line()
         );
     }
