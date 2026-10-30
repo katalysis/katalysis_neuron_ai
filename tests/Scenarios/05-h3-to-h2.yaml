@@ -22,7 +22,11 @@ expect:
     changed_pages:
       exactly: [/neuron-test/headings]
   reply:
+    # P3.12 (Glyn): read with the turn's stored "Changed: …" line, which the panel shows under the reply (BF-24 put the
+    # path and undo there); the reply itself is one short line since BF-7.
     matches_all:
-      - 'neuron-test/headings'
-      - '(draft|unpublished|not (yet )?published|awaiting|new version)'
-      - '(undo|revert|restore|previous version|version history)'
+      with_changed_line: true
+      patterns:
+        - 'neuron-test/headings'
+        - '(draft|unpublished|not (yet )?published|awaiting|new version)'
+        - '(undo|revert|restore|previous version|version history)'
