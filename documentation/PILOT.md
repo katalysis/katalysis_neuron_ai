@@ -26,6 +26,7 @@ For Glyn, installing Neuron on a Katalysis site from **30 October 2026**. The pi
 - **OpenAI API key:** enter it here. It's stored in Concrete's config and never shown to the browser or the model. Don't put it in a committed file.
 - **Reinstalling resets the settings.** The install saves the defaults, so the API key is blanked and must be entered again.
 - **Model:** `gpt-4o`, the default and the only model the scenarios have run on.
+- **Provider, pasted text and deletes (P3.8-1, P3.12):** the settings page chooses the provider. OpenAI is the default; Anthropic and Ollama are available but untested, so keep OpenAI for the pilot. Text you paste into the chat can't make the assistant delete or move pages, or mark files for deletion: if the paste contains an instruction to do that, the assistant refuses, and you can ask for it in a message of your own. A delete card always needs its own click: "Approve all" leaves deletions out.
 
 **Two settings with no page.** Set them only to change the defaults:
 
