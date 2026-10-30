@@ -10,7 +10,7 @@ use Doctrine\ORM\Mapping as ORM;
  *
  * P3.9-1: the table is Doctrine's alone (the package controller created it too, with other columns and indexes). The
  * indexes are the ones that SQL had: the session's chat is looked up on every panel request, the chat list is by user,
- * and P3.9-2 purges by date.
+ * and P3.9-2 purges by date: idx_updated_date, since a chat's age is its last activity.
  *
  * @ORM\Entity
  * @ORM\Table(
@@ -18,7 +18,8 @@ use Doctrine\ORM\Mapping as ORM;
  *     indexes={
  *         @ORM\Index(name="idx_session", columns={"sessionId"}),
  *         @ORM\Index(name="idx_created_by", columns={"createdBy"}),
- *         @ORM\Index(name="idx_created_date", columns={"createdDate"})
+ *         @ORM\Index(name="idx_created_date", columns={"createdDate"}),
+ *         @ORM\Index(name="idx_updated_date", columns={"updatedDate"})
  *     }
  * )
  */

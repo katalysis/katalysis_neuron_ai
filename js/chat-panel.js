@@ -806,8 +806,14 @@
                 list.appendChild(item);
             });
 
+            // P3.9-2 (B-PII-5): delete every one of the user's chats, after a confirmation in the panel.
+            const deleteAll = element('button', 'btn btn-sm btn-outline-danger neuron-chat-delete-all', 'Delete all my chats');
+            deleteAll.type = 'button';
+            deleteAll.addEventListener('click', () => this.deleteAllMyChats());
+
             this.messages.innerHTML = '';
             this.messages.appendChild(list);
+            this.messages.appendChild(deleteAll);
 
             // Bind click handlers
             this.messages.querySelectorAll('.neuron-chat-list-item-load').forEach(btn => {
@@ -834,6 +840,67 @@
                     await this.deleteChatById(chatId);
                 });
             });
+        },
+
+        // P3.9-2: count first, confirm in the panel (no browser dialog), then delete up to the counted cutoff.
+        async deleteAllMyChats() {
+            let counted;
+            try {
+                const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete_all_mine', {
+                    method: 'POST',
+                    headers: this.postHeaders(),
+                    body: JSON.stringify({})
+                });
+                counted = await response.json();
+            } catch (error) {
+                counted = null;
+            }
+            if (!counted || !counted.success) {
+                this.showFailure(counted, 'Error: ');
+                return;
+            }
+
+            const box = document.createElement('div');
+            box.className = 'neuron-chat-delete-all-confirm';
+            box.setAttribute('role', 'alertdialog');
+            const text = document.createElement('p');
+            text.textContent = window.NeuronChatFormat.deleteAllConfirmText(counted.count);
+            box.appendChild(text);
+            if (counted.count && counted.count.chats > 0) {
+                const confirm = document.createElement('button');
+                confirm.type = 'button';
+                confirm.className = 'btn btn-sm btn-danger';
+                confirm.textContent = 'Confirm delete';
+                confirm.addEventListener('click', async () => {
+                    confirm.disabled = true;
+                    try {
+                        const response = await fetch('/ccm/system/katalysis_neuron_ai/chat/delete_all_mine', {
+                            method: 'POST',
+                            headers: this.postHeaders(),
+                            body: JSON.stringify({ confirm_cutoff: counted.cutoff })
+                        });
+                        const data = await response.json();
+                        if (!data.success) {
+                            this.showFailure(data, 'Error: ');
+                            return;
+                        }
+                    } catch (error) {
+                        this.showFailure(null, 'Error: ');
+                        return;
+                    }
+                    localStorage.removeItem('neuron-chat-history');
+                    this.shownChatId = null;
+                    await this.showChatListView();
+                });
+                box.appendChild(confirm);
+            }
+            const cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.className = 'btn btn-sm btn-secondary';
+            cancel.textContent = 'Cancel';
+            cancel.addEventListener('click', () => box.remove());
+            box.appendChild(cancel);
+            this.messages.appendChild(box);
         },
 
         async deleteChatById(chatId) {

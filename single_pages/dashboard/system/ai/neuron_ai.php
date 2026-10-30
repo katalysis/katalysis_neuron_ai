@@ -130,10 +130,21 @@ $renderKeyField = static function (string $field, string $label) use ($keyStatus
                         </div>
                     </div>
                 </fieldset>
+                <?php // P3.9-2 (B-PII-5): how long chats are kept. ?>
+                <fieldset class="mb-5">
+                    <legend><?php echo t('Chat retention'); ?></legend>
+                    <div class="form-group">
+                        <label class="form-label" for="chat_retention_days"><?php echo t('Keep chats for (days)'); ?></label>
+                        <input class="form-control ccm-input-text" type="number" min="1" max="3650" step="1" name="chat_retention_days"
+                            id="chat_retention_days" placeholder="<?= h((string) ($retention_default ?? 90)) ?>"
+                            value="<?= h($chat_retention_days ?? '') ?>" />
+                        <div class="form-text"><?= t('Chats with no activity for this long are deleted, with their messages, approval records and the assistant\'s log lines, by the "Purge old Neuron AI chats" task and once a day when the chat is used. Blank is %s days.', (int) ($retention_default ?? 90)) ?></div>
+                    </div>
+                </fieldset>
             </div>
         </div>
     </div>
-    
+
     <div class="ccm-dashboard-form-actions-wrapper">
         <div class="ccm-dashboard-form-actions">
             <div class="float-end">
@@ -144,6 +155,42 @@ $renderKeyField = static function (string $field, string $label) use ($keyStatus
         </div>
     </div>
 </form>
+
+<?php // P3.9-2: the admin's purge, two posts: count, then confirm on this page (no browser dialog). ?>
+<div class="mt-5 mb-5" id="neuron-chat-purge">
+    <h3><?php echo t('Delete chats now'); ?></h3>
+    <?php if (!empty($purge_confirmation)) {
+        $counts = $purge_confirmation['counts']; ?>
+        <div class="alert alert-warning" role="alert">
+            <p><strong><?= h($purge_confirmation['scope'] === 'all'
+                ? t('This deletes every chat: %s chats (%s messages) from %s users.', $counts['chats'], $counts['messages'], $counts['users'])
+                : t('This deletes %s chats (%s messages) from %s users with no activity for %s days.', $counts['chats'], $counts['messages'], $counts['users'], (int) ($retention_days ?? 90))) ?></strong></p>
+            <?php if ($counts['waiting'] > 0) { ?>
+                <p><?= h(t('%s of them have a change waiting for approval; it won\'t be made.', $counts['waiting'])) ?></p>
+            <?php } ?>
+            <p><?= t('This can\'t be undone.') ?></p>
+            <form method="post" action="<?= $controller->action('purge_chats') ?>" class="d-inline">
+                <?php $token->output('ai.chat_purge'); ?>
+                <input type="hidden" name="scope" value="<?= h($purge_confirmation['scope']) ?>" />
+                <input type="hidden" name="confirm_cutoff" value="<?= h($purge_confirmation['cutoff']) ?>" />
+                <button type="submit" class="btn btn-danger"><?= t('Confirm delete') ?></button>
+            </form>
+            <a class="btn btn-secondary" href="<?= $controller->action('') ?>"><?= t('Cancel') ?></a>
+        </div>
+    <?php } else { ?>
+        <form method="post" action="<?= $controller->action('purge_chats') ?>" class="d-inline">
+            <?php $token->output('ai.chat_purge'); ?>
+            <input type="hidden" name="scope" value="older" />
+            <button type="submit" class="btn btn-outline-danger"><?= t('Purge chats older than %s days', (int) ($retention_days ?? 90)) ?></button>
+        </form>
+        <form method="post" action="<?= $controller->action('purge_chats') ?>" class="d-inline">
+            <?php $token->output('ai.chat_purge'); ?>
+            <input type="hidden" name="scope" value="all" />
+            <button type="submit" class="btn btn-outline-danger"><?= t('Delete all chats') ?></button>
+        </form>
+        <div class="form-text"><?= t('Each button first shows how many chats it would delete; nothing is deleted until you confirm.') ?></div>
+    <?php } ?>
+</div>
 
 
 

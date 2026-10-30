@@ -415,5 +415,20 @@
             + ' Reload the page to try again.';
     }
 
-    return { parse, safeHref, renderInto, renderApprovalCard, renderBatchHeader, approvalStatus, renderChangesLine, loadFailureText };
+    /**
+     * P3.9-2: the panel's confirmation before "Delete all my chats", from the server's count.
+     */
+    function deleteAllConfirmText(count) {
+        const chats = (count && count.chats) || 0;
+        if (chats === 0) {
+            return 'You have no saved chats to delete.';
+        }
+        const messages = (count && count.messages) || 0;
+        const waiting = (count && count.waiting) || 0;
+        return 'This deletes ' + chats + (chats === 1 ? ' chat (' : ' chats (') + messages + (messages === 1 ? ' message)' : ' messages)')
+            + ' and everything kept about them. It can’t be undone.'
+            + (waiting > 0 ? ' ' + waiting + (waiting === 1 ? ' has' : ' have') + ' a change waiting for approval; it won’t be made.' : '');
+    }
+
+    return { parse, safeHref, renderInto, renderApprovalCard, renderBatchHeader, approvalStatus, renderChangesLine, loadFailureText, deleteAllConfirmText };
 });

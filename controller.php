@@ -18,7 +18,7 @@ class Controller extends Package
 {
     protected $pkgHandle = 'katalysis_neuron_ai';
     protected $appVersionRequired = '9.3';
-    protected $pkgVersion = '3.5.0';
+    protected $pkgVersion = '3.6.0';
     protected $pkgAutoloaderRegistries = [
         'src' => '\Katalysis\NeuronAi'
     ];
@@ -38,7 +38,18 @@ class Controller extends Package
     {
         $this->setupAutoloader();
         $this->registerRoutes();
+        $this->registerTask();
         $this->injectChatPanel();
+    }
+
+    /**
+     * P3.9-2: the automated task that purges chats older than the retention setting (installTask() adds it).
+     */
+    private function registerTask()
+    {
+        $this->app->make(\Concrete\Core\Command\Task\Manager::class)->extend(\Katalysis\NeuronAi\Chat\ChatRetention::TASK_HANDLE, static function () {
+            return new \Katalysis\NeuronAi\Chat\PurgeChatsTaskController();
+        });
     }
 
     private function setupAutoloader()
@@ -66,6 +77,7 @@ class Controller extends Package
                 $groupRouter->post('/chat/new', 'Chat::new_chat');
                 $groupRouter->post('/chat/delete', 'Chat::delete_chat');
                 $groupRouter->post('/chat/delete_current', 'Chat::delete_current_chat');
+                $groupRouter->post('/chat/delete_all_mine', 'Chat::delete_all_mine');
             });
     }
     
@@ -138,6 +150,7 @@ class Controller extends Package
 
         $this->installPages(pkg: $pkg);
         $this->installPermissionKeys($pkg);
+        $this->installTask($pkg);
         
     }
 
@@ -157,8 +170,27 @@ class Controller extends Package
         }
         $this->installPages($pkg);
         $this->installPermissionKeys($pkg);
+        $this->installTask($pkg);
 
   }
+
+    /**
+     * P3.9-2: adds the chat purge task if it is missing. Scheduling it is the admin's choice (Dashboard → System →
+     * Automation → Tasks); the chat endpoint also runs the purge once a day.
+     */
+    protected function installTask($pkg)
+    {
+        $em = $this->app->make(\Doctrine\ORM\EntityManagerInterface::class);
+        $handle = \Katalysis\NeuronAi\Chat\ChatRetention::TASK_HANDLE;
+        if ($em->getRepository(\Concrete\Core\Entity\Automation\Task::class)->findOneByHandle($handle)) {
+            return;
+        }
+        $task = new \Concrete\Core\Entity\Automation\Task();
+        $task->setHandle($handle);
+        $task->setPackage($pkg);
+        $em->persist($task);
+        $em->flush();
+    }
 
     /**
      * Adds the task permission keys (P1.10a's two and P3.2-1's tier keys) if they are missing. Existing keys and what
