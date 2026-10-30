@@ -7,6 +7,7 @@ documentation/eval-results/*
 !documentation/eval-results/baseline-*
 !documentation/eval-results/phase1-exit-*
 !documentation/eval-results/phase2-exit-*
+!documentation/eval-results/phase3-exit-*
 # WP-4: each Phase 3 stage's comparison report (P3.S1 to P3.S4)
 !documentation/eval-results/stage*-comparison-*
 
