@@ -10,7 +10,6 @@ use Concrete\Core\Page\Page;
 use Concrete\Core\Permission\Checker;
 use Concrete\Core\Support\Facade\Application;
 use Katalysis\NeuronAi\Access\CoreAliases;
-use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Access\NeuronPermissions;
 use Katalysis\NeuronAi\Extension\Tier;
 use Katalysis\NeuronAi\Tools\Utilities\HtmlToText;
@@ -32,6 +31,9 @@ use Katalysis\NeuronAi\Tools\Utilities\SharedArea;
  */
 final class ContextBuilder
 {
+    /** Who can grant what the user can't do on the page (ObjectPermissions::GRANT_PAGE, in brackets). */
+    public const CANNOT_HINT = '(a site administrator can grant these in the page\'s Permissions: Sitemap, then the page, then Permissions)';
+
     public const PREVIEW_LENGTH = 40;
     public const MAX_BLOCKS_PER_AREA = 6;
     public const MAX_AREAS = 12;
@@ -121,8 +123,9 @@ final class ContextBuilder
     }
 
     /**
-     * When the user can't do something, the line ends with who can grant it, as the tools' refusals do
-     * (ObjectPermissions), so a refusal made from the context alone says it too (P3.7-2, after 11 and 33 in P3.2-2).
+     * When the user can't do something, those items say who can grant them, as the tools' refusals do
+     * (ObjectPermissions::GRANT_PAGE), so a refusal made from the context alone says it too (P3.7-2, after 11 and 33 in
+     * P3.2-2); in brackets on the cannot items only (P3.12, after 38 in P3.S4).
      *
      * @param array<string, bool> $permissions what the user may do on the page, by phrase
      */
@@ -135,10 +138,11 @@ final class ContextBuilder
             $parts[] = 'can ' . implode(', ', $can);
         }
         if ($cannot !== []) {
-            $parts[] = 'cannot ' . implode(', ', $cannot);
+            // P3.12: the hint in brackets on the cannot items, so it isn't read as applying to what the user can do (38).
+            $parts[] = 'cannot ' . implode(', ', $cannot) . ' ' . self::CANNOT_HINT;
         }
 
-        return 'Your permissions on this page: ' . implode('; ', $parts) . ($cannot !== [] ? '. ' . ObjectPermissions::GRANT_PAGE : '');
+        return 'Your permissions on this page: ' . implode('; ', $parts);
     }
 
     public static function tierLine(int $tier): string
