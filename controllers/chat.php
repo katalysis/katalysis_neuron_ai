@@ -9,6 +9,10 @@ use Concrete\Core\Page\Page;
 use Doctrine\ORM\EntityManagerInterface;
 use Katalysis\NeuronAi\Access\ChatAccess;
 use Katalysis\NeuronAi\Chat\ChatMessageStore;
+use Katalysis\NeuronAi\Chat\ChatPurge;
+use Katalysis\NeuronAi\Chat\ChatRetention;
+use Katalysis\NeuronAi\Chat\PurgeChatsCommand;
+use Katalysis\NeuronAi\Chat\PurgeChatsCommandHandler;
 use Katalysis\NeuronAi\Chat\TurnChanges;
 use Katalysis\NeuronAi\ConcreteCmsAgent;
 use Katalysis\NeuronAi\Entity\Chat as ChatEntity;
@@ -26,6 +30,9 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 class Chat extends AbstractController
 {
     protected $helpers = [];
+
+    /** P3.9-2: the database lock the daily purge holds, so two requests never purge at once. */
+    private const PURGE_LOCK = 'katalysis_neuron_ai_chat_purge';
 
     private function json(array $body, int $status = 200): JsonResponse
     {
@@ -533,6 +540,8 @@ class Chat extends AbstractController
         if ($refusal = $this->refuseIfNotAllowed(false)) {
             return $refusal;
         }
+        // P3.9-2: the panel loads this on every page view, so the daily purge runs from here (after the response).
+        $this->purgeOldChatsIfDue();
 
         try {
             if (session_status() === PHP_SESSION_NONE) {
@@ -631,10 +640,11 @@ class Chat extends AbstractController
                 return $this->json(['success' => false, 'error' => 'Chat not found or access denied'], 404);
             }
 
-            // Its message rows go with it (ON DELETE CASCADE, P2.5), and its approval rows (P3.6-1); its run is ended.
+            // Its run is ended; then ChatPurge deletes it with its messages (P2.5), approval rows (P3.6-1) and the log
+            // lines that name it (P3.9-2).
             $this->makeAgent()->setChatId($chat->getId())->discardRun();
-            $entityManager->remove($chat);
-            $entityManager->flush();
+            $entityManager->detach($chat);
+            $this->chatPurge()->deleteChat($chatId);
 
             return $this->json([
                 'success' => true,
@@ -674,8 +684,8 @@ class Chat extends AbstractController
 
             if ($chat) {
                 $this->makeAgent()->setChatId($chat->getId())->discardRun();
-                $entityManager->remove($chat);
-                $entityManager->flush();
+                $entityManager->detach($chat);
+                $this->chatPurge()->deleteChat((int) $chat->getId());
             }
 
             unset($_SESSION['katalysis_neuron_ai_page_context']);
@@ -687,6 +697,100 @@ class Chat extends AbstractController
             ]);
         } catch (\Throwable $e) {
             return $this->failed('Error deleting current chat', 'Unable to delete the current chat.', $e);
+        }
+    }
+    /**
+     * P3.9-2 (B-PII-5): "Delete all my chats", in two posts with the confirmation in the panel. Without
+     * `confirm_cutoff` it only counts the user's own chats and returns the cutoff it counted to; with it, it deletes the
+     * user's chats last active up to that cutoff, no further. Only ever the current user's own chats.
+     */
+    public function delete_all_mine()
+    {
+        if ($refusal = $this->refuseIfNotAllowed(true)) {
+            return $refusal;
+        }
+
+        try {
+            $u = new \Concrete\Core\User\User();
+            $userId = $u->isRegistered() ? (int) $u->getUserID() : 0;
+            if ($userId <= 0) {
+                return $this->json(['success' => false, 'error' => 'Only a signed-in user has chats to delete.'], 403);
+            }
+            $data = $this->body();
+            $confirmed = is_string($data['confirm_cutoff'] ?? null) ? $data['confirm_cutoff'] : '';
+            if ($confirmed === '') {
+                // A moment from now, so the chat on screen is included; a chat used after counting is not.
+                $cutoff = new \DateTimeImmutable('+1 second');
+
+                return $this->json([
+                    'success' => true,
+                    'count' => $this->chatPurge()->count($cutoff, $userId),
+                    'cutoff' => $cutoff->format('Y-m-d H:i:s'),
+                ]);
+            }
+
+            $cutoff = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $confirmed);
+            if (!$cutoff || $cutoff > new \DateTimeImmutable('+1 minute')) {
+                return $this->json(['success' => false, 'error' => 'The confirmation was not valid. Nothing was deleted.'], 400);
+            }
+            $deleted = 0;
+            do {
+                $batch = $this->chatPurge()->purge($cutoff, $userId)['chats'];
+                $deleted += $batch;
+            } while ($batch >= ChatPurge::BATCH);
+            unset($_SESSION['katalysis_neuron_ai_page_context']);
+
+            return $this->json(['success' => true, 'deleted' => true, 'chats' => $deleted]);
+        } catch (\Throwable $e) {
+            return $this->failed('Error deleting all chats', 'Unable to delete your chats.', $e);
+        }
+    }
+
+    /**
+     * P3.9-2: the purge every delete goes through. It ends a waiting run through this request's agent (a test gives
+     * its own purge).
+     */
+    protected function chatPurge(): ChatPurge
+    {
+        return new ChatPurge(Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class), function (int $chatId): void {
+            $this->makeAgent()->setChatId($chatId)->discardRun();
+        });
+    }
+
+    /**
+     * P3.9-2: the daily fallback for sites without the task scheduler's cron. At most once a day (ChatRetention),
+     * after the response is sent, under a lock so two requests never purge at once. Never fails the request.
+     */
+    private function purgeOldChatsIfDue(): void
+    {
+        // Web requests only: the tests and the scenario runner call these actions in process, and the command line
+        // has the task itself (task:purge-old-neuron-a-i-chats).
+        if (PHP_SAPI === 'cli') {
+            return;
+        }
+        try {
+            $lastRun = \Concrete\Core\Support\Facade\Config::get(ChatRetention::LAST_RUN_KEY);
+            if (!ChatRetention::fallbackDue(is_numeric($lastRun) ? (int) $lastRun : null, time())) {
+                return;
+            }
+            register_shutdown_function(function (): void {
+                try {
+                    $db = Application::getFacadeApplication()->make(\Concrete\Core\Database\Connection\Connection::class);
+                    if ((int) $db->fetchOne('SELECT GET_LOCK(?, 0)', [self::PURGE_LOCK]) !== 1) {
+                        return;
+                    }
+                    try {
+                        \Concrete\Core\Support\Facade\Config::save(ChatRetention::LAST_RUN_KEY, time());
+                        (new PurgeChatsCommandHandler($this->chatPurge()))(new PurgeChatsCommand());
+                    } finally {
+                        $db->fetchOne('SELECT RELEASE_LOCK(?)', [self::PURGE_LOCK]);
+                    }
+                } catch (\Throwable $e) {
+                    \Concrete\Core\Support\Facade\Log::warning('Katalysis Neuron AI: the daily chat purge failed: ' . SecretRedactor::redact($e->getMessage()));
+                }
+            });
+        } catch (\Throwable) {
+            // The fallback never fails the request.
         }
     }
 }

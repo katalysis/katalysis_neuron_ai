@@ -159,6 +159,7 @@ class ConcreteCmsAgent extends Agent
 
         // Every tool call and approval decision, redacted, in Concrete's log (P3.6-1).
         $this->log = new ApprovalLogListener();
+        $this->log->setChatId($this->chatId);
         $this->subscribe(ToolCalled::class, $this->log);
     }
 
@@ -472,6 +473,10 @@ class ConcreteCmsAgent extends Agent
             $this->setThreadId(ChatMessageStore::threadFor($chatId));
             $this->setPersistence(new DatabasePersistence($db->getWrappedConnection(), self::WORKFLOW_TABLE));
             $this->chatId = $chatId;
+            // P3.9-2: the log lines name the chat, so deleting it can remove them.
+            if (isset($this->log)) {
+                $this->log->setChatId($chatId);
+            }
         }
 
         return $this;

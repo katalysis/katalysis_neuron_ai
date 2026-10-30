@@ -20,6 +20,14 @@ final class ApprovalLogListener
 {
     private const PREFIX = 'Katalysis Neuron AI: ';
 
+    /** The chat the agent is bound to, named on each line so a user's delete can remove its lines (P3.9-2). */
+    private ?int $chatId = null;
+
+    public function setChatId(?int $chatId): void
+    {
+        $this->chatId = $chatId;
+    }
+
     public function __invoke(ToolCalled $event): void
     {
         $call = $event->tool;
@@ -27,9 +35,10 @@ final class ApprovalLogListener
         $approval = $call->getApprovalState();
 
         self::info(sprintf(
-            'tool %s, call %s: %s%s',
+            'tool %s, call %s%s: %s%s',
             $call->getName(),
             (string) $call->getCallId(),
+            $this->chatId !== null ? ' in chat ' . $this->chatId : '',
             $outcome,
             $approval instanceof ApprovalState ? ', approval ' . $approval->value : ''
         ));

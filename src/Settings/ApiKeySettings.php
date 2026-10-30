@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Katalysis\NeuronAi\Settings;
 
 use Concrete\Core\Config\Repository\Repository;
+use Katalysis\NeuronAi\Chat\ChatRetention;
 
 /**
  * Reads and saves the Neuron AI settings, with API keys that never leave the server
@@ -20,7 +21,7 @@ final class ApiKeySettings
     public const KEY_FIELDS = ['open_ai_key', 'anthropic_key', 'ollama_key'];
 
     /** Form field names of the non-secret values. `provider` (P3.8-1): openai, anthropic or ollama (ModelCatalog). */
-    public const PLAIN_FIELDS = ['provider', 'open_ai_model', 'anthropic_model', 'ollama_url', 'ollama_model'];
+    public const PLAIN_FIELDS = ['provider', 'open_ai_model', 'anthropic_model', 'ollama_url', 'ollama_model', 'chat_retention_days'];
 
     /** The form field `remove_<key field>` clears that key when it is set to a non-empty value. */
     public const REMOVE_PREFIX = 'remove_';
@@ -97,6 +98,11 @@ final class ApiKeySettings
                     ? sprintf('"%s" isn\'t a model name %s accepts: use the name the Ollama server lists (letters, digits, and . _ - : /). Nothing was saved.', $model, ModelCatalog::LABELS[$modelProvider])
                     : sprintf('"%s" isn\'t one of the %s models this assistant knows. Choose one of: %s. Nothing was saved.', $model, ModelCatalog::LABELS[$modelProvider], implode(', ', $known));
             }
+        }
+        // P3.9-2: chats are kept 1 to 3650 days; blank is the default (90).
+        $days = self::string($post['chat_retention_days'] ?? '');
+        if ($days !== '' && !ChatRetention::isValid($days)) {
+            $refusals[] = sprintf('Keep chats for a whole number of days from %d to %d (the default is %d). Nothing was saved.', ChatRetention::MIN_DAYS, ChatRetention::MAX_DAYS, ChatRetention::DEFAULT_DAYS);
         }
         if ($provider === 'ollama' && $url === '') {
             $refusals[] = 'Ollama needs its URL (for example http://localhost:11434/api). Nothing was saved.';

@@ -89,9 +89,17 @@ Every report becomes a test scenario, so detail matters.
 
 **3.5.0 drops the unused `chatHistory` column** from `KatalysisNeuronAiChats` (P3.9-1). Chats are rows in `KatalysisNeuronAiChatMessages` since 3.x, so nothing is lost from the chats you see, but the drop can't be undone without the backup.
 
+**3.6.0 deletes old chats (P3.9-2).** Chats with no activity for **90 days** are deleted, with their messages, approval records and the assistant's log lines. There is **no grace period**: on a site that already has chats older than 90 days, the first purge after the update deletes them. Back up first if you want to keep them, or raise "Keep chats for (days)" on the settings page before updating.
+
+## 5b. Chat retention
+
+- **How long:** "Keep chats for (days)" on the settings page, 1 to 3650; blank is 90. Age is the chat's last activity.
+- **When:** the task **Purge old Neuron AI chats** (Dashboard → System → Automation → Tasks; schedule it daily if the site runs `concrete:scheduler:run`), and at most once a day when someone opens the chat panel, for sites without the scheduler. By hand: `concrete/bin/concrete task:purge-old-neuron-a-i-chats`.
+- **Now:** the settings page has "Purge chats older than N days" and "Delete all chats". Each shows how many chats it would delete first; nothing goes until you confirm. A change still waiting for approval in a deleted chat is not made.
+- **Each user** can delete one chat, the current one, or "Delete all my chats" in the panel's chat list.
+
 ## 6. Known open items
 
-- **Chats are kept indefinitely** until retention and an admin purge arrive (P3.9-2). Don't paste personal data into the chat that you wouldn't keep in the CMS.
 - **The model sometimes says it did something that was refused.** The Changed line is the truth. Report it when it happens.
 - **Headers and footers now appear in everything the assistant reads,** so it may suggest changes to them. Each suggestion has its own card.
 - **The page count on a global-area card is a floor.** Pages nobody has opened since the area was added aren't counted.

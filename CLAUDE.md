@@ -21,6 +21,7 @@ Dev site: `katalysis_pro_theme` (Concrete 9.5.5, run locally with Herd). Integra
 - **Commit messages** start with the task ID (`P1.4: ...`, `WP-1: ...`). Changes to the plan, design or workflow docs made after a review start with `PLAN: ...`.
 - **Don't rewrite pushed or shared history.** Never amend or reword commits someone else made, even unpushed ones, unless you're asked to.
 - Report results honestly. "Not tested" is an acceptable answer; claiming something works when it wasn't checked is not.
+- Before reporting test results or opening a PR, check git status is clean: the results must be from committed code.
 
 ## Working agreement
 - **A task stops for plan approval** after `/start-task` only if it touches (WP-4, Glyn, 27 October 2026):

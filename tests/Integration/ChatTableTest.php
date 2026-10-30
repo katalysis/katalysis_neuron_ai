@@ -50,6 +50,14 @@ final class ChatTableTest extends ConcreteTestCase
         $this->assertSame(['createdDate'], $indexes['idx_created_date']['columns'] ?? null);
     }
 
+    public function testTheEntityIndexesLastActivityForTheRetentionPurge(): void
+    {
+        // P3.9-2: chats are aged by their last activity (updatedDate).
+        $indexes = $this->app()->make(EntityManagerInterface::class)->getClassMetadata(Chat::class)->table['indexes'] ?? [];
+
+        $this->assertSame(['updatedDate'], $indexes['idx_updated_date']['columns'] ?? null);
+    }
+
     public function testTheMigrationDropsTheLegacyColumnOnceAndKeepsTheRows(): void
     {
         $db = $this->db();
