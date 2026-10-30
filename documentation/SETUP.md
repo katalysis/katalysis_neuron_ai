@@ -49,6 +49,8 @@ php concrete/bin/concrete5 c5:package:update katalysis_neuron_ai
 
 **3.5.0 (P3.9-1):** back up first (`documentation/fixtures/backup_dev_db.sh <task-id>`). The update drops the unused `chatHistory` column from `KatalysisNeuronAiChats` (the tables are Doctrine's alone now; the package no longer creates one itself), adds its indexes, and resets an `anthropic_model` of `claude-2` (the old install default, which the settings page refuses) to the provider's default.
 
+**3.6.0 (P3.9-2):** adds the index `idx_updated_date` and the automated task **Purge old Neuron AI chats**. Chats with no activity for 90 days ("Keep chats for (days)" on the settings page) are deleted with their messages, approvals and our log lines, by that task (`concrete/bin/concrete task:purge-old-neuron-a-i-chats`, or scheduled daily under Dashboard → System → Automation → Tasks) and at most once a day from the chat panel's web requests. The scenario runner and PHPUnit never trigger it (CLI). On a dev site with chats older than 90 days, the first purge deletes them: back up first.
+
 ## Configure AI provider
 
 Set at least the OpenAI key in package settings:
