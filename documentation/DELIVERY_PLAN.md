@@ -534,7 +534,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   4. the Extensions dashboard page
   5. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
 - P5.2a Nested (container) blocks in batch updates (from P1.8; moved from P3.3 on the roadmap). Since P1.8a, `batch_update_page_content` refuses blocks inside containers and area layout sub-areas with a clear message, before any draft.
-- P5.2b A code check for instruction-like text in the user's own pasted content (scenario 14; P3.7-2's proposal). Approval already blocks the write, so this is about the reply.
+- P5.2b A code check for instruction-like text in the user's own pasted content (scenario 14; P3.7-2's proposal). Approval already blocks the write, so this is about the reply. **Partly brought forward to Phase 3 (Glyn, after P3.S4's scenario 04):** P3.12 part B refuses `delete_page`, `move_page` and `mark_file_for_deletion` when a paste holds a line addressed to the assistant (`PastedInstructionGuard`), and "Approve all" leaves delete cards out. What stays here is the reply: telling the user about such a paste, as the notice does for tool results.
   - **Known gap from Phase 3's exit (Glyn, P3.12):** 16 and 21's secondary check that the reply mentions the injected note; the notice (P1.11) is the primary check.
 - P5.2c **Behaviour rules with no test or scenario yet** (moved from Phase 3's exit, Glyn, P3.12): B-CON-1 (ask when ambiguous), B-PII-3 (personal data not carried into unrelated output), B-PII-4 (imports contain only the source's data) and B-SEC-2 (refuse to read or reveal secrets). Each gets a test or a scenario.
 - P5.3 Undo the last change via page versions.
