@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Katalysis\NeuronAi\Tests\Unit;
 
-use Katalysis\NeuronAi\Access\ObjectPermissions;
 use Katalysis\NeuronAi\Context\ContextBuilder;
 use PHPUnit\Framework\TestCase;
 
@@ -48,8 +47,10 @@ final class ContextBuilderFormatTest extends TestCase
     public function testThePermissionsAreOneShortLine(): void
     {
         $this->assertSame(
-            'Your permissions on this page: can edit contents, add sub-pages; cannot delete it, publish (approve versions). '
-            . ObjectPermissions::GRANT_PAGE,
+            // P3.12 (Glyn, after 38 in P3.S4): the grant hint is attached to the "cannot" items only, in brackets, so it
+            // isn't read as applying to what the user can do.
+            'Your permissions on this page: can edit contents, add sub-pages; cannot delete it, publish (approve versions)'
+            . ' (a site administrator can grant these in the page\'s Permissions: Sitemap, then the page, then Permissions)',
             ContextBuilder::permissionsLine(['edit contents' => true, 'add sub-pages' => true, 'delete it' => false, 'publish (approve versions)' => false])
         );
     }
