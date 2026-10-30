@@ -102,7 +102,7 @@ final class TurnChanges
         if ($pageID <= 0) {
             // Any other write (a file, a topic, a version, a user, …): recorded by what it names (P3.6-1), with the
             // undo line a structural change carries (BF-24: move_page).
-            $this->recordOther($name, $call->getInputs(), is_array($data) && is_string($data['undo'] ?? null) ? $data['undo'] : '');
+            $this->recordOther($name, $call->getInputs(), is_array($data) && is_string($data['undo'] ?? null) ? $data['undo'] : '', self::movedTo($name, $data));
 
             return;
         }
@@ -271,16 +271,33 @@ final class TurnChanges
         return $encoded === false ? $json : $encoded;
     }
 
-    private function recordOther(string $tool, array $inputs, string $undo = ''): void
+    private function recordOther(string $tool, array $inputs, string $undo = '', ?string $named = null): void
     {
         $kind = self::kind($tool);
         $object = self::object($inputs);
-        $label = SecretRedactor::redact(($object !== '' ? $kind . ' ' . $object : $kind . ' (' . $tool . ')') . ($undo !== '' ? ' (' . rtrim($undo, '.') . ')' : ''));
+        $what = $named ?? ($object !== '' ? $kind . ' ' . $object : $kind . ' (' . $tool . ')');
+        $label = SecretRedactor::redact($what . ($undo !== '' ? ' (' . rtrim($undo, '.') . ')' : ''));
         $entry = $this->others[$label] ?? ['kind' => $kind, 'object' => $label, 'tools' => []];
         if (!in_array($tool, $entry['tools'], true)) {
             $entry['tools'][] = SecretRedactor::redact($tool);
         }
         $this->others[$label] = $entry;
+    }
+
+    /**
+     * P3.12 (Glyn, after 09): a moved page named by where it is now, "Name (/new/path)", from move_page's result; the
+     * old path is in its undo text. Null for anything else.
+     *
+     * @param mixed $data the decoded result
+     */
+    private static function movedTo(string $tool, mixed $data): ?string
+    {
+        if ($tool !== 'move_page' || !is_array($data) || !is_string($data['path'] ?? null) || $data['path'] === '') {
+            return null;
+        }
+        $name = is_string($data['name'] ?? null) && $data['name'] !== '' ? $data['name'] : 'page ' . (int) ($data['id'] ?? 0);
+
+        return $name . ' (' . $data['path'] . ')';
     }
 
     /** What kind of thing a write that isn't a page draft changed, from the tool's name. */
