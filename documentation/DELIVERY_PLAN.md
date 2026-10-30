@@ -738,6 +738,7 @@ Bugs found outside a phase task. Each is fixed on `development` in its own PR an
   - a red-first test
   - scenarios: 09 ×1 after the change; cap $0.15
 - [ ] BF-25 **`CallableTool` passes only the inputs the model gave** (small; after the internal pilot starts; Glyn, after BF-21). So PHP parameter defaults apply (about 30 parameters; found in BF-21). A test across every tool.
+- [ ] BF-26 **The Deny result leads with plain words** (small; after the internal pilot starts; Glyn, P3.12). The Deny result the model sees leads with "The change was not made because the user chose Deny" instead of Neuron's "TOOL NOT EXECUTED", so replies use plain words (found in P3.12's scenario 38 runs). Re-run 38 and 41 ×3.
 
 ## 7. Decisions needed
 1. Open-source licence, and where the open core ends and paid/private begins.
