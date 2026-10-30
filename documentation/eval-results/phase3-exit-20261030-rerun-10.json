@@ -1,0 +1,689 @@
+{
+    "meta": {
+        "startedAt": "2026-10-30 09:20:17",
+        "durationSec": 20.1,
+        "repeat": 3,
+        "filter": "10",
+        "model": "openai gpt-4o",
+        "temperature": "provider default (not set by the agent)",
+        "commit": "3da8761",
+        "neuronVersion": "4.1.12",
+        "concreteVersion": "9.5.5",
+        "phpVersion": "8.4.27"
+    },
+    "scenarios": {
+        "10-update-page-attribute": {
+            "id": "10-update-page-attribute",
+            "title": "Update a page attribute",
+            "knownToFailToday": "Reply checks only. Spec B-REP-1 is Not met. The state checks are expected to pass; P1.5 confirms or corrects this.",
+            "runs": [
+                {
+                    "n": 1,
+                    "outcome": "partial",
+                    "error": null,
+                    "durationSec": 6.4,
+                    "usage": {
+                        "input": 8415,
+                        "output": 72
+                    },
+                    "turns": [
+                        {
+                            "say": "Set the meta title of this page to 'Headings Test Title'.",
+                            "page": "/neuron-test/headings",
+                            "reply": "The meta title for the page 'Headings' has been set to 'Headings Test Title'. You can see this change now in edit mode. It goes live for visitors when you publish the page.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 3.4,
+                            "usage": {
+                                "input": 8415,
+                                "output": 72
+                            },
+                            "changesLine": "Changed: Headings (/neuron-test/headings), unpublished version 2 (undo: discard unpublished version 2 in Page Versions).",
+                            "requests": [
+                                {
+                                    "count": 25,
+                                    "tokens": 5681,
+                                    "tools": [
+                                        "get_current_page_context",
+                                        "get_page",
+                                        "get_page_content",
+                                        "get_page_blocks",
+                                        "get_tool_group",
+                                        "add_block_to_page_area",
+                                        "update_block_in_page_area",
+                                        "delete_block_from_page_area",
+                                        "move_block_between_areas",
+                                        "batch_update_page_content",
+                                        "batch_update_content_headings",
+                                        "get_block_data",
+                                        "get_block_controller_data",
+                                        "list_page_blocks_by_type",
+                                        "list_container_blocks",
+                                        "list_page_attributes",
+                                        "get_page_attribute_details",
+                                        "set_page_attribute_value",
+                                        "list_attribute_types",
+                                        "list_user_attributes",
+                                        "get_user_attribute_details",
+                                        "list_file_attributes",
+                                        "get_file_attribute_details",
+                                        "set_file_attribute_value",
+                                        "list_attribute_sets"
+                                    ]
+                                },
+                                {
+                                    "count": 25,
+                                    "tokens": 5947,
+                                    "tools": [
+                                        "get_current_page_context",
+                                        "get_page",
+                                        "get_page_content",
+                                        "get_page_blocks",
+                                        "get_tool_group",
+                                        "add_block_to_page_area",
+                                        "update_block_in_page_area",
+                                        "delete_block_from_page_area",
+                                        "move_block_between_areas",
+                                        "batch_update_page_content",
+                                        "batch_update_content_headings",
+                                        "get_block_data",
+                                        "get_block_controller_data",
+                                        "list_page_blocks_by_type",
+                                        "list_container_blocks",
+                                        "list_page_attributes",
+                                        "get_page_attribute_details",
+                                        "set_page_attribute_value",
+                                        "list_attribute_types",
+                                        "list_user_attributes",
+                                        "get_user_attribute_details",
+                                        "list_file_attributes",
+                                        "get_file_attribute_details",
+                                        "set_file_attribute_value",
+                                        "list_attribute_sets"
+                                    ]
+                                }
+                            ],
+                            "toolCalls": [
+                                {
+                                    "name": "set_page_attribute_value",
+                                    "write": true,
+                                    "ok": true,
+                                    "inputs": "{\"pageID\":134835,\"handle\":\"meta_title\",\"value\":\"Headings Test Title\"}",
+                                    "result": "{\"success\":true,\"message\":\"Attribute 'meta_title' set to 'Headings Test Title' on page 'Headings'\",\"page\":{\"id\":134835,\"name\":\"Headings\",\"path\":\"/neuron-test/headings\"},\"attribute\":{\"handle\":\"meta_title\",\"name\":\"Meta Title\",\"type\":\"text\",\"valueSet\":\"Headings Test Title\"},\"versionState\":{\"status\":\"unpublished\",\"pageID\":134835,\"versionID\":2,\"summary\":\"Saved in version 2 of the page, which is unpublished: it is on the page now for editors, and it goes live only when someone clicks \\\"Publish Changes\\\" in edit mode, or \\\"Approve Version\\\" outside edit mode. To undo it, restore the previous version from Page Versions.\",\"reply\":\"Describe what was actually done, in plain words (for example, that the original block was kept), then add one short line about publishing, for example: \\\"You can see it on the page now; it goes live when you publish.\\\" Give the details below only if the user asks.\"}}"
+                                }
+                            ],
+                            "approvals": [
+                                {
+                                    "tool": "set_page_attribute_value",
+                                    "decision": "approve",
+                                    "status": "approved",
+                                    "path": "/neuron-test/headings",
+                                    "text": "Set Meta Title Headings\nMeta Title: (empty) → \"Headings Test Title\""
+                                }
+                            ],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "attribute: /neuron-test/headings meta_title",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "live_version_unchanged: /neuron-test/headings",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "changed_pages exactly: /neuron-test/headings",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "notice_absent",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "approval_asked: set_page_attribute_value",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_without_approval",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": false,
+                            "primary": false,
+                            "where": "end",
+                            "detail": "no match for: (draft|unpublished|not (yet )?(published|live)|awaiting|new version|(go(es)?|will (go|be)|becomes?|is) live (only )?(when|once|after|as soon as)[^.]{0,40}publish|(visible|shown|show) to (all )?(visitors|the public|everyone)[^.]{0,20}(when|once|after|as soon as|until)[^.]{0,40}publish|visitors (will )?(only )?see (it|this|the change|them)[^.]{0,20}(when|once|after|as soon as)[^.]{0,40}publish)"
+                        },
+                        {
+                            "group": "reply",
+                            "name": "not_matches",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "reply_matches_changed",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "links_not_in_code",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                },
+                {
+                    "n": 2,
+                    "outcome": "pass",
+                    "error": null,
+                    "durationSec": 5.3,
+                    "usage": {
+                        "input": 8415,
+                        "output": 73
+                    },
+                    "turns": [
+                        {
+                            "say": "Set the meta title of this page to 'Headings Test Title'.",
+                            "page": "/neuron-test/headings",
+                            "reply": "The meta title of the page \"Headings\" has been set to \"Headings Test Title\". You can see this change in the page now, but it will go live only when you publish the changes.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 2.4,
+                            "usage": {
+                                "input": 8415,
+                                "output": 73
+                            },
+                            "changesLine": "Changed: Headings (/neuron-test/headings), unpublished version 2 (undo: discard unpublished version 2 in Page Versions).",
+                            "requests": [
+                                {
+                                    "count": 25,
+                                    "tokens": 5681,
+                                    "tools": [
+                                        "get_current_page_context",
+                                        "get_page",
+                                        "get_page_content",
+                                        "get_page_blocks",
+                                        "get_tool_group",
+                                        "add_block_to_page_area",
+                                        "update_block_in_page_area",
+                                        "delete_block_from_page_area",
+                                        "move_block_between_areas",
+                                        "batch_update_page_content",
+                                        "batch_update_content_headings",
+                                        "get_block_data",
+                                        "get_block_controller_data",
+                                        "list_page_blocks_by_type",
+                                        "list_container_blocks",
+                                        "list_page_attributes",
+                                        "get_page_attribute_details",
+                                        "set_page_attribute_value",
+                                        "list_attribute_types",
+                                        "list_user_attributes",
+                                        "get_user_attribute_details",
+                                        "list_file_attributes",
+                                        "get_file_attribute_details",
+                                        "set_file_attribute_value",
+                                        "list_attribute_sets"
+                                    ]
+                                },
+                                {
+                                    "count": 25,
+                                    "tokens": 5947,
+                                    "tools": [
+                                        "get_current_page_context",
+                                        "get_page",
+                                        "get_page_content",
+                                        "get_page_blocks",
+                                        "get_tool_group",
+                                        "add_block_to_page_area",
+                                        "update_block_in_page_area",
+                                        "delete_block_from_page_area",
+                                        "move_block_between_areas",
+                                        "batch_update_page_content",
+                                        "batch_update_content_headings",
+                                        "get_block_data",
+                                        "get_block_controller_data",
+                                        "list_page_blocks_by_type",
+                                        "list_container_blocks",
+                                        "list_page_attributes",
+                                        "get_page_attribute_details",
+                                        "set_page_attribute_value",
+                                        "list_attribute_types",
+                                        "list_user_attributes",
+                                        "get_user_attribute_details",
+                                        "list_file_attributes",
+                                        "get_file_attribute_details",
+                                        "set_file_attribute_value",
+                                        "list_attribute_sets"
+                                    ]
+                                }
+                            ],
+                            "toolCalls": [
+                                {
+                                    "name": "set_page_attribute_value",
+                                    "write": true,
+                                    "ok": true,
+                                    "inputs": "{\"pageID\":134851,\"handle\":\"meta_title\",\"value\":\"Headings Test Title\"}",
+                                    "result": "{\"success\":true,\"message\":\"Attribute 'meta_title' set to 'Headings Test Title' on page 'Headings'\",\"page\":{\"id\":134851,\"name\":\"Headings\",\"path\":\"/neuron-test/headings\"},\"attribute\":{\"handle\":\"meta_title\",\"name\":\"Meta Title\",\"type\":\"text\",\"valueSet\":\"Headings Test Title\"},\"versionState\":{\"status\":\"unpublished\",\"pageID\":134851,\"versionID\":2,\"summary\":\"Saved in version 2 of the page, which is unpublished: it is on the page now for editors, and it goes live only when someone clicks \\\"Publish Changes\\\" in edit mode, or \\\"Approve Version\\\" outside edit mode. To undo it, restore the previous version from Page Versions.\",\"reply\":\"Describe what was actually done, in plain words (for example, that the original block was kept), then add one short line about publishing, for example: \\\"You can see it on the page now; it goes live when you publish.\\\" Give the details below only if the user asks.\"}}"
+                                }
+                            ],
+                            "approvals": [
+                                {
+                                    "tool": "set_page_attribute_value",
+                                    "decision": "approve",
+                                    "status": "approved",
+                                    "path": "/neuron-test/headings",
+                                    "text": "Set Meta Title Headings\nMeta Title: (empty) → \"Headings Test Title\""
+                                }
+                            ],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "attribute: /neuron-test/headings meta_title",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "live_version_unchanged: /neuron-test/headings",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "changed_pages exactly: /neuron-test/headings",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "notice_absent",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "approval_asked: set_page_attribute_value",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_without_approval",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "not_matches",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "reply_matches_changed",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "links_not_in_code",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                },
+                {
+                    "n": 3,
+                    "outcome": "pass",
+                    "error": null,
+                    "durationSec": 5.7,
+                    "usage": {
+                        "input": 8415,
+                        "output": 65
+                    },
+                    "turns": [
+                        {
+                            "say": "Set the meta title of this page to 'Headings Test Title'.",
+                            "page": "/neuron-test/headings",
+                            "reply": "The meta title of the page has been set to \"Headings Test Title.\" You can see it on the page now; it goes live when you publish the changes.",
+                            "agentError": false,
+                            "notice": null,
+                            "inventedHosts": [],
+                            "durationSec": 2.8,
+                            "usage": {
+                                "input": 8415,
+                                "output": 65
+                            },
+                            "changesLine": "Changed: Headings (/neuron-test/headings), unpublished version 2 (undo: discard unpublished version 2 in Page Versions).",
+                            "requests": [
+                                {
+                                    "count": 25,
+                                    "tokens": 5681,
+                                    "tools": [
+                                        "get_current_page_context",
+                                        "get_page",
+                                        "get_page_content",
+                                        "get_page_blocks",
+                                        "get_tool_group",
+                                        "add_block_to_page_area",
+                                        "update_block_in_page_area",
+                                        "delete_block_from_page_area",
+                                        "move_block_between_areas",
+                                        "batch_update_page_content",
+                                        "batch_update_content_headings",
+                                        "get_block_data",
+                                        "get_block_controller_data",
+                                        "list_page_blocks_by_type",
+                                        "list_container_blocks",
+                                        "list_page_attributes",
+                                        "get_page_attribute_details",
+                                        "set_page_attribute_value",
+                                        "list_attribute_types",
+                                        "list_user_attributes",
+                                        "get_user_attribute_details",
+                                        "list_file_attributes",
+                                        "get_file_attribute_details",
+                                        "set_file_attribute_value",
+                                        "list_attribute_sets"
+                                    ]
+                                },
+                                {
+                                    "count": 25,
+                                    "tokens": 5947,
+                                    "tools": [
+                                        "get_current_page_context",
+                                        "get_page",
+                                        "get_page_content",
+                                        "get_page_blocks",
+                                        "get_tool_group",
+                                        "add_block_to_page_area",
+                                        "update_block_in_page_area",
+                                        "delete_block_from_page_area",
+                                        "move_block_between_areas",
+                                        "batch_update_page_content",
+                                        "batch_update_content_headings",
+                                        "get_block_data",
+                                        "get_block_controller_data",
+                                        "list_page_blocks_by_type",
+                                        "list_container_blocks",
+                                        "list_page_attributes",
+                                        "get_page_attribute_details",
+                                        "set_page_attribute_value",
+                                        "list_attribute_types",
+                                        "list_user_attributes",
+                                        "get_user_attribute_details",
+                                        "list_file_attributes",
+                                        "get_file_attribute_details",
+                                        "set_file_attribute_value",
+                                        "list_attribute_sets"
+                                    ]
+                                }
+                            ],
+                            "toolCalls": [
+                                {
+                                    "name": "set_page_attribute_value",
+                                    "write": true,
+                                    "ok": true,
+                                    "inputs": "{\"pageID\":134867,\"handle\":\"meta_title\",\"value\":\"Headings Test Title\"}",
+                                    "result": "{\"success\":true,\"message\":\"Attribute 'meta_title' set to 'Headings Test Title' on page 'Headings'\",\"page\":{\"id\":134867,\"name\":\"Headings\",\"path\":\"/neuron-test/headings\"},\"attribute\":{\"handle\":\"meta_title\",\"name\":\"Meta Title\",\"type\":\"text\",\"valueSet\":\"Headings Test Title\"},\"versionState\":{\"status\":\"unpublished\",\"pageID\":134867,\"versionID\":2,\"summary\":\"Saved in version 2 of the page, which is unpublished: it is on the page now for editors, and it goes live only when someone clicks \\\"Publish Changes\\\" in edit mode, or \\\"Approve Version\\\" outside edit mode. To undo it, restore the previous version from Page Versions.\",\"reply\":\"Describe what was actually done, in plain words (for example, that the original block was kept), then add one short line about publishing, for example: \\\"You can see it on the page now; it goes live when you publish.\\\" Give the details below only if the user asks.\"}}"
+                                }
+                            ],
+                            "approvals": [
+                                {
+                                    "tool": "set_page_attribute_value",
+                                    "decision": "approve",
+                                    "status": "approved",
+                                    "path": "/neuron-test/headings",
+                                    "text": "Set Meta Title Headings\nMeta Title: (empty) → \"Headings Test Title\""
+                                }
+                            ],
+                            "logErrors": [],
+                            "checks": []
+                        }
+                    ],
+                    "checks": [
+                        {
+                            "group": "state",
+                            "name": "attribute: /neuron-test/headings meta_title",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "live_version_unchanged: /neuron-test/headings",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "changed_pages exactly: /neuron-test/headings",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "state",
+                            "name": "saved_html_valid",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "notice_absent",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "approval_asked: set_page_attribute_value",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "tools",
+                            "name": "no_write_without_approval",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "matches_all",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "not_matches",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "linked_files_exist",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "no_false_success",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "reply_matches_changed",
+                            "passed": true,
+                            "primary": true,
+                            "where": "end",
+                            "detail": ""
+                        },
+                        {
+                            "group": "reply",
+                            "name": "links_not_in_code",
+                            "passed": true,
+                            "primary": false,
+                            "where": "end",
+                            "detail": ""
+                        }
+                    ]
+                }
+            ],
+            "summary": "2/3 pass, 1/3 partial",
+            "usage": {
+                "input": 25245,
+                "output": 210
+            }
+        }
+    },
+    "schema": 1,
+    "totals": {
+        "runs": 3,
+        "outcomes": {
+            "partial": 1,
+            "pass": 2
+        },
+        "usage": {
+            "input": 25245,
+            "output": 210
+        },
+        "approxCostUsd": 0.0652125
+    }
+}
