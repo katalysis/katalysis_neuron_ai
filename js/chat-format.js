@@ -372,11 +372,21 @@
             actions.appendChild(b);
             return b;
         };
-        const buttons = { approve: button('Approve all', 'approve'), deny: button('Deny all', 'deny') };
+        const buttons = { approve: button(approveAllLabel(waiting), 'approve'), deny: button('Deny all', 'deny') };
         el.appendChild(actions);
         container.appendChild(el);
 
         return { header: el, buttons };
+    }
+
+    /** P3.12 part B: the cards "Approve all" decides. A delete_page card needs its own click, so it is left out. */
+    function approveAllCards(cards) {
+        return (Array.isArray(cards) ? cards : []).filter((c) => c && c.status === 'pending' && c.tool !== 'delete_page');
+    }
+
+    function approveAllLabel(cards) {
+        const waiting = (Array.isArray(cards) ? cards : []).filter((c) => c && c.status === 'pending');
+        return waiting.some((c) => c.tool === 'delete_page') ? 'Approve all (except deletions)' : 'Approve all';
     }
 
     /** The decided state at the foot of a card: the server's status text. */
@@ -430,5 +440,5 @@
             + (waiting > 0 ? ' ' + waiting + (waiting === 1 ? ' has' : ' have') + ' a change waiting for approval; it won’t be made.' : '');
     }
 
-    return { parse, safeHref, renderInto, renderApprovalCard, renderBatchHeader, approvalStatus, renderChangesLine, loadFailureText, deleteAllConfirmText };
+    return { parse, safeHref, renderInto, renderApprovalCard, renderBatchHeader, approvalStatus, renderChangesLine, loadFailureText, deleteAllConfirmText, approveAllCards, approveAllLabel };
 });

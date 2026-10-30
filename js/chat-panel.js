@@ -351,7 +351,9 @@
                     header.buttons.approve.disabled = true;
                     header.buttons.deny.disabled = true;
                     // The same decision on each card, one by one; the server sends the batch once the last is decided.
-                    for (const card of waiting) {
+                    // P3.12 part B: "Approve all" leaves a delete_page card for its own click; "Deny all" covers every card.
+                    const decided = decision === 'approve' ? window.NeuronChatFormat.approveAllCards(waiting) : waiting;
+                    for (const card of decided) {
                         const shown = this.approvalCards[card.callId];
                         if (shown && shown.buttons) {
                             await this.decide(card.callId, decision);
