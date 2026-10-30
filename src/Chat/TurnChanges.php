@@ -184,8 +184,15 @@ final class TurnChanges
         $changed = [];
         foreach ($this->pages as $page) {
             $label = ($page['name'] !== '' ? $page['name'] : 'page ' . $page['pageID']) . ($page['path'] !== '' ? ' (' . $page['path'] . ')' : '');
-            $changed[] = $label . ($page['isNewPage'] ? ', a new unpublished page' : ($page['versionID'] > 0 ? ', unpublished version ' . $page['versionID'] : ''))
-                . (isset($this->shared[$page['pageID']]) ? ' (' . implode('; ', array_keys($this->shared[$page['pageID']])) . ')' : '');
+            // P3.12 (Glyn): a draft says how to undo it, where it is discarded: Page Versions for a page, the global
+            // area's own place for a stack draft (P3.6a).
+            $shared = isset($this->shared[$page['pageID']]) ? array_keys($this->shared[$page['pageID']]) : [];
+            $draft = !$page['isNewPage'] && $page['versionID'] > 0;
+            $undo = $draft
+                ? 'undo: discard unpublished version ' . $page['versionID'] . ' in ' . ($shared !== [] ? 'Dashboard > Stacks & Global Areas' : 'Page Versions')
+                : null;
+            $changed[] = $label . ($page['isNewPage'] ? ', a new unpublished page' : ($draft ? ', unpublished version ' . $page['versionID'] : ''))
+                . ($shared !== [] ? ' (' . implode('; ', [...$shared, ...($undo !== null ? [$undo] : [])]) . ')' : ($undo !== null ? ' (' . $undo . ')' : ''));
         }
         foreach ($this->others as $other) {
             $changed[] = $other['object'];

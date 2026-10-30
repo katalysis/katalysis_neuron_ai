@@ -23,6 +23,8 @@ use NeuronAI\Tools\ToolRegistry;
  * - **P3.9-3, the loop guard (LoopGuard):** before the approval step, a call the guard refuses is settled at once with
  *   the guard's reason: it runs not, and gets no card. After the step, the user's Denies, and the calls that failed
  *   (refused by their own checks, or run and failed), are remembered in the run's state for the rest of the turn.
+ * - **P3.12 part B (PastedInstructionGuard):** a delete or move asked for only by an instruction in text the user
+ *   pasted is settled the same way, before the approval step: it never runs and gets no card.
  *
  * Overrides protected Neuron methods (stampRejectionResult(), resolveToolApprovals(), filterToolsRequiringApproval(),
  * executeSingleTool()); ApprovalFlowTest and LoopGuardTest fail if Neuron changes them. Middleware registered for
@@ -53,11 +55,14 @@ final class ApprovalToolNode extends ToolNode
     {
         $denied = (array) $state->get(LoopGuard::DENIED_KEY, []);
         $failed = (array) $state->get(LoopGuard::FAILED_KEY, []);
+        // P3.12 part B: the turn's user message, read from the conversation, so a resumed turn is guarded the same way.
+        $userMessage = PastedInstructionGuard::userMessage($resources->history->getMessages());
         foreach ($message->getToolCalls() as $call) {
             if ($call->getApprovalState() !== null) {
                 continue;
             }
-            $refusal = LoopGuard::refusal($call->getName(), (array) $call->getInputs(), $denied, $failed);
+            $refusal = PastedInstructionGuard::refusal($call->getName(), $userMessage)
+                ?? LoopGuard::refusal($call->getName(), (array) $call->getInputs(), $denied, $failed);
             if ($refusal !== null) {
                 // Settled now: executeSingleTool() skips a rejected call, and the approval step leaves it out.
                 $call->setApprovalState(ApprovalState::Rejected, $refusal);

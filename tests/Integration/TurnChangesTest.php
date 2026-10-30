@@ -212,6 +212,29 @@ final class TurnChangesTest extends ConcreteTestCase
         $this->assertSame('Changed: page 5 (' . rtrim($undo, '.') . ').', $changes->line(), 'in brackets after the page');
     }
 
+    /** P3.12 (Glyn): a draft write's line says how to undo it, for a page and for a global area. */
+    public function testADraftWriteSaysHowToUndoIt(): void
+    {
+        $page = $this->pages->create('Turn changes, undo');
+        $cID = (int) $page->getCollectionID();
+
+        $changes = new TurnChanges();
+        $call = new ToolCall('update_block_in_page_area', 'call_undo', ['pageID' => $cID, 'blockID' => 1]);
+        $call->setResult((string) json_encode(['blockID' => 2, 'versionState' => ['status' => 'unpublished', 'pageID' => $cID, 'versionID' => 3]]));
+        $changes(new ToolCalled($call));
+        $this->assertStringContainsString(', unpublished version 3 (undo: discard unpublished version 3 in Page Versions)', (string) $changes->line());
+
+        $shared = new TurnChanges();
+        $call = new ToolCall('update_block_in_page_area', 'call_undo_shared', ['pageID' => $cID, 'blockID' => 1]);
+        $call->setResult((string) json_encode([
+            'blockID' => 2,
+            'versionState' => ['status' => 'unpublished', 'pageID' => $cID, 'versionID' => 4],
+            'sharedArea' => ['name' => 'Header Banner', 'kind' => 'global area', 'pages' => 12, 'examples' => [], 'notice' => '…'],
+        ]));
+        $shared(new ToolCalled($call));
+        $this->assertStringContainsString('undo: discard unpublished version 4 in Dashboard > Stacks & Global Areas', (string) $shared->line());
+    }
+
     /** P3.6a: a change to a global area through the page is named on the page's line. */
     public function testAGlobalAreaChangedThroughThePageIsNamed(): void
     {
@@ -228,7 +251,8 @@ final class TurnChangesTest extends ConcreteTestCase
         $changes(new ToolCalled($call));
 
         $this->assertSame(
-            'Changed: ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . '), unpublished version 2 (with the global area "Header Banner", shown on every page that has it).',
+            'Changed: ' . $page->getCollectionName() . ' (' . $page->getCollectionPath() . '), unpublished version 2 (with the global area "Header Banner", shown on every page that has it;'
+            . ' undo: discard unpublished version 2 in Dashboard > Stacks & Global Areas).',
             $changes->line()
         );
     }
