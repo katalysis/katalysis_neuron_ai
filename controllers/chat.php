@@ -764,7 +764,7 @@ class Chat extends AbstractController
     private function purgeOldChatsIfDue(): void
     {
         // Web requests only: the tests and the scenario runner call these actions in process, and the command line
-        // has the task itself (task:execute neuron_ai_purge_chats).
+        // has the task itself (task:purge-old-neuron-a-i-chats).
         if (PHP_SAPI === 'cli') {
             return;
         }

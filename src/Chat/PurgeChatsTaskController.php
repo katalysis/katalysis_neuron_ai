@@ -12,7 +12,7 @@ use Concrete\Core\Command\Task\TaskInterface;
 
 /**
  * P3.9-2: the automated task "Purge old Neuron AI chats" (ChatRetention::TASK_HANDLE). Schedule it daily under
- * Dashboard → System → Automation → Tasks, or run `concrete/bin/concrete task:execute neuron_ai_purge_chats`.
+ * Dashboard → System → Automation → Tasks, or run `concrete/bin/concrete task:purge-old-neuron-a-i-chats` (Concrete names the command after the task).
  */
 class PurgeChatsTaskController extends AbstractController
 {
