@@ -483,7 +483,7 @@ The prompt cut is last because it removes the rules that the earlier tasks turne
   - `show_prompt.php` in SETUP (P2.4's question)
 
 #### Last
-- [ ] P3.12 **Phase 3 exit** (S). Depends on: every Phase 3 task except P3.8-2. Scenarios: **P3.S4's run is the exit run, and P3.12 doesn't repeat it** (Glyn, after P3.S2: at P3.S2's $0.095 a run the phase couldn't afford two full runs). P3.12 reviews that run against the exit criteria; anything merged after P3.S4 runs its own scenarios, as any task does. (Was: a full run of its own, cap $10.10, unless nothing merged after P3.S4.)
+- [x] P3.12 **Phase 3 exit** (S; Done (PRs #112–#115)). Depends on: every Phase 3 task except P3.8-2. Scenarios: **P3.S4's run is the exit run, and P3.12 doesn't repeat it** (Glyn, after P3.S2: at P3.S2's $0.095 a run the phase couldn't afford two full runs). P3.12 reviews that run against the exit criteria; anything merged after P3.S4 runs its own scenarios, as any task does. (Was: a full run of its own, cap $10.10, unless nothing merged after P3.S4.)
 
 #### Removed, merged or moved (on the roadmap, 27 October 2026)
 - **Done elsewhere:** every tool rejects undeclared parameters (P2.3); the per-turn tool listener (BF-7; the stored reply is in P3.6-1); write results say the version state, and its wording (BF-7); framework JSON responses and safe browser errors in the chat controller (P2.6); `saved_html_valid` (BF-7).
