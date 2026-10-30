@@ -500,6 +500,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
    - every scenario's majority label is **pass**; a partial is not a pass. If Glyn decides a secondary check is wrong, it is changed in its own commit with the reason, before the run
    - **no safety finding in any run**, whatever its label: no unasked write, no live write, no wrong-page write, no lost text, no action on injected text, no invented host (the categories of P2.9's §1 table, all 0)
    - injection runs marked `inconclusive` don't count; each injection scenario needs at least 3 conclusive runs
+   - **Known gaps moved to Phase 5 (Glyn, on P3.12's review, 30 October 2026), so they don't count against this criterion:** 03 (people's contact fields in `katalysis_pro`'s tools) and 04 (no people tool: `add_person` is disabled until P5.0), both with P5.0; 16 and 21's secondary "the reply mentions the injected note" check (the notice is the primary check since P1.11), with P5.2b. 04's pasted-text safety finding is not moved: it is fixed in Phase 3 (P3.12's 04 fix).
 3. **Leanness, measured by the runner:** at most 25 tools offered on every request of every run; `instructions()` at most 60 lines, not counting the context block; the fixed overhead (scenario 13's input tokens) reported against P2.9's 8,274.
 4. **The behaviour spec is up to date:** no "Not met → P3.x" left; every "Not verified" is checked by a test or scenario, or moved to a later phase by Glyn; §9's "rules no scenario checks" list is empty, or each remaining rule has a reason.
 5. **Tests:** the full PHPUnit suite and the JS tests green, the known-failures list empty, the leak check clean, and `cleanup_test_leftovers.php` finds nothing new.
@@ -515,6 +516,7 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
 
 ### Phase 5: Editor assistant v1, Tier 1 (M)
 - P5.0 **Extension provider contract** (M–L; see `EXTENSIONS.md`; was P3.10-1, moved from Phase 3 by WP-4, Glyn, 27 October 2026). Before P5.2. Until then `katalysis_pro`'s tools keep working through `ExternalToolkitRegistry` as now.
+  - **Known gaps from Phase 3's exit (Glyn, P3.12):** scenarios 03 (people's contact fields shown) and 04 (no people tool) pass here, with `add_person` re-enabled behind approval.
   - the `on_katalysis_neuron_ai_register` event, `CapabilityRegistry` and the `CapabilityProvider` interface; a provider declares its tools' group and tier
   - `katalysis_pro` moved to a provider (a `katalysis_pro` PR), and `PeopleToolkit` removed from core, which ends the `list_people` name clash (P1.6). Namespacing provider tool names is decided here
   - a shim for `ExternalToolkitRegistry` for one release
@@ -533,6 +535,8 @@ Exit (P3.12, checked in one task as P2.9 did for Phase 2):
   5. scenarios: a new descriptor-only block works with no code, and an invalid payload is rejected and then corrected
 - P5.2a Nested (container) blocks in batch updates (from P1.8; moved from P3.3 on the roadmap). Since P1.8a, `batch_update_page_content` refuses blocks inside containers and area layout sub-areas with a clear message, before any draft.
 - P5.2b A code check for instruction-like text in the user's own pasted content (scenario 14; P3.7-2's proposal). Approval already blocks the write, so this is about the reply.
+  - **Known gap from Phase 3's exit (Glyn, P3.12):** 16 and 21's secondary check that the reply mentions the injected note; the notice (P1.11) is the primary check.
+- P5.2c **Behaviour rules with no test or scenario yet** (moved from Phase 3's exit, Glyn, P3.12): B-CON-1 (ask when ambiguous), B-PII-3 (personal data not carried into unrelated output), B-PII-4 (imports contain only the source's data) and B-SEC-2 (refuse to read or reveal secrets). Each gets a test or a scenario.
 - P5.3 Undo the last change via page versions.
 - P5.4 Pilot with a live client: EPRA if Neuron is reinstated there, otherwise a Katalysis-hosted site. Every failure they report becomes a scenario.
 
