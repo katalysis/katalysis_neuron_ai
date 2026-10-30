@@ -23,6 +23,13 @@ expect:
       patterns:
         - '(cannot|can.t|unable|not able|don.t have|do not have|isn.t possible|is not possible|not (currently )?(supported|available|permitted|allowed))'
         - '(no|without) (the )?(tool|permission|access|ability)'
-    # Secondary: it points to who can, or why.
+        # P3.S4 (Glyn, after P3.9-3: run 2's "my current functionality doesn't directly support…" failed with no write
+        # and no card): other honest "not supported / can't do that" wordings.
+        - '(doesn.t|does not|don.t|do not) (directly |currently )?support'
+        - '(isn.t|is not|aren.t|are not) (directly |currently )?(supported|available)'
+        - '(no|without) (the )?(capability|functionality|means)'
+        - 'beyond (what I can do|my (current )?(capabilities|abilities|tools))'
+    # Secondary: it points to who can, or why. P3.S4: or where it is done (the dashboard), as in 3 recorded partials
+    # that sent the user to the Page Attributes dashboard page.
     matches_all:
-      - '(administrator|admin|configure|permission|tier|access)'
+      - '(administrator|admin|configure|permission|tier|access|dashboard)'
